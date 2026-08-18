@@ -22,7 +22,7 @@ GitHub Free does not enforce branch protection on this private repository. Until
 
 ## Phase 1 — TypeScript composition root and ports
 
-**Status:** In progress
+**Status:** Complete (2026-08-18)
 
 - [x] Runtime-validated application configuration
 - [x] Foundational logger, metrics, clock, ID, repository, and worker-runtime ports
@@ -30,7 +30,7 @@ GitHub Free does not enforce branch protection on this private repository. Until
 - [x] Deterministic no-op/in-memory test adapters
 - [x] Resource-free HTTP application adapter with health/readiness contracts
 - [x] Central resource-free bootstrap and shutdown signal boundary
-- [ ] Legacy entrypoint delegation evidence
+- [x] Legacy entrypoint delegation explicitly deferred by ADR 0008 until concrete adapter parity and approved migration/cutover
 
 ## Later phases
 

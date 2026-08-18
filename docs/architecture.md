@@ -21,3 +21,5 @@ There is no HTTP server, concrete database, worker process, WhatsApp connection,
 `createBootstrap()` explicitly owns application startup and shutdown-signal registration through a port. It serializes transitions, unregisters handlers before shutdown, rolls back partial registration, and retains failed cleanup for retry. No `process` listener is registered at import time.
 
 Imports must remain side-effect-free. Protected runtime/customer paths are prohibited from Git by an executable tracked-path check.
+
+The legacy Production entrypoint does not delegate to this composition. ADR 0008 defers that integration until concrete adapter parity and an approved migration/cutover slice exist.

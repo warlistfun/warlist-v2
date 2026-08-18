@@ -2,7 +2,7 @@
 
 WARLIST 2.0 is a clean, backend-first migration of WARLIST. This repository contains the Phase 0 foundation and the first Phase 1 application-composition slice.
 
-**Status:** application configuration, foundational ports, deterministic test adapters, resource-free lifecycle/bootstrap composition, and an in-process HTTP health/readiness adapter exist. No network listener, concrete process-signal adapter, real worker, database, WhatsApp connection, provider integration, deployment, or Production cutover exists yet.
+**Status:** Phase 1 resource-free composition foundation is complete: application configuration, foundational ports, deterministic test adapters, lifecycle/bootstrap composition, and an in-process HTTP health/readiness adapter exist. No network listener, concrete process-signal adapter, real worker, database, WhatsApp connection, provider integration, deployment, legacy runtime delegation, or Production cutover exists yet.
 
 ## Requirements
 
