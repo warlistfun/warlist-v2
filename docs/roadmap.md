@@ -36,6 +36,8 @@ GitHub Free does not enforce branch protection on this private repository. Until
 
 **Status:** In progress
 
+**Execution guardrail — bounded independent review:** For a slice that requires independent review, run one review attempt and at most one retry. If both attempts fail due to reviewer/provider/infrastructure unavailability and return no finding, record that gate as `PARTIALLY VERIFIED`; do not wait or retry further. Continue with the applicable canonical checks, CI, and normal merge gates. A concrete reviewer finding still blocks delivery until resolved and re-verified.
+
 - [x] Versioned, runtime-validated IPC contract (Issue #11, PR #12)
 - [x] Transport-neutral worker runtime lifecycle and bounded command timeouts (Issue #13, PR #14)
 - [x] Generation/child fencing and stale-ack rejection (Issue #15)
