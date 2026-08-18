@@ -3,6 +3,11 @@ import test from 'node:test';
 
 import type { ChildMessage, ParentMessage } from '../../src/interfaces/worker-ipc/contract';
 import {
+  createWorkerDiagnosticsService,
+  type WorkerDiagnosticEvent,
+  type WorkerDiagnosticsService,
+} from '../../src/modules/whatsapp/application/worker-diagnostics-service';
+import {
   WorkerRuntimeError,
   createWorkerRuntimeService,
   type CancelScheduledTask,
@@ -13,8 +18,18 @@ import { SequenceIdGenerator } from '../support/test-adapters';
 
 class ManualScheduler implements ScheduleTaskPort {
   private readonly tasks: Array<{ active: boolean; task: () => void }> = [];
+  private scheduleError: Error | undefined;
+
+  failNextSchedule(error: Error): void {
+    this.scheduleError = error;
+  }
 
   schedule(_delayMs: number, task: () => void): CancelScheduledTask {
+    if (this.scheduleError) {
+      const error = this.scheduleError;
+      this.scheduleError = undefined;
+      throw error;
+    }
     const scheduled = { active: true, task };
     this.tasks.push(scheduled);
     return () => {
@@ -36,6 +51,7 @@ class ManualTransport implements WorkerCommandTransportPort {
   private ready = false;
   private stopError: Error | undefined;
   private hangingSend: Promise<void> | undefined;
+  private sendError: Error | undefined;
 
   failNextStop(error: Error): void {
     this.stopError = error;
@@ -43,6 +59,10 @@ class ManualTransport implements WorkerCommandTransportPort {
 
   hangNextSend(): void {
     this.hangingSend = new Promise<void>(() => undefined);
+  }
+
+  failNextSend(error: Error): void {
+    this.sendError = error;
   }
 
   start(handler: (message: unknown) => void): Promise<void> {
@@ -68,6 +88,11 @@ class ManualTransport implements WorkerCommandTransportPort {
 
   send(message: ParentMessage): Promise<void> {
     this.sent.push(message);
+    if (this.sendError) {
+      const error = this.sendError;
+      this.sendError = undefined;
+      return Promise.reject(error);
+    }
     if (this.hangingSend) {
       const hanging = this.hangingSend;
       this.hangingSend = undefined;
@@ -89,17 +114,82 @@ const worker = {
   correlationId: 'corr_example_1',
 } as const;
 
-function fixture() {
+function fixture(diagnosticsOverride?: WorkerDiagnosticsService) {
   const transport = new ManualTransport();
   const scheduler = new ManualScheduler();
+  const diagnostics: WorkerDiagnosticEvent[] = [];
   const service = createWorkerRuntimeService({
     transport,
     scheduler,
     idGenerator: new SequenceIdGenerator('req'),
     commandTimeoutMs: 5_000,
+    diagnostics:
+      diagnosticsOverride ??
+      createWorkerDiagnosticsService({
+        sink: {
+          record(event) {
+            diagnostics.push(event);
+          },
+        },
+      }),
   });
-  return { service, transport, scheduler };
+  return { service, transport, scheduler, diagnostics };
 }
+
+void test('does not let a diagnostic implementation block command settlement', async () => {
+  let handled = false;
+  let failure: Promise<void> | undefined;
+  const { service, transport } = fixture({
+    recordCommand() {
+      failure = Promise.reject(new Error('diagnostics unavailable'));
+      const originalCatch = failure.catch.bind(failure);
+      failure.catch = ((onRejected) => {
+        handled = true;
+        return originalCatch(onRejected);
+      }) as typeof failure.catch;
+      return failure;
+    },
+    recordOwnership() {},
+  });
+  await service.start();
+
+  const command = service.startWorker({ ...worker, configVersion: 1 });
+  await flushCommands();
+  assert.doesNotThrow(() => {
+    acknowledge(transport, transport.sent[0]!, {
+      commandType: 'START_WORKER',
+      configVersion: 1,
+    });
+  });
+  const observed = handled;
+  if (!handled) void failure?.catch(() => undefined);
+  assert.equal(observed, true);
+  assert.deepEqual(await command, { ok: true });
+  await service.stop();
+});
+
+void test('emits one correlated diagnostic for a matching command acknowledgement', async () => {
+  const { service, transport, diagnostics } = fixture();
+  await service.start();
+
+  const command = service.startWorker({ ...worker, configVersion: 1 });
+  await flushCommands();
+  acknowledge(transport, transport.sent[0]!, { commandType: 'START_WORKER', configVersion: 1 });
+
+  assert.deepEqual(await command, { ok: true });
+  assert.deepEqual(diagnostics, [
+    {
+      kind: 'COMMAND',
+      outcome: 'ACKNOWLEDGED',
+      commandType: 'START_WORKER',
+      correlationId: worker.correlationId,
+      tenantId: worker.tenantId,
+      generation: worker.generation,
+      childId: worker.childId,
+    },
+  ]);
+  await service.stop();
+});
 
 void test('runs start, config update, and stop commands through IPC v1 acknowledgements', async () => {
   const { service, transport } = fixture();
@@ -146,7 +236,7 @@ void test('deduplicates identical pending commands and serializes commands for o
 });
 
 void test('ignores non-matching acknowledgements and fails closed on timeout', async () => {
-  const { service, transport, scheduler } = fixture();
+  const { service, transport, scheduler, diagnostics } = fixture();
   await service.start();
 
   const command = service.startWorker({ ...worker, configVersion: 1 });
@@ -166,11 +256,22 @@ void test('ignores non-matching acknowledgements and fails closed on timeout', a
       error.code === 'WORKER_COMMAND_TIMEOUT' &&
       error.retryable === true,
   );
+  assert.deepEqual(diagnostics, [
+    {
+      kind: 'COMMAND',
+      outcome: 'TIMED_OUT',
+      commandType: 'START_WORKER',
+      correlationId: worker.correlationId,
+      tenantId: worker.tenantId,
+      generation: worker.generation,
+      childId: worker.childId,
+    },
+  ]);
   await service.stop();
 });
 
 void test('maps matching child failures to canonical runtime errors', async () => {
-  const { service, transport } = fixture();
+  const { service, transport, diagnostics } = fixture();
   await service.start();
 
   const command = service.startWorker({ ...worker, configVersion: 1 });
@@ -194,11 +295,72 @@ void test('maps matching child failures to canonical runtime errors', async () =
     (error: unknown) =>
       error instanceof WorkerRuntimeError && error.code === 'WA_RUNTIME_UNAVAILABLE',
   );
+  assert.deepEqual(diagnostics, [
+    {
+      kind: 'COMMAND',
+      outcome: 'REJECTED',
+      commandType: 'START_WORKER',
+      correlationId: worker.correlationId,
+      tenantId: worker.tenantId,
+      generation: worker.generation,
+      childId: worker.childId,
+    },
+  ]);
+  await service.stop();
+});
+
+void test('maps transport send failure to one safe unavailable diagnostic', async () => {
+  const { service, transport, diagnostics } = fixture();
+  transport.failNextSend(new Error('raw transport detail'));
+  await service.start();
+
+  await assert.rejects(
+    service.startWorker({ ...worker, configVersion: 1 }),
+    (error: unknown) =>
+      error instanceof WorkerRuntimeError && error.code === 'WA_RUNTIME_UNAVAILABLE',
+  );
+  assert.deepEqual(diagnostics, [
+    {
+      kind: 'COMMAND',
+      outcome: 'UNAVAILABLE',
+      commandType: 'START_WORKER',
+      correlationId: worker.correlationId,
+      tenantId: worker.tenantId,
+      generation: worker.generation,
+      childId: worker.childId,
+    },
+  ]);
+  assert.equal(JSON.stringify(diagnostics).includes('raw transport detail'), false);
+  await service.stop();
+});
+
+void test('maps synchronous runtime dependency failure to one safe unavailable diagnostic', async () => {
+  const { service, scheduler, diagnostics } = fixture();
+  scheduler.failNextSchedule(new Error('raw scheduler detail'));
+  await service.start();
+
+  await assert.rejects(
+    service.startWorker({ ...worker, configVersion: 1 }),
+    (error: unknown) =>
+      error instanceof WorkerRuntimeError && error.code === 'WORKER_INTERNAL_ERROR',
+  );
+  assert.deepEqual(diagnostics, [
+    {
+      kind: 'COMMAND',
+      outcome: 'UNAVAILABLE',
+      commandType: 'START_WORKER',
+      correlationId: worker.correlationId,
+      tenantId: worker.tenantId,
+      generation: worker.generation,
+      childId: worker.childId,
+    },
+  ]);
+  assert.equal(JSON.stringify(diagnostics).includes('raw scheduler detail'), false);
   await service.stop();
 });
 
 void test('shutdown rejects pending commands and leaves the transport stopped', async () => {
-  const { service, transport } = fixture();
+  const { service, transport, diagnostics } = fixture();
   await service.start();
   const command = service.startWorker({ ...worker, configVersion: 1 });
 
@@ -210,6 +372,17 @@ void test('shutdown rejects pending commands and leaves the transport stopped', 
   );
   assert.equal(await transport.isReady(), false);
   assert.equal(await service.isReady(), false);
+  assert.deepEqual(diagnostics, [
+    {
+      kind: 'COMMAND',
+      outcome: 'RUNTIME_STOPPED',
+      commandType: 'START_WORKER',
+      correlationId: worker.correlationId,
+      tenantId: worker.tenantId,
+      generation: worker.generation,
+      childId: worker.childId,
+    },
+  ]);
 });
 
 void test('failed transport shutdown remains retriable and blocks restart until cleaned', async () => {

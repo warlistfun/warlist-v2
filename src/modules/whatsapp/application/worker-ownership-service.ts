@@ -1,4 +1,5 @@
 import { WorkerRuntimeError, type WorkerCommandResult } from './worker-runtime-service';
+import type { WorkerDiagnosticsService } from './worker-diagnostics-service';
 
 export interface WorkerCommandPort {
   startWorker(input: VersionedWorkerCommand): Promise<WorkerCommandResult>;
@@ -42,6 +43,7 @@ interface MutableOwnershipState {
   desired: WorkerOwnershipState['desired'];
   generation: number;
   childId: string | null;
+  correlationId: string | null;
   quarantined: boolean;
   stopPromise: Promise<WorkerCommandResult> | undefined;
   resolveStop: ((result: WorkerCommandResult) => void) | undefined;
@@ -57,6 +59,7 @@ export interface WorkerOwnershipService {
 
 export function createWorkerOwnershipService(dependencies: {
   readonly commands: WorkerCommandPort;
+  readonly diagnostics: WorkerDiagnosticsService;
 }): WorkerOwnershipService {
   const states = new Map<string, MutableOwnershipState>();
 
@@ -68,6 +71,7 @@ export function createWorkerOwnershipService(dependencies: {
         desired: 'STOPPED',
         generation: 0,
         childId: null,
+        correlationId: null,
         quarantined: false,
         stopPromise: undefined,
         resolveStop: undefined,
@@ -90,9 +94,11 @@ export function createWorkerOwnershipService(dependencies: {
 
     state.generation += 1;
     state.childId = input.childId;
+    state.correlationId = input.correlationId;
     state.state = 'STARTING';
     state.desired = 'RUNNING';
     const command = commandFor(input, state);
+    recordOwnership(state, command);
 
     try {
       const result = await dependencies.commands.startWorker({
@@ -103,12 +109,14 @@ export function createWorkerOwnershipService(dependencies: {
         throw notTerminalError();
       }
       state.state = 'RUNNING';
+      recordOwnership(state, command);
       return result;
     } catch (error) {
       if (owns(state, command) && !state.stopPromise) {
         state.state = 'STOPPING';
         state.desired = 'STOPPED';
         state.quarantined = true;
+        recordOwnership(state, command);
         beginCompensatingStop(state, command);
       }
       throw error;
@@ -129,6 +137,8 @@ export function createWorkerOwnershipService(dependencies: {
       childId: state.childId,
       correlationId: input.correlationId,
     };
+    state.correlationId = input.correlationId;
+    recordOwnership(state, command);
     let resolveStop!: (result: WorkerCommandResult) => void;
     let rejectStop!: (error: unknown) => void;
     const promise = new Promise<WorkerCommandResult>((resolve, reject) => {
@@ -143,6 +153,7 @@ export function createWorkerOwnershipService(dependencies: {
         if (!owns(state, command)) return;
         const resolve = state.resolveStop;
         release(state);
+        recordOwnership(state, command);
         resolve?.(result);
       },
       (error: unknown) => {
@@ -151,6 +162,7 @@ export function createWorkerOwnershipService(dependencies: {
         state.stopPromise = undefined;
         state.resolveStop = undefined;
         state.rejectStop = undefined;
+        recordOwnership(state, command);
         rejectStop(error);
       },
     );
@@ -160,8 +172,16 @@ export function createWorkerOwnershipService(dependencies: {
   function recordChildExit(tenantId: string, generation: number, childId: string): void {
     const state = stateFor(tenantId);
     if (state.generation !== generation || state.childId !== childId) return;
+    if (state.correlationId === null) return;
+    const command: WorkerCommand = {
+      tenantId,
+      generation,
+      childId,
+      correlationId: state.correlationId,
+    };
     const resolveStop = state.resolveStop;
     release(state);
+    recordOwnership(state, command);
     resolveStop?.({ ok: true });
   }
 
@@ -194,7 +214,10 @@ export function createWorkerOwnershipService(dependencies: {
     void terminalEvidence.catch(() => undefined);
     void dependencies.commands.stopWorker(command).then(
       (result) => {
-        if (owns(state, command)) release(state);
+        if (owns(state, command)) {
+          release(state);
+          recordOwnership(state, command);
+        }
         resolveStop(result);
       },
       (error: unknown) => {
@@ -205,6 +228,22 @@ export function createWorkerOwnershipService(dependencies: {
         rejectStop(error);
       },
     );
+  }
+
+  function recordOwnership(state: MutableOwnershipState, command: WorkerCommand): void {
+    try {
+      const result = dependencies.diagnostics.recordOwnership({
+        state: state.state,
+        quarantined: state.quarantined,
+        correlationId: command.correlationId,
+        tenantId: command.tenantId,
+        generation: command.generation,
+        childId: command.childId,
+      });
+      if (result) void Promise.resolve(result).catch(() => undefined);
+    } catch {
+      return;
+    }
   }
 }
 
@@ -225,6 +264,7 @@ function release(state: MutableOwnershipState): void {
   state.state = 'STOPPED';
   state.desired = 'STOPPED';
   state.childId = null;
+  state.correlationId = null;
   state.quarantined = false;
   state.stopPromise = undefined;
   state.resolveStop = undefined;

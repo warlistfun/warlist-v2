@@ -6,6 +6,10 @@ import {
   type WorkerCommandResult,
 } from '../../src/modules/whatsapp/application/worker-runtime-service';
 import {
+  createWorkerDiagnosticsService,
+  type WorkerDiagnosticEvent,
+} from '../../src/modules/whatsapp/application/worker-diagnostics-service';
+import {
   createWorkerOwnershipService,
   type WorkerCommandPort,
 } from '../../src/modules/whatsapp/application/worker-ownership-service';
@@ -57,9 +61,83 @@ const tenant = {
   configVersion: 1,
 } as const;
 
+const noopDiagnostics = createWorkerDiagnosticsService({ sink: { record() {} } });
+
+void test('does not let a diagnostic implementation block ownership transitions', async () => {
+  const commands = new ControlledCommands();
+  let handled = false;
+  let failure: Promise<void> | undefined;
+  const ownership = createWorkerOwnershipService({
+    commands,
+    diagnostics: {
+      recordCommand() {},
+      recordOwnership() {
+        failure = Promise.reject(new Error('diagnostics unavailable'));
+        const originalCatch = failure.catch.bind(failure);
+        failure.catch = ((onRejected) => {
+          handled = true;
+          return originalCatch(onRejected);
+        }) as typeof failure.catch;
+        return failure;
+      },
+    },
+  });
+
+  const start = ownership.startWorker(tenant);
+  const observed = handled;
+  if (!handled) void failure?.catch(() => undefined);
+  assert.equal(observed, true);
+  assert.equal(commands.starts.length, 1);
+  commands.startResults[0]!.resolve({ ok: true });
+  assert.deepEqual(await start, { ok: true });
+
+  const stop = ownership.stopWorker({
+    tenantId: tenant.tenantId,
+    correlationId: 'corr_stop',
+  });
+  assert.equal(commands.stops.length, 1);
+  commands.stopResults[0]!.resolve({ ok: true });
+  assert.deepEqual(await stop, { ok: true });
+});
+
+void test('emits correlated ownership transitions for a successful start', async () => {
+  const commands = new ControlledCommands();
+  const diagnostics: WorkerDiagnosticEvent[] = [];
+  const ownership = createWorkerOwnershipService({
+    commands,
+    diagnostics: createWorkerDiagnosticsService({
+      sink: {
+        record(event) {
+          diagnostics.push(event);
+        },
+      },
+    }),
+  });
+
+  const start = ownership.startWorker(tenant);
+  assert.deepEqual(diagnostics, [ownershipEvent('STARTING', false, tenant.correlationId)]);
+
+  commands.startResults[0]!.resolve({ ok: true });
+  assert.deepEqual(await start, { ok: true });
+  assert.deepEqual(diagnostics, [
+    ownershipEvent('STARTING', false, tenant.correlationId),
+    ownershipEvent('RUNNING', false, tenant.correlationId),
+  ]);
+
+  const stop = ownership.stopWorker({
+    tenantId: tenant.tenantId,
+    correlationId: 'corr_stop',
+  });
+  assert.deepEqual(diagnostics.at(-1), ownershipEvent('STOPPING', false, 'corr_stop'));
+
+  commands.stopResults[0]!.resolve({ ok: true });
+  assert.deepEqual(await stop, { ok: true });
+  assert.deepEqual(diagnostics.at(-1), ownershipEvent('STOPPED', false, 'corr_stop'));
+});
+
 void test('allocates monotonically increasing generations after terminal stop evidence', async () => {
   const commands = new ControlledCommands();
-  const ownership = createWorkerOwnershipService({ commands });
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
 
   const firstStart = ownership.startWorker(tenant);
   assert.equal(commands.starts[0]?.generation, 1);
@@ -85,7 +163,17 @@ void test('allocates monotonically increasing generations after terminal stop ev
 
 void test('quarantines a timed-out start and sends a compensating stop', async () => {
   const commands = new ControlledCommands();
-  const ownership = createWorkerOwnershipService({ commands });
+  const diagnostics: WorkerDiagnosticEvent[] = [];
+  const ownership = createWorkerOwnershipService({
+    commands,
+    diagnostics: createWorkerDiagnosticsService({
+      sink: {
+        record(event) {
+          diagnostics.push(event);
+        },
+      },
+    }),
+  });
 
   const start = ownership.startWorker(tenant);
   commands.startResults[0]!.reject(
@@ -105,17 +193,22 @@ void test('quarantines a timed-out start and sends a compensating stop', async (
     childId: tenant.childId,
     quarantined: true,
   });
+  assert.deepEqual(diagnostics.at(-1), ownershipEvent('STOPPING', true, tenant.correlationId));
 
   await assert.rejects(
     ownership.startWorker({ ...tenant, correlationId: 'corr_retry' }),
     (error: unknown) =>
       error instanceof WorkerRuntimeError && error.code === 'WORKER_OWNERSHIP_QUARANTINED',
   );
+
+  commands.stopResults[0]!.resolve({ ok: true });
+  await flush();
+  assert.deepEqual(diagnostics.at(-1), ownershipEvent('STOPPED', false, tenant.correlationId));
 });
 
 void test('quarantines any uncertain start failure until compensating stop evidence arrives', async () => {
   const commands = new ControlledCommands();
-  const ownership = createWorkerOwnershipService({ commands });
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
 
   const start = ownership.startWorker(tenant);
   commands.startResults[0]!.reject(
@@ -146,7 +239,7 @@ void test('quarantines any uncertain start failure until compensating stop evide
 
 void test('does not duplicate a stop already pending when start later fails', async () => {
   const commands = new ControlledCommands();
-  const ownership = createWorkerOwnershipService({ commands });
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
 
   const start = ownership.startWorker(tenant);
   const stop = ownership.stopWorker({ tenantId: tenant.tenantId, correlationId: 'corr_stop' });
@@ -165,7 +258,7 @@ void test('does not duplicate a stop already pending when start later fails', as
 
 void test('rejects a start acknowledgement after its exact child already exited', async () => {
   const commands = new ControlledCommands();
-  const ownership = createWorkerOwnershipService({ commands });
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
 
   const start = ownership.startWorker(tenant);
   ownership.recordChildExit(tenant.tenantId, 1, tenant.childId);
@@ -181,7 +274,7 @@ void test('rejects a start acknowledgement after its exact child already exited'
 
 void test('allows retrying a rejected compensating stop while preserving quarantine', async () => {
   const commands = new ControlledCommands();
-  const ownership = createWorkerOwnershipService({ commands });
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
 
   const start = ownership.startWorker(tenant);
   commands.startResults[0]!.reject(
@@ -202,9 +295,38 @@ void test('allows retrying a rejected compensating stop while preserving quarant
   assert.equal(ownership.getState(tenant.tenantId).state, 'STOPPED');
 });
 
+void test('emits quarantine when an explicit stop is rejected', async () => {
+  const commands = new ControlledCommands();
+  const diagnostics: WorkerDiagnosticEvent[] = [];
+  const ownership = createWorkerOwnershipService({
+    commands,
+    diagnostics: createWorkerDiagnosticsService({
+      sink: {
+        record(event) {
+          diagnostics.push(event);
+        },
+      },
+    }),
+  });
+
+  const start = ownership.startWorker(tenant);
+  commands.startResults[0]!.resolve({ ok: true });
+  await start;
+
+  const stop = ownership.stopWorker({
+    tenantId: tenant.tenantId,
+    correlationId: 'corr_stop',
+  });
+  commands.stopResults[0]!.reject(new Error('raw stop detail'));
+  await assert.rejects(stop, /raw stop detail/);
+
+  assert.deepEqual(diagnostics.at(-1), ownershipEvent('STOPPING', true, 'corr_stop'));
+  assert.equal(JSON.stringify(diagnostics).includes('raw stop detail'), false);
+});
+
 void test('releases quarantined ownership only after terminal stop evidence', async () => {
   const commands = new ControlledCommands();
-  const ownership = createWorkerOwnershipService({ commands });
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
 
   const start = ownership.startWorker(tenant);
   commands.startResults[0]!.reject(
@@ -226,7 +348,7 @@ void test('releases quarantined ownership only after terminal stop evidence', as
 
 void test('does not let stale generation completion claim newer ownership', async () => {
   const commands = new ControlledCommands();
-  const ownership = createWorkerOwnershipService({ commands });
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
 
   const first = ownership.startWorker(tenant);
   commands.startResults[0]!.resolve({ ok: true });
@@ -254,7 +376,17 @@ void test('does not let stale generation completion claim newer ownership', asyn
 
 void test('exact current-child exit is terminal evidence and respects desired stopped state', async () => {
   const commands = new ControlledCommands();
-  const ownership = createWorkerOwnershipService({ commands });
+  const diagnostics: WorkerDiagnosticEvent[] = [];
+  const ownership = createWorkerOwnershipService({
+    commands,
+    diagnostics: createWorkerDiagnosticsService({
+      sink: {
+        record(event) {
+          diagnostics.push(event);
+        },
+      },
+    }),
+  });
 
   const start = ownership.startWorker(tenant);
   commands.startResults[0]!.resolve({ ok: true });
@@ -266,6 +398,7 @@ void test('exact current-child exit is terminal evidence and respects desired st
   assert.deepEqual(await stop, { ok: true });
   assert.equal(ownership.getState(tenant.tenantId).state, 'STOPPED');
   assert.equal(commands.starts.length, 1);
+  assert.deepEqual(diagnostics.at(-1), ownershipEvent('STOPPED', false, 'corr_stop'));
 });
 
 function deferred<T>(): Deferred<T> {
@@ -280,4 +413,20 @@ function deferred<T>(): Deferred<T> {
 
 async function flush(): Promise<void> {
   await new Promise<void>((resolve) => setImmediate(resolve));
+}
+
+function ownershipEvent(
+  state: 'STARTING' | 'RUNNING' | 'STOPPING' | 'STOPPED',
+  quarantined: boolean,
+  correlationId: string,
+): WorkerDiagnosticEvent {
+  return {
+    kind: 'OWNERSHIP',
+    state,
+    quarantined,
+    correlationId,
+    tenantId: tenant.tenantId,
+    generation: 1,
+    childId: tenant.childId,
+  };
 }

@@ -2,7 +2,7 @@
 
 WARLIST 2.0 is a clean, backend-first migration of WARLIST. This repository contains the Phase 0 foundation, the completed Phase 1 application-composition foundation, and Phase 2 worker-runtime work in progress.
 
-**Status:** Phase 1 resource-free composition foundation is complete. Phase 2 has a resource-free, versioned, runtime-validated worker IPC contract, transport-neutral command lifecycle with bounded timeout port, and per-tenant generation/child ownership fencing. No network listener, concrete process-signal adapter, real worker process, concrete timeout scheduler, database, WhatsApp connection, provider integration, deployment, legacy runtime delegation, or Production cutover exists yet.
+**Status:** Phase 1 resource-free composition foundation is complete. Phase 2 has a resource-free, versioned, runtime-validated worker IPC contract, transport-neutral command lifecycle with bounded timeout port, per-tenant generation/child ownership fencing, and a safe injected worker-diagnostics boundary with correlation identities. No network listener, concrete diagnostics sink/logger, concrete process-signal adapter, real worker process, concrete timeout scheduler, database, WhatsApp connection, provider integration, deployment, legacy runtime delegation, or Production cutover exists yet.
 
 ## Requirements
 

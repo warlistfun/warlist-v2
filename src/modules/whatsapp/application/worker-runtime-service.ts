@@ -6,6 +6,7 @@ import {
   type ParentCommandType,
   type ParentMessage,
 } from '../../../interfaces/worker-ipc/contract';
+import type { WorkerDiagnosticsService } from './worker-diagnostics-service';
 
 export type CancelScheduledTask = () => void;
 
@@ -59,6 +60,7 @@ interface Dependencies {
   readonly scheduler: ScheduleTaskPort;
   readonly idGenerator: IdGeneratorPort;
   readonly commandTimeoutMs: number;
+  readonly diagnostics: WorkerDiagnosticsService;
 }
 
 interface PendingCommand {
@@ -142,6 +144,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
           settle(
             pending,
             new WorkerRuntimeError('WA_RUNTIME_UNAVAILABLE', 'Worker runtime is unavailable', true),
+            'UNAVAILABLE',
           );
         });
         await promise.then(
@@ -180,16 +183,48 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
         message.payload.error.message,
         message.payload.error.retryable,
       ),
+      'REJECTED',
     );
   }
 
-  function settle(pending: PendingCommand, error?: WorkerRuntimeError): void {
+  function settle(
+    pending: PendingCommand,
+    error?: WorkerRuntimeError,
+    errorOutcome?: 'REJECTED' | 'UNAVAILABLE',
+  ): void {
     if (pendingByKey.get(pending.key) !== pending) return;
     pending.cancelTimeout?.();
     pendingByKey.delete(pending.key);
     pendingByRequest.delete(pending.message.requestId);
-    if (error) pending.reject(error);
-    else pending.resolve({ ok: true });
+    if (error) {
+      if (errorOutcome) recordDiagnostic(pending, errorOutcome);
+      else if (error.code === 'WORKER_COMMAND_TIMEOUT') recordDiagnostic(pending, 'TIMED_OUT');
+      else if (error.code === 'WA_RUNTIME_STOPPED') recordDiagnostic(pending, 'RUNTIME_STOPPED');
+      else recordDiagnostic(pending, 'UNAVAILABLE');
+      pending.reject(error);
+    } else {
+      recordDiagnostic(pending, 'ACKNOWLEDGED');
+      pending.resolve({ ok: true });
+    }
+  }
+
+  function recordDiagnostic(
+    pending: PendingCommand,
+    outcome: 'ACKNOWLEDGED' | 'REJECTED' | 'TIMED_OUT' | 'UNAVAILABLE' | 'RUNTIME_STOPPED',
+  ): void {
+    try {
+      const result = dependencies.diagnostics.recordCommand({
+        outcome,
+        commandType: pending.message.type,
+        correlationId: pending.message.correlationId,
+        tenantId: pending.message.tenantId,
+        generation: pending.message.generation,
+        childId: pending.message.childId,
+      });
+      if (result) void Promise.resolve(result).catch(() => undefined);
+    } catch {
+      return;
+    }
   }
 
   return {
