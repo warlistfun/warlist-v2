@@ -10,6 +10,7 @@ test -> src/app/config.ts
      -> src/app/bootstrap.ts
      -> src/interfaces/worker-ipc/contract.ts
      -> src/modules/whatsapp/application/worker-runtime-service.ts
+     -> src/modules/whatsapp/application/worker-ownership-service.ts
      -> src/shared/version.ts
      -> scripts/check-repository-boundary.mjs
 ```
@@ -21,6 +22,8 @@ There is no HTTP server, concrete database, worker process, WhatsApp connection,
 Worker IPC protocol v1 is a resource-free contract boundary. Parent commands and child acknowledgements/errors carry request, correlation, tenant, generation, and child identities. Decoders accept exact runtime-validated schemas, return immutable values, reject unsupported versions or unknown message types with stable errors, and restrict child errors to canonical safe code/message/retryability combinations. The contract does not yet fork a worker, schedule a timeout, or implement runtime lifecycle orchestration.
 
 `WorkerRuntimeService` is a transport-neutral command lifecycle over IPC v1. It serializes commands per tenant, deduplicates identical pending requests, requires matching decoded ACK/error identity, and fails closed through an injected bounded-timeout scheduler. Startup and shutdown own the abstract transport lifecycle; shutdown rejects pending commands before stopping the transport. The service remains resource-free until a future concrete child-process and scheduler adapter is composed.
+
+`WorkerOwnershipService` is a resource-free per-tenant ownership state machine layered over that command boundary. It allocates monotonically increasing generations, binds ownership to an opaque child identity, and accepts terminal child-exit evidence only when both match the current owner. Any failed start is quarantined in `STOPPING` and receives a compensating stop; ownership becomes startable again only after matching stop acknowledgement or child-exit evidence. This service neither starts a process nor consumes concrete process events.
 
 `createHttpApp()` is an in-process adapter with versioned health/readiness routes, runtime request validation, generated request IDs, and canonical response envelopes. It does not bind a port or own network lifecycle.
 
