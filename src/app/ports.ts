@@ -22,6 +22,13 @@ export interface ApplicationLifecycle {
   stop(): Promise<void>;
 }
 
+export type ShutdownSignal = 'SIGINT' | 'SIGTERM';
+
+export interface ShutdownSignalPort {
+  register(signal: ShutdownSignal, handler: () => void): void;
+  unregister(signal: ShutdownSignal, handler: () => void): void;
+}
+
 export interface RepositoryPort extends ApplicationLifecycle {
   isReady(): Promise<boolean>;
 }
