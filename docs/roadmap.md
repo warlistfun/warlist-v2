@@ -4,7 +4,7 @@ Detailed work and evidence live in GitHub Issues and Pull Requests. This file tr
 
 ## Phase 0 — Foundation
 
-**Status:** In progress
+**Status:** Complete (2026-08-18)
 
 - [x] Private `warlistfun/warlist-v2` repository with new history
 - [x] Isolated local workspace
@@ -13,10 +13,12 @@ Detailed work and evidence live in GitHub Issues and Pull Requests. This file tr
 - [x] Synthetic-only CI definition with no deployment capability
 - [x] Current-state README, repository rules, and ADRs 0001–0007
 - [x] Default-deny legacy migration manifest
-- [ ] Initial commit and remote CI verified
-- [ ] Main branch rules configured against observed CI check names
-- [ ] Clean remote clone runs `npm ci && npm run check`
-- [ ] Phase 0 evidence accepted in Issue #1
+- [x] Initial commit and remote CI verified
+- [x] Main branch policy decided: repository remains private; the owner accepted temporary GitHub Free branch-protection risk
+- [x] Clean remote clone runs `npm ci && npm run check`
+- [x] Phase 0 evidence accepted in Issue #1
+
+GitHub Free does not enforce branch protection on this private repository. Until the account is upgraded, changes use bounded Issues and pull requests, green `CI / quality` and `CI / security` checks, squash-only merges, and explicit owner review. This accepted residual risk does not waive CI or review requirements and must be revisited before adding deployment capability or Production credentials.
 
 ## Later phases
 
