@@ -8,7 +8,7 @@ const forbidden = [
   /(?:^|\/)(?:ops|auth|sessions|logs|data|baileys|qr|warlist-cache|\.baileys-backup|backup)(?:\/|$)/i,
   /(?:^|\/)uploads\/runtime(?:\/|$)/i,
   /(?:^|\/)node_modules(?:\/|$)/i,
-  /(?:^|\/)[^/]+\.(?:db|sqlite)(?:-.+)?$/i,
+  /(?:^|\/)[^/]+\.(?:db|sqlite)[^/]*$/i,
 ];
 
 let tracked;
