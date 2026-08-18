@@ -1,0 +1,39 @@
+{
+  "legacy_repository": "external legacy Production checkout",
+  "legacy_head_at_phase_0": "cdd7918bf6ed57d03eddb87714a89674668b0598",
+  "policy": "default-deny; no legacy application source is copied during the foundation slice",
+  "protected_exclusions": [
+    ".env*",
+    "ops/",
+    "auth/",
+    "sessions/",
+    "logs/",
+    "data/",
+    "baileys/",
+    "qr/",
+    "uploads/runtime/",
+    "node_modules/",
+    "warlist-cache/",
+    ".baileys-backup/",
+    "backup/",
+    ".git/"
+  ],
+  "entries": [
+    {
+      "legacy_path": "migration plans and roadmap",
+      "classification": "REFERENCE_ONLY",
+      "reason": "Continuity remains outside initial V2 history; current decisions are represented by Issue #1, concise ADRs, and docs/roadmap.md",
+      "v2_destination": null,
+      "license_status": "not-applicable",
+      "sensitivity_review": "passed"
+    },
+    {
+      "legacy_path": "index.js, server.js, lib/**, public/**, test/**",
+      "classification": "REFERENCE_ONLY",
+      "reason": "Behavioral oracle; requires future file-level source, license, sensitivity, and relevance review",
+      "v2_destination": null,
+      "license_status": "blocked",
+      "sensitivity_review": "blocked"
+    }
+  ]
+}
