@@ -29,7 +29,7 @@ GitHub Free does not enforce branch protection on this private repository. Until
 - [x] Resource-free `createApplication()` with tested startup, rollback, and shutdown ordering
 - [x] Deterministic no-op/in-memory test adapters
 - [x] Resource-free HTTP application adapter with health/readiness contracts
-- [ ] Central bootstrap and shutdown signal boundary
+- [x] Central resource-free bootstrap and shutdown signal boundary
 - [ ] Legacy entrypoint delegation evidence
 
 ## Later phases
