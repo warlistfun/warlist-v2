@@ -235,6 +235,57 @@ void test('deduplicates identical pending commands and serializes commands for o
   await service.stop();
 });
 
+void test('does not deduplicate distinct legal worker identities that contain delimiters', async () => {
+  const { service, transport } = fixture();
+  await service.start();
+
+  const first = service.startWorker({
+    tenantId: 'tenant-a',
+    generation: 1,
+    childId: 'child-a:START_WORKER:2:child-b',
+    correlationId: 'corr-a',
+    configVersion: 3,
+  });
+  const second = service.startWorker({
+    tenantId: 'tenant-a:START_WORKER:1:child-a',
+    generation: 2,
+    childId: 'child-b',
+    correlationId: 'corr-b',
+    configVersion: 3,
+  });
+
+  assert.notEqual(first, second);
+  await flushCommands();
+  assert.equal(transport.sent.length, 2);
+  acknowledge(transport, transport.sent[0]!, { commandType: 'START_WORKER', configVersion: 3 });
+  acknowledge(transport, transport.sent[1]!, { commandType: 'START_WORKER', configVersion: 3 });
+  assert.deepEqual(await first, { ok: true });
+  assert.deepEqual(await second, { ok: true });
+  await service.stop();
+});
+
+void test('does not deduplicate identical commands across different tenants', async () => {
+  const { service, transport } = fixture();
+  await service.start();
+
+  const tenantOne = service.startWorker({ ...worker, configVersion: 1 });
+  const tenantTwo = service.startWorker({
+    ...worker,
+    tenantId: 'tenant_example_2',
+    correlationId: 'corr_example_2',
+    configVersion: 1,
+  });
+
+  assert.notEqual(tenantOne, tenantTwo);
+  await flushCommands();
+  assert.equal(transport.sent.length, 2);
+  acknowledge(transport, transport.sent[0]!, { commandType: 'START_WORKER', configVersion: 1 });
+  acknowledge(transport, transport.sent[1]!, { commandType: 'START_WORKER', configVersion: 1 });
+  assert.deepEqual(await tenantOne, { ok: true });
+  assert.deepEqual(await tenantTwo, { ok: true });
+  await service.stop();
+});
+
 void test('ignores non-matching acknowledgements and fails closed on timeout', async () => {
   const { service, transport, scheduler, diagnostics } = fixture();
   await service.start();

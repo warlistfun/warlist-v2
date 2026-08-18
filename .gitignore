@@ -14,9 +14,7 @@ uploads/runtime/
 warlist-cache/
 .baileys-backup/
 backup/
-*.db
-*.db-*
-*.sqlite
-*.sqlite-*
+*.db*
+*.sqlite*
 *.log
 npm-debug.log*

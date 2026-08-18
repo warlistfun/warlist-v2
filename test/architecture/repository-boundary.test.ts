@@ -81,6 +81,10 @@ for (const protectedPath of [
   'Nested/.env.production',
   'nested/.envlocal',
   'Auth/secret.json',
+  'customer.db.bak',
+  'customer.db3',
+  'customer.sqlite.backup',
+  'nested/customer.db.copy',
 ]) {
   void test(`boundary checker rejects nested or case-varied path ${protectedPath}`, () => {
     const root = mkdtempSync(join(tmpdir(), 'warlist-boundary-'));
@@ -99,3 +103,16 @@ for (const protectedPath of [
     }
   });
 }
+
+void test('gitignore ignores every documented database artifact variant', () => {
+  for (const protectedPath of [
+    'customer.db.bak',
+    'customer.db3',
+    'customer.sqlite.backup',
+    'nested/customer.db.copy',
+  ]) {
+    assert.doesNotThrow(() =>
+      execFileSync('git', ['check-ignore', '--no-index', '-q', protectedPath]),
+    );
+  }
+});

@@ -103,13 +103,13 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     configVersion?: number,
   ): Promise<WorkerCommandResult> {
     if (!running) return Promise.reject(stoppedError());
-    const key = [
+    const key = JSON.stringify([
       input.tenantId,
       type,
       input.generation,
       input.childId,
       configVersion ?? 'none',
-    ].join(':');
+    ]);
     const duplicate = pendingByKey.get(key);
     if (duplicate) return duplicate.promise;
 
