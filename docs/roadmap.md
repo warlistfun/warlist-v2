@@ -40,8 +40,9 @@ GitHub Free does not enforce branch protection on this private repository. Until
 
 - [x] Versioned, runtime-validated IPC contract (Issue #11, PR #12)
 - [x] Transport-neutral worker runtime lifecycle and bounded command timeouts (Issue #13, PR #14)
-- [x] Generation/child fencing and stale-ack rejection (Issue #15)
-- [x] Safe worker diagnostics and correlation IDs (Issue #17)
+- [x] Generation/child fencing and stale-ack rejection (Issue #15, PR #16)
+- [x] Safe worker diagnostics and correlation IDs (Issue #17, PR #20)
+- [x] Worker dedupe collision fix and DB artifact boundary (Issue #22, PR #23)
 - [ ] Synthetic worker harness and debug commands
 - [ ] Active-tenant boot and worker start/stop/update migration
 - [ ] Restart, timeout, and stale-ack behavioral proof
