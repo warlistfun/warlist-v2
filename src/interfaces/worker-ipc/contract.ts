@@ -235,7 +235,7 @@ function decodeIdentifier(input: unknown): string {
     !isNonEmptyString(input) ||
     input.length > 128 ||
     input !== input.trim() ||
-    /[\u0000-\u001f\u007f]/u.test(input)
+    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(input)
   ) {
     throw invalidMessage();
   }

@@ -208,6 +208,24 @@ void test('rejects malformed child schemas and unsafe identifiers', () => {
     },
     {
       ...identity,
+      requestId: 'request\u0085forged',
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'STOP_WORKER' },
+    },
+    {
+      ...identity,
+      requestId: 'request\u2028forged',
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'STOP_WORKER' },
+    },
+    {
+      ...identity,
+      requestId: 'request\u2029forged',
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'STOP_WORKER' },
+    },
+    {
+      ...identity,
       childId: ' child_example_1 ',
       type: 'COMMAND_ACK',
       payload: { commandType: 'STOP_WORKER' },
