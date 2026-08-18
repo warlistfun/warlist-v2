@@ -32,6 +32,18 @@ GitHub Free does not enforce branch protection on this private repository. Until
 - [x] Central resource-free bootstrap and shutdown signal boundary
 - [x] Legacy entrypoint delegation explicitly deferred by ADR 0008 until concrete adapter parity and approved migration/cutover
 
+## Phase 2 — Worker runtime extraction and diagnostics
+
+**Status:** In progress
+
+- [ ] Versioned, runtime-validated IPC contract (implementation in progress in Issue #11)
+- [ ] Transport-neutral worker runtime lifecycle and bounded command timeouts
+- [ ] Generation/child fencing and stale-ack rejection
+- [ ] Safe worker diagnostics and correlation IDs
+- [ ] Synthetic worker harness and debug commands
+- [ ] Active-tenant boot and worker start/stop/update migration
+- [ ] Restart, timeout, and stale-ack behavioral proof
+
 ## Later phases
 
 Backend composition, workers, Telegram retirement, PostgreSQL persistence, automation, delivery/entitlements, identity/admin, billing, notification retirement, and eventual migration/cutover each require separate bounded Issues and acceptance evidence.
