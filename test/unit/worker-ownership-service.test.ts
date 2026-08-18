@@ -163,6 +163,45 @@ void test('does not duplicate a stop already pending when start later fails', as
   assert.equal(ownership.getState(tenant.tenantId).state, 'STOPPED');
 });
 
+void test('rejects a start acknowledgement after its exact child already exited', async () => {
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({ commands });
+
+  const start = ownership.startWorker(tenant);
+  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId);
+  commands.startResults[0]!.resolve({ ok: true });
+
+  await assert.rejects(
+    start,
+    (error: unknown) =>
+      error instanceof WorkerRuntimeError && error.code === 'WORKER_OWNERSHIP_QUARANTINED',
+  );
+  assert.equal(ownership.getState(tenant.tenantId).state, 'STOPPED');
+});
+
+void test('allows retrying a rejected compensating stop while preserving quarantine', async () => {
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({ commands });
+
+  const start = ownership.startWorker(tenant);
+  commands.startResults[0]!.reject(
+    new WorkerRuntimeError('WORKER_COMMAND_TIMEOUT', 'Worker command timed out', true),
+  );
+  await assert.rejects(start);
+
+  commands.stopResults[0]!.reject(new Error('stop unavailable'));
+  await flush();
+
+  const retry = ownership.stopWorker({
+    tenantId: tenant.tenantId,
+    correlationId: 'corr_retry_stop',
+  });
+  assert.equal(commands.stops.length, 2);
+  commands.stopResults[1]!.resolve({ ok: true });
+  assert.deepEqual(await retry, { ok: true });
+  assert.equal(ownership.getState(tenant.tenantId).state, 'STOPPED');
+});
+
 void test('releases quarantined ownership only after terminal stop evidence', async () => {
   const commands = new ControlledCommands();
   const ownership = createWorkerOwnershipService({ commands });
