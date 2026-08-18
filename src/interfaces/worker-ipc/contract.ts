@@ -25,19 +25,34 @@ export type ParentMessage =
       readonly payload: Readonly<Record<string, never>>;
     });
 
-export interface SafeIpcError {
-  readonly code: string;
-  readonly message: string;
-  readonly retryable: boolean;
-}
+export type SafeIpcError =
+  | Readonly<{
+      code: 'WA_RUNTIME_UNAVAILABLE';
+      message: 'Worker runtime is unavailable';
+      retryable: true;
+    }>
+  | Readonly<{
+      code: 'WORKER_COMMAND_REJECTED';
+      message: 'Worker command was rejected';
+      retryable: false;
+    }>
+  | Readonly<{
+      code: 'WORKER_INTERNAL_ERROR';
+      message: 'Worker command failed';
+      retryable: true;
+    }>;
 
 export type ChildMessage =
   | (MessageIdentity & {
       readonly type: 'COMMAND_ACK';
-      readonly payload: Readonly<{
-        commandType: ParentCommandType;
-        configVersion: number;
-      }>;
+      readonly payload:
+        | Readonly<{
+            commandType: 'START_WORKER' | 'APPLY_CONFIG';
+            configVersion: number;
+          }>
+        | Readonly<{
+            commandType: 'STOP_WORKER';
+          }>;
     })
   | (MessageIdentity & {
       readonly type: 'COMMAND_ERROR';
@@ -86,8 +101,16 @@ export function decodeChildMessage(input: unknown): ChildMessage {
 
   switch (message.type) {
     case 'COMMAND_ACK': {
-      requireExactKeys(message.payload, ['commandType', 'configVersion']);
       const commandType = decodeCommandType(message.payload.commandType);
+      if (commandType === 'STOP_WORKER') {
+        requireExactKeys(message.payload, ['commandType']);
+        return freeze({
+          ...message.identity,
+          type: message.type,
+          payload: freeze({ commandType }),
+        });
+      }
+      requireExactKeys(message.payload, ['commandType', 'configVersion']);
       const configVersion = decodePositiveInteger(message.payload.configVersion);
       return freeze({
         ...message.identity,
@@ -182,7 +205,9 @@ const safeErrors = {
 function decodeSafeError(input: unknown): SafeIpcError {
   if (!isRecord(input)) throw invalidMessage();
   requireExactKeys(input, ['code', 'message', 'retryable']);
-  if (!isNonEmptyString(input.code) || !(input.code in safeErrors)) throw invalidMessage();
+  if (!isNonEmptyString(input.code) || !Object.hasOwn(safeErrors, input.code)) {
+    throw invalidMessage();
+  }
 
   const code = input.code as keyof typeof safeErrors;
   const expected = safeErrors[code];
@@ -190,7 +215,14 @@ function decodeSafeError(input: unknown): SafeIpcError {
     throw invalidMessage();
   }
 
-  return freeze({ code, ...expected });
+  switch (code) {
+    case 'WA_RUNTIME_UNAVAILABLE':
+      return freeze({ code, ...safeErrors[code] });
+    case 'WORKER_COMMAND_REJECTED':
+      return freeze({ code, ...safeErrors[code] });
+    case 'WORKER_INTERNAL_ERROR':
+      return freeze({ code, ...safeErrors[code] });
+  }
 }
 
 function decodeCommandType(input: unknown): ParentCommandType {
@@ -199,7 +231,14 @@ function decodeCommandType(input: unknown): ParentCommandType {
 }
 
 function decodeIdentifier(input: unknown): string {
-  if (!isNonEmptyString(input) || input.length > 128) throw invalidMessage();
+  if (
+    !isNonEmptyString(input) ||
+    input.length > 128 ||
+    input !== input.trim() ||
+    /[\u0000-\u001f\u007f]/u.test(input)
+  ) {
+    throw invalidMessage();
+  }
   return input;
 }
 

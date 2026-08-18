@@ -45,14 +45,23 @@ void test('decodes immutable IPC v1 parent commands', () => {
 });
 
 void test('decodes immutable IPC v1 child acknowledgements and safe errors', () => {
-  const acknowledgement = {
-    ...identity,
-    type: 'COMMAND_ACK',
-    payload: {
-      commandType: 'APPLY_CONFIG',
-      configVersion: 4,
+  const acknowledgements = [
+    {
+      ...identity,
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'START_WORKER', configVersion: 3 },
     },
-  } as const;
+    {
+      ...identity,
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'APPLY_CONFIG', configVersion: 4 },
+    },
+    {
+      ...identity,
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'STOP_WORKER' },
+    },
+  ] as const;
   const failure = {
     ...identity,
     type: 'COMMAND_ERROR',
@@ -66,7 +75,7 @@ void test('decodes immutable IPC v1 child acknowledgements and safe errors', () 
     },
   } as const;
 
-  for (const input of [acknowledgement, failure]) {
+  for (const input of [...acknowledgements, failure]) {
     const decoded = decodeChildMessage(input);
     assert.deepEqual(decoded, input);
     assert.equal(Object.isFrozen(decoded), true);
@@ -76,6 +85,29 @@ void test('decodes immutable IPC v1 child acknowledgements and safe errors', () 
   const decodedFailure = decodeChildMessage(failure);
   if (decodedFailure.type === 'COMMAND_ERROR') {
     assert.equal(Object.isFrozen(decodedFailure.payload.error), true);
+  }
+});
+
+void test('rejects command acknowledgements with contradictory payload fields', () => {
+  const invalidAcknowledgements = [
+    {
+      ...identity,
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'START_WORKER' },
+    },
+    {
+      ...identity,
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'STOP_WORKER', configVersion: 9 },
+    },
+  ];
+
+  for (const input of invalidAcknowledgements) {
+    assertProtocolError(
+      () => decodeChildMessage(input),
+      'IPC_INVALID_MESSAGE',
+      'Invalid worker IPC message',
+    );
   }
 });
 
@@ -127,6 +159,64 @@ void test('rejects child errors that contain non-canonical diagnostic content', 
     'Invalid worker IPC message',
     sensitiveMarker,
   );
+});
+
+void test('rejects inherited safe-error registry properties', () => {
+  for (const code of ['toString', '__proto__']) {
+    assertProtocolError(
+      () =>
+        decodeChildMessage({
+          ...identity,
+          type: 'COMMAND_ERROR',
+          payload: {
+            commandType: 'START_WORKER',
+            error: { code, message: undefined, retryable: undefined },
+          },
+        }),
+      'IPC_INVALID_MESSAGE',
+      'Invalid worker IPC message',
+    );
+  }
+});
+
+void test('rejects malformed child schemas and unsafe identifiers', () => {
+  const invalidMessages: unknown[] = [
+    { ...identity, type: 'UNKNOWN_CHILD_MESSAGE', payload: {} },
+    {
+      ...identity,
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'APPLY_CONFIG', configVersion: 1, extra: true },
+    },
+    {
+      ...identity,
+      type: 'COMMAND_ERROR',
+      payload: {
+        commandType: 'START_WORKER',
+        error: {
+          code: 'WA_RUNTIME_UNAVAILABLE',
+          message: 'Worker runtime is unavailable',
+          retryable: true,
+          extra: true,
+        },
+      },
+    },
+    {
+      ...identity,
+      requestId: 'request\nforged',
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'STOP_WORKER' },
+    },
+    {
+      ...identity,
+      childId: ' child_example_1 ',
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'STOP_WORKER' },
+    },
+  ];
+
+  for (const input of invalidMessages) {
+    assert.throws(() => decodeChildMessage(input), IpcProtocolError);
+  }
 });
 
 void test('rejects malformed identities, generations, and payloads without echoing input', () => {
