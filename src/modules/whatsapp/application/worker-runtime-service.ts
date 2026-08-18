@@ -40,6 +40,7 @@ export type WorkerRuntimeErrorCode =
   | 'WORKER_COMMAND_REJECTED'
   | 'WORKER_INTERNAL_ERROR'
   | 'WORKER_COMMAND_TIMEOUT'
+  | 'WORKER_OWNERSHIP_QUARANTINED'
   | 'WA_RUNTIME_STOPPED';
 
 export class WorkerRuntimeError extends Error {
