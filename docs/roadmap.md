@@ -36,8 +36,8 @@ GitHub Free does not enforce branch protection on this private repository. Until
 
 **Status:** In progress
 
-- [ ] Versioned, runtime-validated IPC contract (implementation in progress in Issue #11)
-- [ ] Transport-neutral worker runtime lifecycle and bounded command timeouts
+- [x] Versioned, runtime-validated IPC contract (Issue #11, PR #12)
+- [ ] Transport-neutral worker runtime lifecycle and bounded command timeouts (implementation in progress in Issue #13)
 - [ ] Generation/child fencing and stale-ack rejection
 - [ ] Safe worker diagnostics and correlation IDs
 - [ ] Synthetic worker harness and debug commands
