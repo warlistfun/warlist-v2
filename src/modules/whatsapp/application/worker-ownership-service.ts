@@ -99,9 +99,10 @@ export function createWorkerOwnershipService(dependencies: {
         ...command,
         configVersion: input.configVersion,
       });
-      if (owns(state, command) && state.state === 'STARTING' && state.desired === 'RUNNING') {
-        state.state = 'RUNNING';
+      if (!owns(state, command) || state.state !== 'STARTING' || state.desired !== 'RUNNING') {
+        throw notTerminalError();
       }
+      state.state = 'RUNNING';
       return result;
     } catch (error) {
       if (owns(state, command) && !state.stopPromise) {
@@ -182,17 +183,27 @@ export function createWorkerOwnershipService(dependencies: {
 
   function beginCompensatingStop(state: MutableOwnershipState, command: WorkerCommand): void {
     let resolveStop!: (result: WorkerCommandResult) => void;
-    const terminalEvidence = new Promise<WorkerCommandResult>((resolve) => {
+    let rejectStop!: (error: unknown) => void;
+    const terminalEvidence = new Promise<WorkerCommandResult>((resolve, reject) => {
       resolveStop = resolve;
+      rejectStop = reject;
     });
     state.resolveStop = resolveStop;
+    state.rejectStop = rejectStop;
     state.stopPromise = terminalEvidence;
+    void terminalEvidence.catch(() => undefined);
     void dependencies.commands.stopWorker(command).then(
       (result) => {
         if (owns(state, command)) release(state);
         resolveStop(result);
       },
-      () => undefined,
+      (error: unknown) => {
+        if (!owns(state, command)) return;
+        state.stopPromise = undefined;
+        state.resolveStop = undefined;
+        state.rejectStop = undefined;
+        rejectStop(error);
+      },
     );
   }
 }
