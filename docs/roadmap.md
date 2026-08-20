@@ -49,6 +49,16 @@ GitHub Free does not enforce branch protection on this private repository. Until
 
 Phase 2 is complete: all defined worker-runtime slices are merged with synthetic acceptance evidence. The owner accepted the residual risk that this remains resource-free proof only; concrete worker-process, persistence, provider, legacy migration/cutover, deployment, and Production behavior are not implemented or verified.
 
+## Phase 3 — Synthetic persistence-contract foundation
+
+**Status:** Complete (2026-08-20)
+
+- [x] Disposable lifecycle-state composition boundary with tenant isolation, recovery, and failed-save preservation (Issue #34, PR #35)
+- [x] Same-tenant stale lower-generation write fencing (Issue #36, PR #37)
+- [x] Expected-generation compare-and-save contract (Issue #38, PR #39)
+
+Phase 3 is complete: the owner selected the synthetic persistence-contract foundation as its closure target. The accepted residual risk is that the in-memory proof does not establish database atomicity across connections/processes, durable restart recovery, tenant authorization, trust-boundary validation, transactional rollback, migration/cutover, deployment, or Production readiness.
+
 ## Later phases
 
 Backend composition, workers, Telegram retirement, PostgreSQL persistence, automation, delivery/entitlements, identity/admin, billing, notification retirement, and eventual migration/cutover each require separate bounded Issues and acceptance evidence.
