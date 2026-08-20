@@ -45,7 +45,7 @@ GitHub Free does not enforce branch protection on this private repository. Until
 - [x] Worker dedupe collision fix and DB artifact boundary (Issue #22, PR #23)
 - [x] Synthetic worker harness and safe debug snapshot (Issue #24, PR #27)
 - [x] Active-tenant boot and worker start/stop/update synthetic orchestration (Issue #28, PR #29; legacy migration remains deferred)
-- [ ] Restart, timeout, and stale-ack behavioral proof
+- [x] Restart, timeout, and stale-ack behavioral proof (Issue #30, PR #31)
 
 ## Later phases
 
