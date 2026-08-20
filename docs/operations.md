@@ -21,6 +21,6 @@ Run the proof only on a development machine with PostgreSQL 16 server and client
 node --import tsx --test test/unit/postgres-worker-lifecycle-state-repository.test.ts
 ```
 
-The test registers cleanup before opening database connections, stops each cluster with `pg_ctl --mode fast stop`, and removes its temporary directory. If interrupted, inspect only `/tmp/warlist-pg16-*`; stop its matching cluster with its local `postmaster.pid`, then remove that temporary directory. Rollback is limited to dropping the disposable test cluster and directory. No hosted database, environment file, credential, legacy/runtime/customer data, migration/cutover, or Production rollback procedure exists.
+The test registers cleanup before opening database connections, waits for every client-close attempt, then attempts `pg_ctl --mode fast stop` and temporary-directory removal even after a client-close failure. A client-close failure remains the reported test failure if later cleanup also fails. If interrupted, inspect only `/tmp/warlist-pg16-*`; stop its matching cluster with its local `postmaster.pid`, then remove that temporary directory. Rollback is limited to dropping the disposable test cluster and directory. No hosted database, environment file, credential, legacy/runtime/customer data, migration/cutover, or Production rollback procedure exists.
 
 Release, readiness, migration/cutover, and Production rollback procedures remain unimplemented.
