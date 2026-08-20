@@ -9,6 +9,10 @@ export type WorkerLifecycleSnapshot = Readonly<{
 export interface WorkerLifecycleStateRepositoryPort {
   load(tenantId: string): Promise<WorkerLifecycleSnapshot | undefined>;
   save(snapshot: WorkerLifecycleSnapshot): Promise<void>;
+  compareAndSave(
+    snapshot: WorkerLifecycleSnapshot,
+    expectedGeneration: number | null,
+  ): Promise<void>;
 }
 
 export interface WorkerLifecycleStateService {
@@ -41,6 +45,14 @@ export function createInMemoryWorkerLifecycleStateRepository(): WorkerLifecycleS
       const current = snapshots.get(snapshot.tenantId);
       if (current && snapshot.generation < current.generation) {
         return Promise.reject(new Error('stale lifecycle state'));
+      }
+      snapshots.set(snapshot.tenantId, freezeSnapshot(snapshot));
+      return Promise.resolve();
+    },
+    compareAndSave(snapshot, expectedGeneration): Promise<void> {
+      const current = snapshots.get(snapshot.tenantId);
+      if ((current?.generation ?? null) !== expectedGeneration) {
+        return Promise.reject(new Error('lifecycle state generation mismatch'));
       }
       snapshots.set(snapshot.tenantId, freezeSnapshot(snapshot));
       return Promise.resolve();

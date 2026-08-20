@@ -126,6 +126,54 @@ void test('allows equal-generation state transitions without affecting another t
   assert.equal((await service.recover(tenantTwo))?.generation, 1);
 });
 
+void test('compares the expected generation before saving without changing another tenant', async () => {
+  const repository = createInMemoryWorkerLifecycleStateRepository();
+  const service = createWorkerLifecycleStateService({ repository });
+  const next = {
+    tenantId: tenantOne,
+    state: 'RUNNING' as const,
+    generation: 2,
+    childId: 'child_example_2',
+    quarantined: false,
+  };
+
+  await repository.compareAndSave(next, null);
+  await service.save({
+    tenantId: tenantTwo,
+    state: 'RUNNING',
+    generation: 7,
+    childId: 'child_example_7',
+    quarantined: false,
+  });
+  await repository.compareAndSave({ ...next, state: 'STOPPING', quarantined: true }, 2);
+
+  assert.equal((await service.recover(tenantOne))?.state, 'STOPPING');
+  assert.equal((await service.recover(tenantTwo))?.generation, 7);
+});
+
+void test('rejects a mismatched compare-and-save without overwriting the recoverable snapshot', async () => {
+  const repository = createInMemoryWorkerLifecycleStateRepository();
+  const service = createWorkerLifecycleStateService({ repository });
+  const current = {
+    tenantId: tenantOne,
+    state: 'RUNNING' as const,
+    generation: 4,
+    childId: 'child_example_4',
+    quarantined: false,
+  };
+
+  await service.save(current);
+  await assert.rejects(
+    repository.compareAndSave({ ...current, state: 'STOPPED', childId: null }, 3),
+    /lifecycle state generation mismatch/,
+  );
+  await assert.rejects(
+    repository.compareAndSave({ ...current, generation: 5, childId: 'child_example_5' }, null),
+    /lifecycle state generation mismatch/,
+  );
+  assert.deepEqual(await service.recover(tenantOne), current);
+});
+
 void test('preserves the prior snapshot when persistence fails', async () => {
   const repository = new FailingRepository();
   const service = createWorkerLifecycleStateService({ repository });
@@ -165,5 +213,12 @@ class FailingRepository implements WorkerLifecycleStateRepositoryPort {
       return Promise.reject(new Error('persistence unavailable'));
     }
     return this.delegate.save(snapshot);
+  }
+
+  compareAndSave(
+    snapshot: Parameters<WorkerLifecycleStateRepositoryPort['compareAndSave']>[0],
+    expectedGeneration: Parameters<WorkerLifecycleStateRepositoryPort['compareAndSave']>[1],
+  ) {
+    return this.delegate.compareAndSave(snapshot, expectedGeneration);
   }
 }
