@@ -19,6 +19,12 @@ interface StopWorkerInput {
   readonly correlationId: string;
 }
 
+interface ApplyConfigInput {
+  readonly tenantId: string;
+  readonly correlationId: string;
+  readonly configVersion: number;
+}
+
 interface WorkerCommand {
   readonly tenantId: string;
   readonly generation: number;
@@ -52,6 +58,7 @@ interface MutableOwnershipState {
 
 export interface WorkerOwnershipService {
   startWorker(input: StartWorkerInput): Promise<WorkerCommandResult>;
+  applyConfig(input: ApplyConfigInput): Promise<WorkerCommandResult>;
   stopWorker(input: StopWorkerInput): Promise<WorkerCommandResult>;
   recordChildExit(tenantId: string, generation: number, childId: string): void;
   getState(tenantId: string): WorkerOwnershipState;
@@ -187,6 +194,19 @@ export function createWorkerOwnershipService(dependencies: {
 
   return {
     startWorker,
+    applyConfig(input: ApplyConfigInput): Promise<WorkerCommandResult> {
+      const state = stateFor(input.tenantId);
+      if (state.state !== 'RUNNING' || state.quarantined || state.childId === null) {
+        return Promise.reject(notTerminalError());
+      }
+      return dependencies.commands.applyConfig({
+        tenantId: input.tenantId,
+        generation: state.generation,
+        childId: state.childId,
+        correlationId: input.correlationId,
+        configVersion: input.configVersion,
+      });
+    },
     stopWorker,
     recordChildExit,
     getState(tenantId): WorkerOwnershipState {
