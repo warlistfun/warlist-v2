@@ -192,7 +192,7 @@ void test('emits one correlated diagnostic for a matching command acknowledgemen
 });
 
 void test('runs start, config update, and stop commands through IPC v1 acknowledgements', async () => {
-  const { service, transport } = fixture();
+  const { service, transport, diagnostics } = fixture();
   await service.start();
 
   const started = service.startWorker({ ...worker, configVersion: 1 });
@@ -210,6 +210,25 @@ void test('runs start, config update, and stop commands through IPC v1 acknowled
   acknowledge(transport, transport.sent[2]!, { commandType: 'STOP_WORKER' });
   assert.deepEqual(await stopped, { ok: true });
 
+  assert.deepEqual(
+    diagnostics.map((event) =>
+      event.kind === 'COMMAND'
+        ? [
+            event.commandType,
+            event.outcome,
+            event.correlationId,
+            event.tenantId,
+            event.generation,
+            event.childId,
+          ]
+        : event,
+    ),
+    [
+      ['START_WORKER', 'ACKNOWLEDGED', 'corr_example_1', 'tenant_example_1', 1, 'child_example_1'],
+      ['APPLY_CONFIG', 'ACKNOWLEDGED', 'corr_example_1', 'tenant_example_1', 1, 'child_example_1'],
+      ['STOP_WORKER', 'ACKNOWLEDGED', 'corr_example_1', 'tenant_example_1', 1, 'child_example_1'],
+    ],
+  );
   await service.stop();
 });
 
@@ -279,18 +298,50 @@ void test('does not deduplicate identical commands across different tenants', as
   assert.notEqual(tenantOne, tenantTwo);
   await flushCommands();
   assert.equal(transport.sent.length, 2);
+  const snapshot = service.getDebugSnapshot();
+  assert.equal(Object.isFrozen(snapshot), true);
+  assert.equal(Object.isFrozen(snapshot.pendingCommands), true);
+  assert.equal(Object.isFrozen(snapshot.pendingCommands[0]), true);
+  assert.deepEqual(snapshot, {
+    pendingCommands: [
+      {
+        commandType: 'START_WORKER',
+        correlationId: worker.correlationId,
+        tenantId: worker.tenantId,
+        generation: worker.generation,
+        childId: worker.childId,
+      },
+      {
+        commandType: 'START_WORKER',
+        correlationId: 'corr_example_2',
+        tenantId: 'tenant_example_2',
+        generation: worker.generation,
+        childId: worker.childId,
+      },
+    ],
+  });
+  assert.equal(JSON.stringify(snapshot).includes('configVersion'), false);
+  assert.equal(JSON.stringify(snapshot).includes('requestId'), false);
+
   acknowledge(transport, transport.sent[0]!, { commandType: 'START_WORKER', configVersion: 1 });
   acknowledge(transport, transport.sent[1]!, { commandType: 'START_WORKER', configVersion: 1 });
   assert.deepEqual(await tenantOne, { ok: true });
   assert.deepEqual(await tenantTwo, { ok: true });
+  assert.deepEqual(service.getDebugSnapshot(), { pendingCommands: [] });
   await service.stop();
 });
 
-void test('ignores non-matching acknowledgements and fails closed on timeout', async () => {
+void test('ignores non-matching acknowledgements without stalling another tenant', async () => {
   const { service, transport, scheduler, diagnostics } = fixture();
   await service.start();
 
   const command = service.startWorker({ ...worker, configVersion: 1 });
+  const otherWorker = {
+    ...worker,
+    tenantId: 'tenant_example_2',
+    correlationId: 'corr_example_2',
+  } as const;
+  const otherCommand = service.startWorker({ ...otherWorker, configVersion: 1 });
   await flushCommands();
   const sent = transport.sent[0]!;
   acknowledge(
@@ -298,6 +349,8 @@ void test('ignores non-matching acknowledgements and fails closed on timeout', a
     { ...sent, childId: 'child_wrong' },
     { commandType: 'START_WORKER', configVersion: 1 },
   );
+  acknowledge(transport, transport.sent[1]!, { commandType: 'START_WORKER', configVersion: 1 });
+  assert.deepEqual(await otherCommand, { ok: true });
   scheduler.runNext();
 
   await assert.rejects(
@@ -308,6 +361,15 @@ void test('ignores non-matching acknowledgements and fails closed on timeout', a
       error.retryable === true,
   );
   assert.deepEqual(diagnostics, [
+    {
+      kind: 'COMMAND',
+      outcome: 'ACKNOWLEDGED',
+      commandType: 'START_WORKER',
+      correlationId: otherWorker.correlationId,
+      tenantId: otherWorker.tenantId,
+      generation: otherWorker.generation,
+      childId: otherWorker.childId,
+    },
     {
       kind: 'COMMAND',
       outcome: 'TIMED_OUT',
@@ -360,16 +422,26 @@ void test('maps matching child failures to canonical runtime errors', async () =
   await service.stop();
 });
 
-void test('maps transport send failure to one safe unavailable diagnostic', async () => {
+void test('maps transport failure safely without stalling another tenant', async () => {
   const { service, transport, diagnostics } = fixture();
   transport.failNextSend(new Error('raw transport detail'));
   await service.start();
 
+  const unavailable = service.startWorker({ ...worker, configVersion: 1 });
+  const otherWorker = {
+    ...worker,
+    tenantId: 'tenant_example_2',
+    correlationId: 'corr_example_2',
+  } as const;
+  const otherCommand = service.startWorker({ ...otherWorker, configVersion: 1 });
   await assert.rejects(
-    service.startWorker({ ...worker, configVersion: 1 }),
+    unavailable,
     (error: unknown) =>
       error instanceof WorkerRuntimeError && error.code === 'WA_RUNTIME_UNAVAILABLE',
   );
+  await flushCommands();
+  acknowledge(transport, transport.sent[1]!, { commandType: 'START_WORKER', configVersion: 1 });
+  assert.deepEqual(await otherCommand, { ok: true });
   assert.deepEqual(diagnostics, [
     {
       kind: 'COMMAND',
@@ -379,6 +451,15 @@ void test('maps transport send failure to one safe unavailable diagnostic', asyn
       tenantId: worker.tenantId,
       generation: worker.generation,
       childId: worker.childId,
+    },
+    {
+      kind: 'COMMAND',
+      outcome: 'ACKNOWLEDGED',
+      commandType: 'START_WORKER',
+      correlationId: otherWorker.correlationId,
+      tenantId: otherWorker.tenantId,
+      generation: otherWorker.generation,
+      childId: otherWorker.childId,
     },
   ]);
   assert.equal(JSON.stringify(diagnostics).includes('raw transport detail'), false);

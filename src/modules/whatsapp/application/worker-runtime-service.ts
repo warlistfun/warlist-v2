@@ -36,6 +36,18 @@ export interface WorkerCommandResult {
   readonly ok: true;
 }
 
+export type PendingWorkerCommandDebug = Readonly<{
+  commandType: ParentCommandType;
+  correlationId: string;
+  tenantId: string;
+  generation: number;
+  childId: string;
+}>;
+
+export type WorkerRuntimeDebugSnapshot = Readonly<{
+  pendingCommands: readonly PendingWorkerCommandDebug[];
+}>;
+
 export type WorkerRuntimeErrorCode =
   | 'WA_RUNTIME_UNAVAILABLE'
   | 'WORKER_COMMAND_REJECTED'
@@ -76,6 +88,7 @@ export interface WorkerRuntimeService extends WorkerRuntimePort {
   startWorker(input: VersionedWorkerIdentity): Promise<WorkerCommandResult>;
   applyConfig(input: VersionedWorkerIdentity): Promise<WorkerCommandResult>;
   stopWorker(input: WorkerIdentity): Promise<WorkerCommandResult>;
+  getDebugSnapshot(): WorkerRuntimeDebugSnapshot;
 }
 
 export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRuntimeService {
@@ -262,6 +275,18 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     },
     stopWorker(input): Promise<WorkerCommandResult> {
       return command('STOP_WORKER', input);
+    },
+    getDebugSnapshot(): WorkerRuntimeDebugSnapshot {
+      const pendingCommands = [...pendingByKey.values()].map(({ message }) =>
+        Object.freeze({
+          commandType: message.type,
+          correlationId: message.correlationId,
+          tenantId: message.tenantId,
+          generation: message.generation,
+          childId: message.childId,
+        }),
+      );
+      return Object.freeze({ pendingCommands: Object.freeze(pendingCommands) });
     },
   };
 }
