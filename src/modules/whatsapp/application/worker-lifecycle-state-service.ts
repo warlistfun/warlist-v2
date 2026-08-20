@@ -38,6 +38,10 @@ export function createInMemoryWorkerLifecycleStateRepository(): WorkerLifecycleS
       return Promise.resolve(snapshot && freezeSnapshot(snapshot));
     },
     save(snapshot): Promise<void> {
+      const current = snapshots.get(snapshot.tenantId);
+      if (current && snapshot.generation < current.generation) {
+        return Promise.reject(new Error('stale lifecycle state'));
+      }
       snapshots.set(snapshot.tenantId, freezeSnapshot(snapshot));
       return Promise.resolve();
     },
