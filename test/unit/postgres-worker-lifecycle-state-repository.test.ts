@@ -68,6 +68,65 @@ void test('PostgreSQL repository fences lifecycle writes and authorizes tenant a
   assert.equal(count.rows[0]?.count, '1');
 });
 
+void test('disposable PostgreSQL cleanup stops and removes artifacts after client close failure', async () => {
+  const events: string[] = [];
+  const closeFailure = new Error('synthetic client close failed');
+
+  await assert.rejects(
+    cleanupDisposableDatabase({
+      clients: [
+        {
+          end: () => {
+            events.push('first-client');
+            return Promise.resolve();
+          },
+        },
+        {
+          end: () => {
+            events.push('second-client');
+            return Promise.reject(closeFailure);
+          },
+        },
+      ],
+      started: true,
+      dataDirectory: '/tmp/warlist-pg16-example/cluster',
+      root: '/tmp/warlist-pg16-example',
+      runTool: (name, args) => events.push(`${name}:${args.join(' ')}`),
+      removeDirectory: (path) => events.push(`remove:${path}`),
+    }),
+    closeFailure,
+  );
+
+  assert.deepEqual(events, [
+    'first-client',
+    'second-client',
+    'pg_ctl:--pgdata /tmp/warlist-pg16-example/cluster --wait --mode fast stop',
+    'remove:/tmp/warlist-pg16-example',
+  ]);
+});
+
+void test('disposable PostgreSQL cleanup preserves a client close failure when cluster stop fails', async () => {
+  const closeFailure = new Error('synthetic client close failed');
+  const events: string[] = [];
+
+  await assert.rejects(
+    cleanupDisposableDatabase({
+      clients: [{ end: () => Promise.reject(closeFailure) }],
+      started: true,
+      dataDirectory: '/tmp/warlist-pg16-example/cluster',
+      root: '/tmp/warlist-pg16-example',
+      runTool: () => {
+        events.push('stop');
+        throw new Error('synthetic cluster stop failed');
+      },
+      removeDirectory: () => events.push('remove'),
+    }),
+    closeFailure,
+  );
+
+  assert.deepEqual(events, ['stop', 'remove']);
+});
+
 void test('PostgreSQL 16 synthetic backup restores lifecycle state into a fresh disposable cluster', async (t) => {
   const source = await createDisposableDatabase(t);
   const target = await createDisposableDatabase(t);
@@ -129,13 +188,16 @@ async function createDisposableDatabase(t: test.TestContext): Promise<Disposable
   const port = 20000 + Math.floor(Math.random() * 20000);
   const clients: Client[] = [];
   let started = false;
-  t.after(async () => {
-    await Promise.all(clients.map((client) => client.end()));
-    if (started) {
-      runPostgresTool('pg_ctl', ['--pgdata', dataDirectory, '--wait', '--mode', 'fast', 'stop']);
-    }
-    rmSync(root, { recursive: true, force: true });
-  });
+  t.after(() =>
+    cleanupDisposableDatabase({
+      clients,
+      started,
+      dataDirectory,
+      root,
+      runTool: runPostgresTool,
+      removeDirectory: (path) => rmSync(path, { recursive: true, force: true }),
+    }),
+  );
   mkdirSync(socketDirectory);
   runPostgresTool('initdb', [
     '--no-sync',
@@ -171,6 +233,49 @@ async function createDisposableDatabase(t: test.TestContext): Promise<Disposable
   ]);
   await client.query(readFileSync(migration, 'utf8'));
   return { client, secondClient, root, socketDirectory, port };
+}
+
+type DisposableDatabaseCleanup = Readonly<{
+  clients: ReadonlyArray<{ end(): Promise<void> }>;
+  started: boolean;
+  dataDirectory: string;
+  root: string;
+  runTool(name: string, args: readonly string[]): void;
+  removeDirectory(path: string): void;
+}>;
+
+async function cleanupDisposableDatabase({
+  clients,
+  started,
+  dataDirectory,
+  root,
+  runTool,
+  removeDirectory,
+}: DisposableDatabaseCleanup): Promise<void> {
+  const closeResults = await Promise.allSettled(clients.map((client) => client.end()));
+  const closeFailure = closeResults.find((result) => result.status === 'rejected');
+  let cleanupFailure: unknown;
+  if (started) {
+    try {
+      runTool('pg_ctl', ['--pgdata', dataDirectory, '--wait', '--mode', 'fast', 'stop']);
+    } catch (error) {
+      cleanupFailure = error;
+    }
+  }
+  try {
+    removeDirectory(root);
+  } catch (error) {
+    cleanupFailure ??= error;
+  }
+  if (closeFailure?.status === 'rejected') {
+    throw closeFailure.reason;
+  }
+  if (cleanupFailure instanceof Error) {
+    throw cleanupFailure;
+  }
+  if (cleanupFailure !== undefined) {
+    throw new Error('disposable PostgreSQL cleanup failed');
+  }
 }
 
 function runPostgresTool(name: string, args: readonly string[]): void {
