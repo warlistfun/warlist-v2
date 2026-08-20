@@ -75,6 +75,57 @@ void test('recovers the latest lifecycle state through a newly composed service'
   });
 });
 
+void test('rejects a stale lifecycle write without overwriting the newer tenant state', async () => {
+  const service = createWorkerLifecycleStateService({
+    repository: createInMemoryWorkerLifecycleStateRepository(),
+  });
+  const current = {
+    tenantId: tenantOne,
+    state: 'RUNNING' as const,
+    generation: 3,
+    childId: 'child_example_3',
+    quarantined: false,
+  };
+
+  await service.save(current);
+  await assert.rejects(
+    service.save({ ...current, state: 'STOPPED', generation: 2, childId: null }),
+    /stale lifecycle state/,
+  );
+  assert.deepEqual(await service.recover(tenantOne), current);
+});
+
+void test('allows equal-generation state transitions without affecting another tenant', async () => {
+  const service = createWorkerLifecycleStateService({
+    repository: createInMemoryWorkerLifecycleStateRepository(),
+  });
+
+  await service.save({
+    tenantId: tenantOne,
+    state: 'RUNNING',
+    generation: 3,
+    childId: 'child_example_3',
+    quarantined: false,
+  });
+  await service.save({
+    tenantId: tenantTwo,
+    state: 'RUNNING',
+    generation: 1,
+    childId: 'child_example_1',
+    quarantined: false,
+  });
+  await service.save({
+    tenantId: tenantOne,
+    state: 'STOPPING',
+    generation: 3,
+    childId: 'child_example_3',
+    quarantined: true,
+  });
+
+  assert.equal((await service.recover(tenantOne))?.state, 'STOPPING');
+  assert.equal((await service.recover(tenantTwo))?.generation, 1);
+});
+
 void test('preserves the prior snapshot when persistence fails', async () => {
   const repository = new FailingRepository();
   const service = createWorkerLifecycleStateService({ repository });
