@@ -59,8 +59,18 @@ Phase 2 is complete: all defined worker-runtime slices are merged with synthetic
 
 Phase 3 is complete: the owner selected the synthetic persistence-contract foundation as its closure target. The accepted residual risk is that the in-memory proof does not establish database atomicity across connections/processes, durable restart recovery, tenant authorization, trust-boundary validation, transactional rollback, migration/cutover, deployment, or Production readiness.
 
+## Phase 4 — Disposable PostgreSQL lifecycle-persistence foundation
+
+**Status:** Complete (2026-08-20)
+
+- [x] Concrete PostgreSQL 16 lifecycle-state repository behind the existing application port, with injected server-owned tenant authorization and trust-boundary validation (Issue #42, PR #43)
+- [x] Forward-only idempotent migration; lower-generation and cross-connection expected-generation write fencing; disposable migration and backup/restore proof (Issue #42, PR #43)
+- [x] Disposable teardown hardening: client-close failures do not prevent fast cluster stop and temporary-directory removal (Issue #44, PR #45)
+
+Phase 4 is complete: it proves a PostgreSQL 16 lifecycle-state adapter only against synthetic temporary local clusters. The accepted residual risk is that it does not establish hosted-database configuration, deployed restart recovery, Production authorization/operations, general transaction/rollback guarantees, worker/provider composition, API behavior, data migration/cutover, or Production readiness.
+
 ## Later phases
 
-Backend composition, workers, Telegram retirement, PostgreSQL persistence, automation, delivery/entitlements, identity/admin, billing, notification retirement, and eventual migration/cutover each require separate bounded Issues and acceptance evidence.
+Backend composition, workers, Telegram retirement, automation, delivery/entitlements, identity/admin, billing, notification retirement, and eventual migration/cutover each require separate bounded Issues and acceptance evidence.
 
 Deferred product features are not active implementation scope.

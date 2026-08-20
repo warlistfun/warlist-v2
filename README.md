@@ -1,8 +1,8 @@
 # WARLIST 2.0
 
-WARLIST 2.0 is a clean, backend-first migration of WARLIST. This repository contains the completed Phase 0 foundation, Phase 1 application-composition foundation, Phase 2 synthetic worker-runtime foundation, and Phase 3 synthetic persistence-contract foundation.
+WARLIST 2.0 is a clean, backend-first migration of WARLIST. This repository contains the completed Phase 0 foundation, Phase 1 application-composition foundation, Phase 2 synthetic worker-runtime foundation, Phase 3 synthetic persistence-contract foundation, and Phase 4 disposable PostgreSQL lifecycle-persistence foundation.
 
-**Status:** Phases 0–3 are complete. Phase 4 Slice 1 adds a concrete PostgreSQL 16 lifecycle-state repository behind the existing application port, with injected server-owned tenant authorization, runtime validation of snapshots and database rows, lower-generation fencing, cross-connection expected-generation conditional writes, and a synthetic disposable migration/backup/restore proof. It does not configure or contact hosted Supabase, Production, legacy, runtime/customer data, credentials, deployment, cutover, worker/process/provider integration, or an HTTP/API boundary.
+**Status:** Phases 0–4 are complete. Phase 4 provides a concrete PostgreSQL 16 lifecycle-state repository behind the existing application port, with injected server-owned tenant authorization, runtime validation of snapshots and database rows, lower-generation fencing, cross-connection expected-generation conditional writes, forward-only idempotent migration, synthetic disposable backup/restore proof, and teardown cleanup proof. It does not configure or contact hosted Supabase, Production, legacy, runtime/customer data, credentials, deployment, cutover, worker/process/provider integration, or an HTTP/API boundary.
 
 ## Requirements
 
