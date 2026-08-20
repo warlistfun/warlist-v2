@@ -382,6 +382,41 @@ void test('does not let stale generation completion claim newer ownership', asyn
   assert.equal(ownership.getState(tenant.tenantId).state, 'RUNNING');
 });
 
+void test('ignores prior-incarnation terminal evidence while a restarted owner is pending', async () => {
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
+
+  const first = ownership.startWorker(tenant);
+  commands.startResults[0]!.resolve({ ok: true });
+  await first;
+  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId);
+
+  const restarted = ownership.startWorker({
+    ...tenant,
+    childId: 'child_example_2',
+    correlationId: 'corr_restart',
+  });
+  assert.deepEqual(commands.starts[1], {
+    tenantId: tenant.tenantId,
+    generation: 2,
+    childId: 'child_example_2',
+    correlationId: 'corr_restart',
+    configVersion: 1,
+  });
+  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId);
+  assert.deepEqual(ownership.getState(tenant.tenantId), {
+    state: 'STARTING',
+    desired: 'RUNNING',
+    generation: 2,
+    childId: 'child_example_2',
+    quarantined: false,
+  });
+
+  commands.startResults[1]!.resolve({ ok: true });
+  assert.deepEqual(await restarted, { ok: true });
+  assert.equal(ownership.getState(tenant.tenantId).state, 'RUNNING');
+});
+
 void test('forwards a running tenant update with its fenced owner identity', async () => {
   const commands = new ControlledCommands();
   const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });

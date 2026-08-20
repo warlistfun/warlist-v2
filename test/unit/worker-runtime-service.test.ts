@@ -383,6 +383,55 @@ void test('ignores non-matching acknowledgements without stalling another tenant
   await service.stop();
 });
 
+void test('ignores a timed-out command late acknowledgement while its retry is pending', async () => {
+  const { service, transport, scheduler } = fixture();
+  await service.start();
+
+  const expired = service.startWorker({ ...worker, configVersion: 1 });
+  await flushCommands();
+  const first = transport.sent[0]!;
+  scheduler.runNext();
+  await assert.rejects(
+    expired,
+    (error: unknown) =>
+      error instanceof WorkerRuntimeError && error.code === 'WORKER_COMMAND_TIMEOUT',
+  );
+
+  const retry = service.startWorker({ ...worker, configVersion: 1 });
+  await flushCommands();
+  const second = transport.sent[1]!;
+  assert.notEqual(first.requestId, second.requestId);
+  acknowledge(transport, first, { commandType: 'START_WORKER', configVersion: 1 });
+  transport.receive({
+    ...identity(first),
+    type: 'COMMAND_ERROR',
+    payload: {
+      commandType: 'START_WORKER',
+      error: {
+        code: 'WA_RUNTIME_UNAVAILABLE',
+        message: 'Worker runtime is unavailable',
+        retryable: true,
+      },
+    },
+  });
+  await flushCommands();
+  assert.deepEqual(service.getDebugSnapshot(), {
+    pendingCommands: [
+      {
+        commandType: 'START_WORKER',
+        correlationId: worker.correlationId,
+        tenantId: worker.tenantId,
+        generation: worker.generation,
+        childId: worker.childId,
+      },
+    ],
+  });
+
+  acknowledge(transport, second, { commandType: 'START_WORKER', configVersion: 1 });
+  assert.deepEqual(await retry, { ok: true });
+  await service.stop();
+});
+
 void test('maps matching child failures to canonical runtime errors', async () => {
   const { service, transport, diagnostics } = fixture();
   await service.start();
