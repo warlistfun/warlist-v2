@@ -59,15 +59,20 @@ Phase 2 is complete: all defined worker-runtime slices are merged with synthetic
 
 Phase 3 is complete: the owner selected the synthetic persistence-contract foundation as its closure target. The accepted residual risk is that the in-memory proof does not establish database atomicity across connections/processes, durable restart recovery, tenant authorization, trust-boundary validation, transactional rollback, migration/cutover, deployment, or Production readiness.
 
-## Phase 4 — Disposable PostgreSQL lifecycle-persistence foundation
+## Phase 4 — Supabase schema and repository foundation
 
-**Status:** Complete (2026-08-20)
+**Status:** In progress — disposable PostgreSQL lifecycle subset verified (2026-08-20)
 
-- [x] Concrete PostgreSQL 16 lifecycle-state repository behind the existing application port, with injected server-owned tenant authorization and trust-boundary validation (Issue #42, PR #43)
-- [x] Forward-only idempotent migration; lower-generation and cross-connection expected-generation write fencing; disposable migration and backup/restore proof (Issue #42, PR #43)
+- [x] Disposable PostgreSQL 16 lifecycle-state repository behind the existing application port, with injected server-owned tenant authorization and trust-boundary validation (Issue #42, PR #43)
+- [x] Forward-only idempotent lifecycle-state migration; lower-generation and cross-connection expected-generation write fencing; disposable migration and backup/restore proof (Issue #42, PR #43)
 - [x] Disposable teardown hardening: client-close failures do not prevent fast cluster stop and temporary-directory removal (Issue #44, PR #45)
+- [ ] Canonical tenant/config/delivery/audit schema foundation, schema migration/revision model, and corresponding repository contracts
+- [ ] Supabase/Postgres adapter posture for pooling, timeout, safe error mapping, readiness, and telemetry
+- [ ] Separate local protected WhatsApp credential adapter; database-outage fail-closed behavior for unclaimed external sends; verified Supabase Free-plan capacity guardrails
 
-Phase 4 is complete: it proves a PostgreSQL 16 lifecycle-state adapter only against synthetic temporary local clusters. The accepted residual risk is that it does not establish hosted-database configuration, deployed restart recovery, Production authorization/operations, general transaction/rollback guarantees, worker/provider composition, API behavior, data migration/cutover, or Production readiness.
+The verified PostgreSQL work is a synthetic local lifecycle-persistence subset, not Phase 4 closure. Phase 4 remains open until its master-plan objective and acceptance evidence are met: canonical transactional business storage, WhatsApp credentials remaining local, repository contracts against a test Postgres/Supabase-compatible environment, migrations safely rerunnable on synthetic databases, and database outage behavior that prevents unclaimed external sends. No hosted Supabase configuration, Production operation, deployment, legacy/runtime/customer-data access, credential access, worker/provider composition, data migration, or cutover has been authorized or verified.
+
+PR #47's Phase 4 closure status is superseded by this correction. Its factually accurate as-built documentation remains valid, and Issue #42 / PR #43 plus Issue #44 / PR #45 remain verified subset evidence. Phase 5 is not authorized.
 
 ## Later phases
 

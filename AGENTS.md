@@ -7,6 +7,14 @@
 - Prefer the smallest explicit implementation; do not pre-create empty architecture.
 - GitHub Issues, PRs, commits, tests, ADRs, and current-state docs are the change record.
 
+### Phase authority — mandatory for WARLIST V2
+
+- The durable WARLIST V2 backend master plan is the authority for phase names, order, scope, and definition of done. The repository `docs/roadmap.md` is a concise current-status view only; it must not be treated as phase authority.
+- Before interpreting, starting, closing, or claiming readiness for a phase/slice, reconcile the current work with the master-plan definition of done and the current tracked source/docs.
+- A merged Issue/PR or a verified bounded slice/foundation never proves its parent phase complete by itself. Label it as a slice/foundation until every applicable master-plan requirement has evidence.
+- Do not change a phase status to `Complete`, create a phase-closure Issue/PR, or state that the next phase is authorized until that reconciliation is explicit and reviewable.
+- Current guardrail: Phase 4 is **Supabase schema and repository foundation** in the master plan. Disposable local PostgreSQL evidence is a verified subset only; it is not Phase 4 closure evidence for the master plan.
+
 ## Hard boundaries
 
 Never read from, copy, generate, commit, or use as fixtures:
