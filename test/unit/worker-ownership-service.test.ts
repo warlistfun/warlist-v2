@@ -24,8 +24,13 @@ class ControlledCommands implements WorkerCommandPort {
   readonly starts: Array<WorkerInput & { configVersion: number }> = [];
   readonly stops: WorkerInput[] = [];
   readonly updates: Array<WorkerInput & { configVersion: number }> = [];
+  private updateError: Error | undefined;
   readonly startResults: Array<Deferred<WorkerCommandResult>> = [];
   readonly stopResults: Array<Deferred<WorkerCommandResult>> = [];
+
+  failNextUpdate(error: Error): void {
+    this.updateError = error;
+  }
 
   startWorker(input: WorkerInput & { configVersion: number }): Promise<WorkerCommandResult> {
     this.starts.push(input);
@@ -43,7 +48,10 @@ class ControlledCommands implements WorkerCommandPort {
 
   applyConfig(input: WorkerInput & { configVersion: number }): Promise<WorkerCommandResult> {
     this.updates.push(input);
-    return Promise.resolve({ ok: true });
+    if (!this.updateError) return Promise.resolve({ ok: true });
+    const error = this.updateError;
+    this.updateError = undefined;
+    return Promise.reject(error);
   }
 }
 
@@ -372,6 +380,77 @@ void test('does not let stale generation completion claim newer ownership', asyn
   commands.startResults[1]!.resolve({ ok: true });
   await second;
   assert.equal(ownership.getState(tenant.tenantId).state, 'RUNNING');
+});
+
+void test('forwards a running tenant update with its fenced owner identity', async () => {
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
+
+  const start = ownership.startWorker(tenant);
+  commands.startResults[0]!.resolve({ ok: true });
+  await start;
+
+  assert.deepEqual(
+    await ownership.applyConfig({
+      tenantId: tenant.tenantId,
+      correlationId: 'corr_update',
+      configVersion: 2,
+    }),
+    { ok: true },
+  );
+  assert.deepEqual(commands.updates, [
+    {
+      tenantId: tenant.tenantId,
+      generation: 1,
+      childId: tenant.childId,
+      correlationId: 'corr_update',
+      configVersion: 2,
+    },
+  ]);
+  assert.deepEqual(ownership.getState(tenant.tenantId), {
+    state: 'RUNNING',
+    desired: 'RUNNING',
+    generation: 1,
+    childId: tenant.childId,
+    quarantined: false,
+  });
+});
+
+void test('preserves running ownership when an update is rejected', async () => {
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
+
+  const start = ownership.startWorker(tenant);
+  commands.startResults[0]!.resolve({ ok: true });
+  await start;
+  commands.failNextUpdate(new Error('update unavailable'));
+
+  await assert.rejects(
+    ownership.applyConfig({
+      tenantId: tenant.tenantId,
+      correlationId: 'corr_update',
+      configVersion: 2,
+    }),
+    /update unavailable/,
+  );
+  assert.equal(ownership.getState(tenant.tenantId).state, 'RUNNING');
+  assert.equal(ownership.getState(tenant.tenantId).quarantined, false);
+});
+
+void test('rejects update before command dispatch unless ownership is running', async () => {
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
+
+  await assert.rejects(
+    ownership.applyConfig({
+      tenantId: tenant.tenantId,
+      correlationId: 'corr_update',
+      configVersion: 2,
+    }),
+    (error: unknown) =>
+      error instanceof WorkerRuntimeError && error.code === 'WORKER_OWNERSHIP_QUARANTINED',
+  );
+  assert.deepEqual(commands.updates, []);
 });
 
 void test('exact current-child exit is terminal evidence and respects desired stopped state', async () => {
