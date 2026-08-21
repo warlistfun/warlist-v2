@@ -83,9 +83,10 @@ PR #47's former Phase 4 closure claim remains superseded; its factually accurate
 - [x] Pure synthetic automation evaluator with closed deterministic decision codes (Issue #58 / PR #59)
 - [x] Pure synthetic inbound-message normalization into immutable evaluator input (Issue #60 / this PR)
 - [x] Field-scoped/versioned synthetic configuration mutation with injected server-side group/admin validation and exact committed-version propagation boundary (Issue #62 / this PR)
-- [ ] Safe simulator CLI and bounded active-slice migration
+- [x] Safe simulator CLI (Issue #64 / this PR)
+- [ ] Bounded active-slice migration
 
-Phase 5 remains **IN PROGRESS**. The landed evaluator, normalization, and synthetic configuration foundations have no transport/database effects and do not establish provider payload decoding, concrete server-side group/admin lookup, worker-process propagation, simulator coverage, active automation migration, deployment, or Production readiness.
+Phase 5 remains **IN PROGRESS**. The landed evaluator, normalization, synthetic configuration, and simulator foundations have no transport/database effects and do not establish provider payload decoding, concrete server-side group/admin lookup, worker-process propagation, active automation migration, deployment, or Production readiness.
 
 ## Later phases
 

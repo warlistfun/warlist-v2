@@ -10,6 +10,7 @@
     "typecheck": "tsc --noEmit -p tsconfig.json",
     "test:unit": "node --import tsx --test test/unit/**/*.test.ts",
     "test:architecture": "node --import tsx --test test/architecture/**/*.test.ts",
+    "debug:automation": "tsx src/debug-automation.ts",
     "build": "tsc -p tsconfig.build.json",
     "check:boundary": "node scripts/check-repository-boundary.mjs",
     "check": "npm run format:check && npm run lint && npm run typecheck && npm run test && npm run build && npm run check:boundary"
