@@ -46,6 +46,8 @@ Worker IPC protocol v1 is a resource-free contract boundary. Parent commands and
 
 `createAutomationConfigMutationService()` is a synthetic application boundary for one exact field mutation of an existing automation policy. It derives tenant identity from injected trusted context, preserves unrelated opaque configuration fields, validates the complete resulting policy through an injected server-side group/admin relationship validator, and persists only with the caller's expected revision. A stale or absent configuration returns the existing `CONFIG_VERSION_CONFLICT` without worker propagation. On success it returns and invokes an injected propagation boundary with the same immutable committed policy and revision. It has no HTTP route, provider identity lookup, worker process, external side effect, or active automation migration.
 
+`npm run debug:automation -- path/to/fixture.json` reads one explicit JSON fixture, validates an exact `{ message, policy }` shape without echoing it, normalizes its synthetic inbound message, and prints only the evaluator decision code. It has no transport, database, worker, provider, environment, or runtime-state integration; malformed input produces one stable error on stderr.
+
 `createHttpApp()` is an in-process adapter with versioned health/readiness routes, runtime request validation, generated request IDs, and canonical response envelopes. It does not bind a port or own network lifecycle.
 
 `createBootstrap()` explicitly owns application startup and shutdown-signal registration through a port. It serializes transitions, unregisters handlers before shutdown, rolls back partial registration, and retains failed cleanup for retry. No `process` listener is registered at import time.
