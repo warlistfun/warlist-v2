@@ -20,8 +20,9 @@ Run the proof only on a development machine with PostgreSQL 16 server and client
 ```bash
 node --import tsx --test test/unit/postgres-worker-lifecycle-state-repository.test.ts
 node --import tsx --test test/unit/postgres-business-schema.test.ts
+node --import tsx --test test/unit/in-memory-business-repository.test.ts test/unit/postgres-business-repository.test.ts
 ```
 
 The lifecycle proof registers cleanup before opening database connections, waits for every client-close attempt, then attempts `pg_ctl --mode fast stop` and temporary-directory removal even after a client-close failure. The business-schema proof creates separate `/tmp/warlist-pg16-schema-*` clusters and verifies ordered revision application, checksum drift rejection, transaction rollback, concurrent-run serialization, safe adoption of the existing idempotent lifecycle migration, and tenant/config/delivery/audit constraints. If interrupted, inspect only the matching temporary prefix; stop its cluster with its local `postmaster.pid`, then remove that temporary directory. Rollback is limited to dropping the disposable test cluster and directory. No hosted database, environment file, credential, legacy/runtime/customer data, migration/cutover, or Production rollback procedure exists.
 
-Release, readiness, migration/cutover, and Production rollback procedures remain unimplemented.
+Deployment readiness, migration/cutover, release, and Production rollback procedures remain unimplemented.
