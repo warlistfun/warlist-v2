@@ -12,10 +12,14 @@ export type CommittedAutomationConfig = Readonly<{
   policy: AutomationPolicy;
 }>;
 
+export interface AutomationGroupDirectoryPort {
+  loadGroup(input: Readonly<{ tenantId: string; groupId: string }>): Promise<unknown>;
+}
+
 export function createAutomationConfigMutationService(dependencies: {
   readonly repository: BusinessRepositoryPort;
   readonly trustedTenant: Readonly<{ tenantId: string }>;
-  readonly validateGroupAdmins: (policy: AutomationPolicy) => boolean | Promise<boolean>;
+  readonly groupDirectory: AutomationGroupDirectoryPort;
 }): Readonly<{
   mutate(
     input: Readonly<{ expectedRevision: number; mutation: AutomationConfigMutation }>,
@@ -30,9 +34,12 @@ export function createAutomationConfigMutationService(dependencies: {
       }
       const policy = mutatePolicy(current.configuration, input.mutation);
       if (!policy) throw new Error('Invalid automation configuration');
-      if (!(await dependencies.validateGroupAdmins(policy))) {
+      const group = await dependencies.groupDirectory.loadGroup({
+        tenantId: dependencies.trustedTenant.tenantId,
+        groupId: policy.targetGroupId,
+      });
+      if (!hasAllAdmins(group, policy.adminIds))
         throw new Error('Invalid automation configuration');
-      }
       const saved = await dependencies.repository.compareAndSaveConfigWithSync(
         {
           tenantId: dependencies.trustedTenant.tenantId,
@@ -81,7 +88,17 @@ function mutatePolicy(
 
 function isPolicy(value: unknown): value is AutomationPolicy {
   return (
-    isExactRecord(value, ['enabled', 'targetGroupId', 'adminIds', 'keyword']) &&
+    (isExactRecord(value, ['enabled', 'targetGroupId', 'adminIds', 'keyword']) ||
+      (isExactRecord(value, [
+        'enabled',
+        'opsStatus',
+        'timeWindow',
+        'targetGroupId',
+        'adminIds',
+        'keyword',
+      ]) &&
+        (value.opsStatus === 'active' || value.opsStatus === 'inactive') &&
+        isTimeWindow(value.timeWindow))) &&
     typeof value.enabled === 'boolean' &&
     isIdentifier(value.targetGroupId) &&
     isStringArray(value.adminIds) &&
@@ -89,6 +106,25 @@ function isPolicy(value: unknown): value is AutomationPolicy {
     value.keyword.trim().length > 0 &&
     value.keyword.length <= 256
   );
+}
+
+function isTimeWindow(value: unknown): boolean {
+  return (
+    isExactRecord(value, ['enabled', 'startMinute', 'endMinute']) &&
+    typeof value.enabled === 'boolean' &&
+    isMinute(value.startMinute) &&
+    isMinute(value.endMinute)
+  );
+}
+
+function isMinute(value: unknown): boolean {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 1_440;
+}
+
+function hasAllAdmins(group: unknown, expectedAdminIds: readonly string[]): boolean {
+  if (!isExactRecord(group, ['adminIds']) || !isStringArray(group.adminIds)) return false;
+  const current = new Set(group.adminIds);
+  return expectedAdminIds.every((adminId) => current.has(adminId));
 }
 
 function isStringArray(value: unknown): value is readonly string[] {

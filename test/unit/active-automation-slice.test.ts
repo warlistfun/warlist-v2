@@ -40,7 +40,6 @@ void test('simulates one committed global-keyword active slice through normalize
   assert.equal(Object.isFrozen(accepted.decision), true);
   assert.strictEqual(accepted.policy, committed.policy);
   assert.strictEqual(rejected.policy, committed.policy);
-  assert.deepEqual(fixture.propagated, []);
 });
 
 void test('keeps committed policy and deterministic closed decision unchanged across repeated synthetic runs', async () => {
@@ -96,11 +95,13 @@ async function createFixture() {
     null,
   );
   return {
-    propagated: [],
     service: createAutomationConfigMutationService({
       repository,
       trustedTenant: { tenantId },
-      validateGroupAdmins: () => true,
+      groupDirectory: {
+        loadGroup: () =>
+          Promise.resolve(Object.freeze({ adminIds: Object.freeze(['admin_example_one']) })),
+      },
     }),
   };
 }

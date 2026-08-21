@@ -59,8 +59,25 @@ void test('commits one field-scoped automation policy mutation with a pending ex
     failureCode: null,
     nextAttemptAt: null,
   });
-  assert.deepEqual(fixture.propagated, []);
-  assert.deepEqual(fixture.validated, [result.policy]);
+  assert.deepEqual(fixture.lookups, [{ tenantId, groupId: 'group_example_one' }]);
+});
+
+void test('preserves OPS status and time window while mutating one scoped field', async () => {
+  const fixture = await createFixture({ extendedPolicy: true });
+
+  const result = await fixture.service.mutate({
+    expectedRevision: 1,
+    mutation: { field: 'keyword', value: 'welcome' },
+  });
+
+  assert.deepEqual(result.policy, {
+    enabled: true,
+    opsStatus: 'active',
+    timeWindow: { enabled: true, startMinute: 540, endMinute: 1020 },
+    targetGroupId: 'group_example_one',
+    adminIds: ['admin_example_one'],
+    keyword: 'welcome',
+  });
 });
 
 void test('rejects a stale mutation without propagation or silent field overwrite', async () => {
@@ -81,7 +98,7 @@ void test('rejects a stale mutation without propagation or silent field overwrit
       error.code === 'CONFIG_VERSION_CONFLICT' &&
       error.message === 'Configuration version conflict',
   );
-  assert.deepEqual(fixture.propagated, []);
+  assert.deepEqual(fixture.lookups, [{ tenantId, groupId: 'group_example_one' }]);
   assert.deepEqual((await fixture.repository.loadConfig(tenantId))?.configuration, {
     unrelated: { preserved: true },
     automation: {
@@ -93,17 +110,34 @@ void test('rejects a stale mutation without propagation or silent field overwrit
   });
 });
 
-void test('rejects a server-side invalid group and admin relationship before persistence or propagation', async () => {
-  const fixture = await createFixture({ valid: false });
+void test('rejects a missing tenant group before persistence', async () => {
+  const fixture = await createFixture({ group: null });
 
   await assert.rejects(
     fixture.service.mutate({
       expectedRevision: 1,
-      mutation: { field: 'adminIds', value: ['admin_example_other'] },
+      mutation: { field: 'keyword', value: 'welcome' },
     }),
     { message: 'Invalid automation configuration' },
   );
-  assert.deepEqual(fixture.propagated, []);
+  assert.deepEqual(fixture.lookups, [{ tenantId, groupId: 'group_example_one' }]);
+  assert.deepEqual(
+    (await fixture.repository.loadConfig(tenantId))?.configuration,
+    initialConfiguration,
+  );
+});
+
+void test('rejects when any configured admin is absent from current group membership', async () => {
+  const fixture = await createFixture({ group: { adminIds: ['admin_example_one'] } });
+
+  await assert.rejects(
+    fixture.service.mutate({
+      expectedRevision: 1,
+      mutation: { field: 'adminIds', value: ['admin_example_one', 'admin_example_other'] },
+    }),
+    { message: 'Invalid automation configuration' },
+  );
+  assert.deepEqual(fixture.lookups, [{ tenantId, groupId: 'group_example_one' }]);
   assert.deepEqual(
     (await fixture.repository.loadConfig(tenantId))?.configuration,
     initialConfiguration,
@@ -131,8 +165,7 @@ void test('rejects malformed mutations without revealing values or invoking depe
         !error.message.includes(marker),
     );
   }
-  assert.deepEqual(fixture.propagated, []);
-  assert.deepEqual(fixture.validated, []);
+  assert.deepEqual(fixture.lookups, []);
   assert.deepEqual(
     (await fixture.repository.loadConfig(tenantId))?.configuration,
     initialConfiguration,
@@ -149,30 +182,47 @@ const initialConfiguration = Object.freeze({
   }),
 });
 
-async function createFixture(options: Readonly<{ valid?: boolean }> = {}) {
+async function createFixture(
+  options: Readonly<{
+    group?: Readonly<{ adminIds: readonly string[] }> | null;
+    extendedPolicy?: boolean;
+  }> = {},
+) {
   const authorization = new MutableTenantAuthorization();
   authorization.allowed.add(tenantId);
   const repository = createInMemoryBusinessRepository({ authorization });
   await repository.start();
   await repository.createTenant({ id: tenantId, publicOpsId: 'ops_example_one' });
-  const created = await repository.compareAndSaveConfig(
-    { tenantId, configuration: initialConfiguration },
-    null,
-  );
-  const validated: Array<unknown> = [];
+  const configuration = options.extendedPolicy
+    ? {
+        ...initialConfiguration,
+        automation: {
+          ...initialConfiguration.automation,
+          opsStatus: 'active',
+          timeWindow: { enabled: true, startMinute: 540, endMinute: 1020 },
+        },
+      }
+    : initialConfiguration;
+  const created = await repository.compareAndSaveConfig({ tenantId, configuration }, null);
+  const lookups: Array<Readonly<{ tenantId: string; groupId: string }>> = [];
   const service = createAutomationConfigMutationService({
     repository,
     trustedTenant: { tenantId },
-    validateGroupAdmins: (policy) => {
-      validated.push(policy);
-      return options.valid ?? true;
+    groupDirectory: {
+      loadGroup(input) {
+        lookups.push(input);
+        return Promise.resolve(
+          options.group === undefined
+            ? Object.freeze({ adminIds: Object.freeze(['admin_example_one']) })
+            : options.group,
+        );
+      },
     },
   });
   return {
     service,
     repository,
-    propagated: [],
-    validated,
+    lookups,
     createdAt: created.createdAt,
     updatedAt: created.updatedAt,
   };

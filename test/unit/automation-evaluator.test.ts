@@ -31,10 +31,10 @@ void test('returns one deterministic rejection code at the first failing gate', 
     [{ ...policy, opsStatus: 'inactive' }, { code: 'OPS_STATUS_INACTIVE' }],
     [
       { ...policy, timeWindow: { enabled: true, startMinute: 601, endMinute: 700 } },
-      { code: 'TIME_WINDOW_CLOSED' },
+      { code: 'OUTSIDE_SCHEDULE' },
     ],
-    [{ ...policy, targetGroupId: 'group_example_other' }, { code: 'TARGET_GROUP_MISMATCH' }],
-    [{ ...policy, adminIds: ['admin_example_other'] }, { code: 'TRIGGER_NOT_ADMIN' }],
+    [{ ...policy, targetGroupId: 'group_example_other' }, { code: 'WRONG_GROUP' }],
+    [{ ...policy, adminIds: ['admin_example_other'] }, { code: 'SENDER_NOT_ADMIN' }],
     [{ ...policy, keyword: 'other' }, { code: 'KEYWORD_NOT_MATCHED' }],
     [{ ...policy, enabled: false, opsStatus: 'inactive' }, { code: 'BOT_DISABLED' }],
   ] as const;
@@ -50,12 +50,26 @@ void test('uses inclusive normal and overnight time windows from injected minute
     [{ enabled: true, startMinute: 540, endMinute: 1020 }, 1020, 'ACCEPTED'],
     [{ enabled: true, startMinute: 1320, endMinute: 360 }, 1320, 'ACCEPTED'],
     [{ enabled: true, startMinute: 1320, endMinute: 360 }, 360, 'ACCEPTED'],
-    [{ enabled: true, startMinute: 1320, endMinute: 360 }, 720, 'TIME_WINDOW_CLOSED'],
+    [{ enabled: true, startMinute: 1320, endMinute: 360 }, 720, 'OUTSIDE_SCHEDULE'],
     [{ enabled: false, startMinute: 540, endMinute: 1020 }, 0, 'ACCEPTED'],
   ] as const) {
     assert.deepEqual(evaluateAutomation(message, { ...policy, timeWindow }, currentMinute), {
       code: expected,
     });
+  }
+});
+
+void test('rejects unavailable entitlement, duplicate inbound, and existing delivery in order', () => {
+  for (const [state, expected] of [
+    [{ hasEntitlement: false, duplicateMessage: true, deliveryExists: true }, 'NO_ENTITLEMENT'],
+    [{ hasEntitlement: true, duplicateMessage: true, deliveryExists: true }, 'DUPLICATE_MESSAGE'],
+    [
+      { hasEntitlement: true, duplicateMessage: false, deliveryExists: true },
+      'DELIVERY_ALREADY_EXISTS',
+    ],
+    [{ hasEntitlement: true, duplicateMessage: false, deliveryExists: false }, 'ACCEPTED'],
+  ] as const) {
+    assert.deepEqual(evaluateAutomation(message, policy, 600, state), { code: expected });
   }
 });
 

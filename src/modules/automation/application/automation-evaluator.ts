@@ -2,10 +2,13 @@ export type AutomationDecisionCode =
   | 'ACCEPTED'
   | 'BOT_DISABLED'
   | 'OPS_STATUS_INACTIVE'
-  | 'TIME_WINDOW_CLOSED'
-  | 'TARGET_GROUP_MISMATCH'
-  | 'TRIGGER_NOT_ADMIN'
-  | 'KEYWORD_NOT_MATCHED';
+  | 'OUTSIDE_SCHEDULE'
+  | 'WRONG_GROUP'
+  | 'SENDER_NOT_ADMIN'
+  | 'KEYWORD_NOT_MATCHED'
+  | 'NO_ENTITLEMENT'
+  | 'DUPLICATE_MESSAGE'
+  | 'DELIVERY_ALREADY_EXISTS';
 
 export type AutomationDecision = Readonly<{ code: AutomationDecisionCode }>;
 
@@ -28,10 +31,17 @@ export interface AutomationPolicy {
   readonly keyword: string;
 }
 
+export interface AutomationEvaluationState {
+  readonly hasEntitlement: boolean;
+  readonly duplicateMessage: boolean;
+  readonly deliveryExists: boolean;
+}
+
 export function evaluateAutomation(
   message: unknown,
   policy: unknown,
   currentMinute?: unknown,
+  state?: unknown,
 ): AutomationDecision {
   if (!isMessage(message) || !isPolicy(policy))
     throw new Error('Invalid automation evaluation input');
@@ -42,14 +52,20 @@ export function evaluateAutomation(
     policy.timeWindow?.enabled &&
     (!isMinuteOfDay(currentMinute) || !isWithinTimeWindow(policy.timeWindow, currentMinute))
   ) {
-    return decision('TIME_WINDOW_CLOSED');
+    return decision('OUTSIDE_SCHEDULE');
   }
-  if (message.groupId !== policy.targetGroupId) return decision('TARGET_GROUP_MISMATCH');
-  if (!policy.adminIds.includes(message.senderId)) return decision('TRIGGER_NOT_ADMIN');
+  if (message.groupId !== policy.targetGroupId) return decision('WRONG_GROUP');
+  if (!policy.adminIds.includes(message.senderId)) return decision('SENDER_NOT_ADMIN');
   if (
     !message.text.toLocaleLowerCase('en-US').includes(policy.keyword.toLocaleLowerCase('en-US'))
   ) {
     return decision('KEYWORD_NOT_MATCHED');
+  }
+  if (state !== undefined) {
+    if (!isEvaluationState(state)) throw new Error('Invalid automation evaluation input');
+    if (!state.hasEntitlement) return decision('NO_ENTITLEMENT');
+    if (state.duplicateMessage) return decision('DUPLICATE_MESSAGE');
+    if (state.deliveryExists) return decision('DELIVERY_ALREADY_EXISTS');
   }
   return decision('ACCEPTED');
 }
@@ -91,6 +107,15 @@ function isPolicy(value: unknown): value is AutomationPolicy & {
     typeof value.keyword === 'string' &&
     value.keyword.trim().length > 0 &&
     value.keyword.length <= 256
+  );
+}
+
+function isEvaluationState(value: unknown): value is AutomationEvaluationState {
+  return (
+    isExactRecord(value, ['hasEntitlement', 'duplicateMessage', 'deliveryExists']) &&
+    typeof value.hasEntitlement === 'boolean' &&
+    typeof value.duplicateMessage === 'boolean' &&
+    typeof value.deliveryExists === 'boolean'
   );
 }
 

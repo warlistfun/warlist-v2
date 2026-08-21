@@ -19,23 +19,33 @@ export function runAutomationSimulation(input: unknown): AutomationDecision {
       normalizeSyntheticInboundMessage(fixture.message),
       fixture.policy,
       fixture.currentMinute,
+      fixture.state,
     );
   } catch {
     throw invalidFixture();
   }
 }
 
-function exactFixture(
-  input: unknown,
-): Readonly<{ message: unknown; policy: AutomationPolicy; currentMinute?: unknown }> | undefined {
+function exactFixture(input: unknown):
+  | Readonly<{
+      message: unknown;
+      policy: AutomationPolicy;
+      currentMinute?: unknown;
+      state?: unknown;
+    }>
+  | undefined {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return undefined;
   try {
     const prototype: unknown = Object.getPrototypeOf(input);
     if (prototype !== Object.prototype && prototype !== null) return undefined;
     const keys = Reflect.ownKeys(input);
     if (
-      (keys.length !== 2 && keys.length !== 3) ||
-      !keys.every((key) => key === 'message' || key === 'policy' || key === 'currentMinute')
+      keys.length < 2 ||
+      keys.length > 4 ||
+      !keys.every(
+        (key) =>
+          key === 'message' || key === 'policy' || key === 'currentMinute' || key === 'state',
+      )
     ) {
       return undefined;
     }
@@ -51,10 +61,17 @@ function exactFixture(
     ) {
       return undefined;
     }
+    if (
+      Object.hasOwn(descriptors, 'state') &&
+      (descriptors.state?.enumerable !== true || !Object.hasOwn(descriptors.state, 'value'))
+    ) {
+      return undefined;
+    }
     return {
       message: descriptors.message?.value,
       policy: descriptors.policy?.value as AutomationPolicy,
       currentMinute: descriptors.currentMinute?.value,
+      state: descriptors.state?.value,
     };
   } catch {
     return undefined;

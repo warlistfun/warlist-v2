@@ -78,16 +78,18 @@ PR #47's former Phase 4 closure claim remains superseded; its factually accurate
 
 ## Phase 5 — Automation evaluator and field-scoped configuration
 
-**Status:** In progress (2026-08-21)
+**Status:** Complete (2026-08-21); Phase 6 is authorized.
 
-- [x] Pure synthetic automation evaluator with closed deterministic decision codes (Issue #58 / PR #59)
-- [x] Pure synthetic inbound-message normalization into immutable evaluator input (Issue #60 / this PR)
-- [x] Field-scoped/versioned synthetic configuration mutation with injected server-side group/admin validation and exact committed-version propagation boundary (Issue #62 / this PR)
-- [x] Safe simulator CLI (Issue #64 / this PR)
-- [x] Resource-free synthetic global-keyword active-slice characterization (Issue #68 / PR #69)
-- [ ] Active runtime automation migration, concrete server-side group/admin validation, and worker-process propagation remain
+- [x] Pure synthetic inbound normalization and full closed evaluator decision set (Issues #58/#60/#67/#79)
+- [x] Field-scoped/versioned configuration mutation with stale-write conflict behavior (Issue #62 / PR #63; Issue #79)
+- [x] Tenant-scoped current group/admin membership validation before persistence (Issue #79)
+- [x] Atomic exact-revision config synchronization outbox and fenced recovery (Issue #76 / PR #78)
+- [x] Exact committed revision propagation through existing ownership/runtime/IPC `APPLY_CONFIG` boundary (Issue #79)
+- [x] Safe `debug:automation` simulator for synthetic message, policy, time, and decision state (Issue #64 / PR #65; Issue #79)
+- [x] Active V2 decision slice loads canonical config and stops before external send (Issues #68/#79)
+- [x] Master-plan evidence matrix reconciled in [Phase 5 authority reconciliation](phase5-reconciliation.md)
 
-Phase 5 remains **IN PROGRESS** and Phase 6 is **NOT AUTHORIZED**. The [Phase 5 authority reconciliation](phase5-reconciliation.md) preserves the landed foundations/slices and records that injected validation/propagation boundaries are not concrete lookup/worker-process evidence, and that #68 is not active runtime automation migration. The foundations have no transport/database effects and do not establish provider payload decoding, active runtime automation, deployment, or Production readiness.
+Phase 5 closes a non-Production application foundation. It does not claim provider payload decoding, concrete OS child-process launch, Baileys/provider send, delivery claim/send semantics, entitlement debit, hosted Supabase, deployment, migration/cutover, or Production readiness. Those boundaries remain assigned to later phases, beginning with Phase 6 delivery and entitlement integrity.
 
 ## Later phases
 

@@ -1,11 +1,11 @@
 # ADR 0009: Durable Automation Config and Worker Synchronization
 
-- **Status:** Accepted for future implementation
+- **Status:** Accepted and implemented by PRs #78 and the Issue #79 closure PR
 - **Date:** 2026-08-21
 
 ## Context
 
-`createAutomationConfigMutationService()` currently compares and saves a tenant-owned configuration revision, then invokes an injected propagation boundary. Existing worker IPC already carries a versioned `APPLY_CONFIG` command, but a worker rejection, timeout, or unavailability cannot safely reverse a persisted revision: rollback can overwrite a newer successful revision, while dispatch-before-save cannot know the exact winning revision under concurrent writes.
+`createAutomationConfigMutationService()` originally compared and saved a tenant-owned configuration revision before an injected propagation boundary. Existing worker IPC already carried a versioned `APPLY_CONFIG` command, but a worker rejection, timeout, or unavailability could not safely reverse a persisted revision: rollback could overwrite a newer successful revision, while dispatch-before-save could not know the exact winning revision under concurrent writes.
 
 ## Decision
 
@@ -26,14 +26,14 @@ On restart, the dispatcher resumes non-terminal records. Newer revisions do not 
 - **Store a worker-applied revision inside the opaque config JSON:** rejected; it couples delivery state to config payload, complicates atomic versioning/recovery, and does not supply durable retry work.
 - **Treat worker acknowledgement as part of a synchronous distributed transaction:** rejected; process IPC cannot provide that atomicity across crash boundaries.
 
-## Implementation contract
+## Implemented contract
 
-A follow-up slice must add a forward-only schema/migration and repository contract that atomically saves configuration plus outbox record; a dispatcher boundary; strict tenant/revision fencing; restart recovery; and focused tests for commit, stale conflict, worker ACK, rejection/timeout/unavailable, retry, and stale-result isolation. It must not add provider payload decoding/send, credentials, deployment, runtime cutover, hosted Supabase configuration, customer data, or claim Phase 5 closure.
+PR #78 added the forward-only schema/migration and repository contract that atomically saves configuration plus the outbox record. The Issue #79 closure adds the dispatcher through the existing ownership/runtime/IPC boundary, strict claim fencing, expired-lease recovery, and focused worker ACK/rejection/timeout/unavailable tests. Neither change adds provider payload decoding/send, credentials, deployment, runtime cutover, hosted Supabase configuration, or customer data.
 
 ## Consequences
 
-The system exposes a durable distinction between canonical config revision and worker-applied revision. Worker lag becomes recoverable/observable rather than an unsafe rollback condition. This ADR advances the Phase 5 synchronization foundation only; concrete group/admin current-membership validation and active runtime automation migration remain unresolved.
+The system exposes a durable distinction between canonical config revision and worker-applied revision. Worker lag is recoverable/observable rather than an unsafe rollback condition. Tenant-scoped current-membership validation and the active V2 decision slice are completed separately by Issue #79.
 
 ## Non-authorization
 
-This decision does not authorize provider integration, actual worker-process launch, Production deployment, legacy changes, customer data access, hosted database changes, or Phase 6 work. **Phase 5 remains IN PROGRESS. Phase 6 remains NOT AUTHORIZED.**
+This decision does not authorize provider integration, concrete OS child-process launch, Production deployment, legacy changes, customer data access, or hosted database changes. Phase 6 is separately authorized by the merged Phase 5 authority reconciliation.
