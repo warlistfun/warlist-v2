@@ -76,6 +76,16 @@ Phase 4 delivers a **non-Production foundation** only: portable PostgreSQL/Supab
 
 PR #47's former Phase 4 closure claim remains superseded; its factually accurate as-built documentation and Issues #42/#44/#50/#52/#54 remain preserved verified evidence. The Phase 4 master-plan objective and all four acceptance rows are now reconciled above. Phase 5 implementation is authorized; it is not started by this closure.
 
+## Phase 5 — Automation evaluator and field-scoped configuration
+
+**Status:** In progress (2026-08-21)
+
+- [x] Pure synthetic automation evaluator with closed deterministic decision codes (Issue #58 / PR #59)
+- [x] Pure synthetic inbound-message normalization into immutable evaluator input (Issue #60 / this PR)
+- [ ] Field-scoped/versioned configuration mutation, server-side group/admin validation, exact worker propagation, safe simulator CLI, and bounded active-slice migration
+
+Phase 5 remains **IN PROGRESS**. The landed evaluator and normalization foundations have no transport/database effects and do not establish provider payload decoding, configuration concurrency, worker propagation, simulator coverage, active automation migration, deployment, or Production readiness.
+
 ## Later phases
 
 Backend composition, workers, Telegram retirement, automation, delivery/entitlements, identity/admin, billing, notification retirement, and eventual migration/cutover each require separate bounded Issues and acceptance evidence.
