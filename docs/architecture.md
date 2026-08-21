@@ -48,6 +48,8 @@ Worker IPC protocol v1 is a resource-free contract boundary. Parent commands and
 
 `npm run debug:automation -- path/to/fixture.json` reads one explicit JSON fixture, validates an exact `{ message, policy }` shape without echoing it, normalizes its synthetic inbound message, and prints only the evaluator decision code. It has no transport, database, worker, provider, environment, or runtime-state integration; malformed input produces one stable error on stderr.
 
+`decideLegacyAdminTrigger()` is a pure synthetic characterization of one active legacy keyword decision boundary: a configured sender-specific trigger is decisive, while global keywords apply only when no sender-specific trigger exists. It accepts invented normalized identifiers/text and returns a frozen match/non-match code. It does not decode provider messages, validate membership, load or mutate configuration, invoke workers, dedupe, create delivery state, or send; it is not legacy migration/cutover.
+
 `createHttpApp()` is an in-process adapter with versioned health/readiness routes, runtime request validation, generated request IDs, and canonical response envelopes. It does not bind a port or own network lifecycle.
 
 `createBootstrap()` explicitly owns application startup and shutdown-signal registration through a port. It serializes transitions, unregisters handlers before shutdown, rolls back partial registration, and retains failed cleanup for retry. No `process` listener is registered at import time.
