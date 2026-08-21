@@ -5,6 +5,8 @@ import type { LoggerPort, MetricsPort } from '../../app/ports';
 import {
   RepositoryError,
   type AuditEvent,
+  type AutomationConfigSyncRecord,
+  type AutomationConfigSyncStatus,
   type BusinessRepositoryPort,
   type ConfigRecord,
   type DeliveryRecord,
@@ -227,6 +229,111 @@ export function createPostgresBusinessRepository(dependencies: {
         throw new RepositoryError('CONFIG_VERSION_CONFLICT');
       }
       return parseSingle(result, parseConfigRecord);
+    },
+    async compareAndSaveConfigWithSync(input, expectedRevision) {
+      authorize(input.tenantId);
+      if (!isJsonObject(input.configuration) || !isExpectedRevision(expectedRevision)) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const result = await query(
+        `WITH saved AS (
+           ${
+             expectedRevision === null
+               ? `INSERT INTO automation_configs (tenant_id, configuration)
+                  SELECT id, $2::jsonb FROM tenants WHERE id = $1
+                  ON CONFLICT (tenant_id) DO NOTHING
+                  RETURNING tenant_id, configuration, schema_version, revision, created_at, updated_at`
+               : `UPDATE automation_configs
+                  SET configuration = $2::jsonb, revision = revision + 1, updated_at = now()
+                  WHERE tenant_id = $1 AND revision = $3
+                  RETURNING tenant_id, configuration, schema_version, revision, created_at, updated_at`
+           }
+         ), sync AS (
+           INSERT INTO automation_config_sync_outbox (tenant_id, config_revision)
+           SELECT tenant_id, revision FROM saved
+           RETURNING tenant_id, config_revision, status, attempts, claim_token, lease_until, failure_code, next_attempt_at
+         )
+         SELECT row_to_json(saved) AS config, row_to_json(sync) AS sync FROM saved JOIN sync USING (tenant_id)`,
+        expectedRevision === null
+          ? [input.tenantId, JSON.stringify(input.configuration)]
+          : [input.tenantId, JSON.stringify(input.configuration), expectedRevision],
+      );
+      if (result.rowCount !== 1) {
+        if (!(await tenantExists(input.tenantId))) throw new RepositoryError('TENANT_NOT_FOUND');
+        throw new RepositoryError('CONFIG_VERSION_CONFLICT');
+      }
+      const row = result.rows[0];
+      if (!isRecord(row)) throw new RepositoryError('DATABASE_ROW_INVALID');
+      const config = parseConfigRecord(row.config);
+      const sync = parseAutomationConfigSync(row.sync);
+      if (!config || !sync) throw new RepositoryError('DATABASE_ROW_INVALID');
+      return Object.freeze({ config, sync });
+    },
+    async readAutomationConfigSync(tenantId, configRevision) {
+      authorize(tenantId);
+      if (!isPositiveInteger(configRevision)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const result = await query(
+        `SELECT tenant_id, config_revision, status, attempts, claim_token, lease_until, failure_code, next_attempt_at
+         FROM automation_config_sync_outbox WHERE tenant_id = $1 AND config_revision = $2`,
+        [tenantId, configRevision],
+      );
+      return parseOptional(result, parseAutomationConfigSync);
+    },
+    async claimDueAutomationConfigSyncs(input) {
+      if (!isClaimInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const result = await query(
+        `WITH due AS (
+           SELECT tenant_id, config_revision FROM automation_config_sync_outbox
+           WHERE status = 'PENDING'
+              OR (status = 'RETRYABLE_FAILURE' AND next_attempt_at <= $2::timestamptz)
+              OR (status = 'IN_FLIGHT' AND lease_until <= $2::timestamptz)
+           ORDER BY tenant_id, config_revision
+           LIMIT $1 FOR UPDATE SKIP LOCKED
+         )
+         UPDATE automation_config_sync_outbox outbox
+         SET status = 'IN_FLIGHT', attempts = attempts + 1, claim_token = $3,
+             lease_until = $4::timestamptz, failure_code = NULL, next_attempt_at = NULL
+         FROM due
+         WHERE (outbox.tenant_id, outbox.config_revision) = (due.tenant_id, due.config_revision)
+         RETURNING outbox.tenant_id, outbox.config_revision, outbox.status, outbox.attempts,
+                   outbox.claim_token, outbox.lease_until, outbox.failure_code, outbox.next_attempt_at`,
+        [input.limit, input.now, input.claimToken, input.leaseUntil],
+      );
+      return Object.freeze(result.rows.map((row) => parseRow(row, parseAutomationConfigSync)));
+    },
+    async markAutomationConfigSyncApplied(input) {
+      authorize(input.tenantId);
+      if (!isSettlementInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const result = await query(
+        `UPDATE automation_config_sync_outbox
+         SET status = 'APPLIED', claim_token = NULL, lease_until = NULL
+         WHERE tenant_id = $1 AND config_revision = $2 AND status = 'IN_FLIGHT' AND claim_token = $3
+         RETURNING tenant_id, config_revision, status, attempts, claim_token, lease_until, failure_code, next_attempt_at`,
+        [input.tenantId, input.configRevision, input.claimToken],
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('AUTOMATION_CONFIG_SYNC_CLAIM_CONFLICT');
+      return parseSingle(result, parseAutomationConfigSync);
+    },
+    async recordAutomationConfigSyncFailure(input) {
+      authorize(input.tenantId);
+      if (!isFailureInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const result = await query(
+        `UPDATE automation_config_sync_outbox
+         SET status = $4, claim_token = NULL, lease_until = NULL, failure_code = $5,
+             next_attempt_at = $6::timestamptz
+         WHERE tenant_id = $1 AND config_revision = $2 AND status = 'IN_FLIGHT' AND claim_token = $3
+         RETURNING tenant_id, config_revision, status, attempts, claim_token, lease_until, failure_code, next_attempt_at`,
+        [
+          input.tenantId,
+          input.configRevision,
+          input.claimToken,
+          input.retryable ? 'RETRYABLE_FAILURE' : 'NON_RETRYABLE_FAILURE',
+          input.failureCode,
+          input.nextAttemptAt,
+        ],
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('AUTOMATION_CONFIG_SYNC_CLAIM_CONFLICT');
+      return parseSingle(result, parseAutomationConfigSync);
     },
     async prepareDelivery(input): Promise<DeliveryRecord> {
       authorize(input.tenantId);
@@ -480,6 +587,47 @@ function parseConfigRecord(row: unknown): ConfigRecord | undefined {
   });
 }
 
+function parseAutomationConfigSync(row: unknown): AutomationConfigSyncRecord | undefined {
+  if (!isRecord(row)) return undefined;
+  const configRevision = positiveInteger(row.config_revision);
+  const attempts = nonNegativeInteger(row.attempts);
+  const claimToken =
+    row.claim_token === null
+      ? null
+      : isIdentifier(row.claim_token, false)
+        ? row.claim_token
+        : undefined;
+  const leaseUntil = row.lease_until === null ? null : timestamp(row.lease_until);
+  const failureCode =
+    row.failure_code === null
+      ? null
+      : isIdentifier(row.failure_code, true)
+        ? row.failure_code
+        : undefined;
+  const nextAttemptAt = row.next_attempt_at === null ? null : timestamp(row.next_attempt_at);
+  if (
+    !isUuid(row.tenant_id) ||
+    !configRevision ||
+    !isAutomationConfigSyncStatus(row.status) ||
+    attempts === undefined ||
+    claimToken === undefined ||
+    leaseUntil === undefined ||
+    failureCode === undefined ||
+    nextAttemptAt === undefined
+  )
+    return undefined;
+  return Object.freeze({
+    tenantId: row.tenant_id,
+    configRevision,
+    status: row.status,
+    attempts,
+    claimToken,
+    leaseUntil,
+    failureCode,
+    nextAttemptAt,
+  });
+}
+
 function parseDelivery(row: unknown): DeliveryRecord | undefined {
   if (!isRecord(row)) return undefined;
   const revision = positiveInteger(row.revision);
@@ -616,6 +764,70 @@ function isTenantStatus(value: unknown): value is TenantRecord['status'] {
 
 function isExpectedRevision(value: unknown): value is number | null {
   return value === null || (Number.isSafeInteger(value) && typeof value === 'number' && value > 0);
+}
+
+function isClaimInput(
+  value: unknown,
+): value is Readonly<{ limit: number; now: string; leaseUntil: string; claimToken: string }> {
+  return (
+    isRecord(value) &&
+    isIntegerBetween(value.limit, 1, 100) &&
+    timestamp(value.now) !== undefined &&
+    timestamp(value.leaseUntil) !== undefined &&
+    Date.parse(value.leaseUntil as string) > Date.parse(value.now as string) &&
+    isIdentifier(value.claimToken, false)
+  );
+}
+
+function isSettlementInput(
+  value: unknown,
+): value is Readonly<{ tenantId: string; configRevision: number; claimToken: string }> {
+  return (
+    isRecord(value) &&
+    isUuid(value.tenantId) &&
+    isPositiveInteger(value.configRevision) &&
+    isIdentifier(value.claimToken, false)
+  );
+}
+
+function isFailureInput(value: unknown): value is Readonly<{
+  tenantId: string;
+  configRevision: number;
+  claimToken: string;
+  retryable: boolean;
+  failureCode: string;
+  nextAttemptAt: string | null;
+}> {
+  return (
+    isRecord(value) &&
+    isUuid(value.tenantId) &&
+    isPositiveInteger(value.configRevision) &&
+    isIdentifier(value.claimToken, false) &&
+    typeof value.retryable === 'boolean' &&
+    isIdentifier(value.failureCode, true) &&
+    (value.retryable ? timestamp(value.nextAttemptAt) !== undefined : value.nextAttemptAt === null)
+  );
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function isAutomationConfigSyncStatus(value: unknown): value is AutomationConfigSyncStatus {
+  return (
+    value === 'PENDING' ||
+    value === 'IN_FLIGHT' ||
+    value === 'APPLIED' ||
+    value === 'RETRYABLE_FAILURE' ||
+    value === 'NON_RETRYABLE_FAILURE'
+  );
+}
+
+function nonNegativeInteger(value: unknown): number | undefined {
+  const number = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value;
+  return typeof number === 'number' && Number.isSafeInteger(number) && number >= 0
+    ? number
+    : undefined;
 }
 
 function positiveInteger(value: unknown): number | undefined {

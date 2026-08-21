@@ -20,6 +20,20 @@ export type ConfigRecord = Readonly<{
   updatedAt: string;
 }>;
 
+export type AutomationConfigSyncStatus =
+  'PENDING' | 'IN_FLIGHT' | 'APPLIED' | 'RETRYABLE_FAILURE' | 'NON_RETRYABLE_FAILURE';
+
+export type AutomationConfigSyncRecord = Readonly<{
+  tenantId: string;
+  configRevision: number;
+  status: AutomationConfigSyncStatus;
+  attempts: number;
+  claimToken: string | null;
+  leaseUntil: string | null;
+  failureCode: string | null;
+  nextAttemptAt: string | null;
+}>;
+
 export type DeliveryRecord = Readonly<{
   id: string;
   tenantId: string;
@@ -57,6 +71,39 @@ export interface BusinessRepositoryPort extends RepositoryPort {
     input: Readonly<{ tenantId: string; configuration: unknown }>,
     expectedRevision: number | null,
   ): Promise<ConfigRecord>;
+  compareAndSaveConfigWithSync(
+    input: Readonly<{ tenantId: string; configuration: unknown }>,
+    expectedRevision: number | null,
+  ): Promise<Readonly<{ config: ConfigRecord; sync: AutomationConfigSyncRecord }>>;
+  readAutomationConfigSync(
+    tenantId: string,
+    configRevision: number,
+  ): Promise<AutomationConfigSyncRecord | undefined>;
+  claimDueAutomationConfigSyncs(
+    input: Readonly<{
+      limit: number;
+      now: string;
+      leaseUntil: string;
+      claimToken: string;
+    }>,
+  ): Promise<readonly AutomationConfigSyncRecord[]>;
+  markAutomationConfigSyncApplied(
+    input: Readonly<{
+      tenantId: string;
+      configRevision: number;
+      claimToken: string;
+    }>,
+  ): Promise<AutomationConfigSyncRecord>;
+  recordAutomationConfigSyncFailure(
+    input: Readonly<{
+      tenantId: string;
+      configRevision: number;
+      claimToken: string;
+      retryable: boolean;
+      failureCode: string;
+      nextAttemptAt: string | null;
+    }>,
+  ): Promise<AutomationConfigSyncRecord>;
   prepareDelivery(
     input: Readonly<{ id: string; tenantId: string; operationKey: string }>,
   ): Promise<DeliveryRecord>;
@@ -71,6 +118,7 @@ const repositoryErrors = {
   TENANT_ALREADY_EXISTS: ['Tenant already exists', false],
   TENANT_NOT_FOUND: ['Tenant not found', false],
   CONFIG_VERSION_CONFLICT: ['Configuration version conflict', false],
+  AUTOMATION_CONFIG_SYNC_CLAIM_CONFLICT: ['Automation config sync claim conflict', false],
   DELIVERY_ALREADY_EXISTS: ['Delivery operation already exists', false],
   AUDIT_EVENT_ALREADY_EXISTS: ['Audit event already exists', false],
   DATABASE_UNAVAILABLE: ['Database is unavailable', true],
@@ -96,6 +144,7 @@ export function createInMemoryBusinessRepository(dependencies: {
   const tenants = new Map<string, TenantRecord>();
   const tenantIdsByPublicOpsId = new Map<string, string>();
   const configs = new Map<string, ConfigRecord>();
+  const automationConfigSyncs = new Map<string, AutomationConfigSyncRecord>();
   const deliveries = new Map<string, DeliveryRecord>();
   const deliveryIdsByTenantKey = new Map<string, string>();
   const auditEvents = new Map<string, AuditEvent>();
@@ -184,6 +233,123 @@ export function createInMemoryBusinessRepository(dependencies: {
       configs.set(input.tenantId, config);
       return Promise.resolve(freezeConfig(config));
     },
+    async compareAndSaveConfigWithSync(input, expectedRevision) {
+      await Promise.resolve();
+      requireStarted();
+      authorize(input.tenantId);
+      if (!tenants.has(input.tenantId)) throw new RepositoryError('TENANT_NOT_FOUND');
+      if (
+        (expectedRevision !== null &&
+          (!Number.isSafeInteger(expectedRevision) || expectedRevision <= 0)) ||
+        !isJsonObject(input.configuration)
+      ) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const current = configs.get(input.tenantId);
+      if ((current?.revision ?? null) !== expectedRevision) {
+        throw new RepositoryError('CONFIG_VERSION_CONFLICT');
+      }
+      const now = new Date().toISOString();
+      const config = freezeConfig({
+        tenantId: input.tenantId,
+        configuration: input.configuration,
+        schemaVersion: 1,
+        revision: (current?.revision ?? 0) + 1,
+        createdAt: current?.createdAt ?? now,
+        updatedAt: now,
+      });
+      const sync = freezeAutomationConfigSync({
+        tenantId: config.tenantId,
+        configRevision: config.revision,
+        status: 'PENDING',
+        attempts: 0,
+        claimToken: null,
+        leaseUntil: null,
+        failureCode: null,
+        nextAttemptAt: null,
+      });
+      configs.set(config.tenantId, config);
+      automationConfigSyncs.set(syncKey(sync.tenantId, sync.configRevision), sync);
+      return Object.freeze({
+        config: freezeConfig(config),
+        sync: freezeAutomationConfigSync(sync),
+      });
+    },
+    async readAutomationConfigSync(tenantId, configRevision) {
+      await Promise.resolve();
+      requireStarted();
+      authorize(tenantId);
+      if (!isPositiveInteger(configRevision)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const sync = automationConfigSyncs.get(syncKey(tenantId, configRevision));
+      return sync && freezeAutomationConfigSync(sync);
+    },
+    async claimDueAutomationConfigSyncs(input) {
+      await Promise.resolve();
+      requireStarted();
+      if (!isClaimInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const claimed = [...automationConfigSyncs.values()]
+        .filter((sync) => isDue(sync, input.now))
+        .sort(
+          (left, right) =>
+            left.tenantId.localeCompare(right.tenantId) ||
+            left.configRevision - right.configRevision,
+        )
+        .slice(0, input.limit)
+        .map((sync) => {
+          const next = freezeAutomationConfigSync({
+            ...sync,
+            status: 'IN_FLIGHT',
+            attempts: sync.attempts + 1,
+            claimToken: input.claimToken,
+            leaseUntil: input.leaseUntil,
+            failureCode: null,
+            nextAttemptAt: null,
+          });
+          automationConfigSyncs.set(syncKey(next.tenantId, next.configRevision), next);
+          return freezeAutomationConfigSync(next);
+        });
+      return Object.freeze(claimed);
+    },
+    async markAutomationConfigSyncApplied(input) {
+      await Promise.resolve();
+      requireStarted();
+      authorize(input.tenantId);
+      if (!isSettlementInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const key = syncKey(input.tenantId, input.configRevision);
+      const current = automationConfigSyncs.get(key);
+      if (!current || current.status !== 'IN_FLIGHT' || current.claimToken !== input.claimToken) {
+        throw new RepositoryError('AUTOMATION_CONFIG_SYNC_CLAIM_CONFLICT');
+      }
+      const applied = freezeAutomationConfigSync({
+        ...current,
+        status: 'APPLIED',
+        claimToken: null,
+        leaseUntil: null,
+      });
+      automationConfigSyncs.set(key, applied);
+      return freezeAutomationConfigSync(applied);
+    },
+    async recordAutomationConfigSyncFailure(input) {
+      await Promise.resolve();
+      requireStarted();
+      authorize(input.tenantId);
+      if (!isFailureInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const key = syncKey(input.tenantId, input.configRevision);
+      const current = automationConfigSyncs.get(key);
+      if (!current || current.status !== 'IN_FLIGHT' || current.claimToken !== input.claimToken) {
+        throw new RepositoryError('AUTOMATION_CONFIG_SYNC_CLAIM_CONFLICT');
+      }
+      const failed = freezeAutomationConfigSync({
+        ...current,
+        status: input.retryable ? 'RETRYABLE_FAILURE' : 'NON_RETRYABLE_FAILURE',
+        claimToken: null,
+        leaseUntil: null,
+        failureCode: input.failureCode,
+        nextAttemptAt: input.nextAttemptAt,
+      });
+      automationConfigSyncs.set(key, failed);
+      return freezeAutomationConfigSync(failed);
+    },
     async prepareDelivery(input): Promise<DeliveryRecord> {
       requireStarted();
       authorize(input.tenantId);
@@ -255,6 +421,85 @@ function freezeTenant(tenant: TenantRecord): TenantRecord {
 
 function freezeConfig(config: ConfigRecord): ConfigRecord {
   return Object.freeze({ ...config, configuration: cloneAndFreezeJson(config.configuration) });
+}
+
+function freezeAutomationConfigSync(sync: AutomationConfigSyncRecord): AutomationConfigSyncRecord {
+  return Object.freeze({ ...sync });
+}
+
+function syncKey(tenantId: string, configRevision: number): string {
+  return `${tenantId}\u0000${configRevision}`;
+}
+
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
+}
+
+function isTimestamp(value: unknown): value is string {
+  return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+
+function isClaimInput(value: unknown): value is Readonly<{
+  limit: number;
+  now: string;
+  leaseUntil: string;
+  claimToken: string;
+}> {
+  return (
+    isPlainObject(value) &&
+    isPositiveInteger(value.limit) &&
+    value.limit <= 100 &&
+    isTimestamp(value.now) &&
+    isTimestamp(value.leaseUntil) &&
+    Date.parse(value.leaseUntil) > Date.parse(value.now) &&
+    isBoundedIdentifier(value.claimToken, false)
+  );
+}
+
+function isSettlementInput(value: unknown): value is Readonly<{
+  tenantId: string;
+  configRevision: number;
+  claimToken: string;
+}> {
+  return (
+    isPlainObject(value) &&
+    isUuid(value.tenantId) &&
+    isPositiveInteger(value.configRevision) &&
+    isBoundedIdentifier(value.claimToken, false)
+  );
+}
+
+function isFailureInput(value: unknown): value is Readonly<{
+  tenantId: string;
+  configRevision: number;
+  claimToken: string;
+  retryable: boolean;
+  failureCode: string;
+  nextAttemptAt: string | null;
+}> {
+  if (!isPlainObject(value)) return false;
+  const candidate = value as Readonly<Record<string, unknown>>;
+  return (
+    isUuid(candidate.tenantId) &&
+    isPositiveInteger(candidate.configRevision) &&
+    isBoundedIdentifier(candidate.claimToken, false) &&
+    typeof candidate.retryable === 'boolean' &&
+    isBoundedIdentifier(candidate.failureCode, true) &&
+    (candidate.retryable ? isTimestamp(candidate.nextAttemptAt) : candidate.nextAttemptAt === null)
+  );
+}
+
+function isDue(sync: AutomationConfigSyncRecord, now: string): boolean {
+  const current = Date.parse(now);
+  return (
+    sync.status === 'PENDING' ||
+    (sync.status === 'RETRYABLE_FAILURE' &&
+      sync.nextAttemptAt !== null &&
+      Date.parse(sync.nextAttemptAt) <= current) ||
+    (sync.status === 'IN_FLIGHT' &&
+      sync.leaseUntil !== null &&
+      Date.parse(sync.leaseUntil) <= current)
+  );
 }
 
 function freezeDelivery(delivery: DeliveryRecord): DeliveryRecord {

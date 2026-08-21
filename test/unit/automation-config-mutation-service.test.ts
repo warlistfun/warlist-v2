@@ -10,7 +10,7 @@ import { MutableTenantAuthorization } from '../support/business-repository-contr
 
 const tenantId = '00000000-0000-4000-8000-000000000101';
 
-void test('commits one field-scoped automation policy mutation and propagates that exact committed version', async () => {
+void test('commits one field-scoped automation policy mutation with a pending exact-revision sync', async () => {
   const fixture = await createFixture();
   const result = await fixture.service.mutate({
     expectedRevision: 1,
@@ -49,7 +49,17 @@ void test('commits one field-scoped automation policy mutation and propagates th
       createdAt: fixture.createdAt,
     },
   );
-  assert.deepEqual(fixture.propagated, [result]);
+  assert.deepEqual(await fixture.repository.readAutomationConfigSync(tenantId, 2), {
+    tenantId,
+    configRevision: 2,
+    status: 'PENDING',
+    attempts: 0,
+    claimToken: null,
+    leaseUntil: null,
+    failureCode: null,
+    nextAttemptAt: null,
+  });
+  assert.deepEqual(fixture.propagated, []);
   assert.deepEqual(fixture.validated, [result.policy]);
 });
 
@@ -71,17 +81,7 @@ void test('rejects a stale mutation without propagation or silent field overwrit
       error.code === 'CONFIG_VERSION_CONFLICT' &&
       error.message === 'Configuration version conflict',
   );
-  assert.deepEqual(fixture.propagated, [
-    {
-      revision: 2,
-      policy: {
-        enabled: false,
-        targetGroupId: 'group_example_one',
-        adminIds: ['admin_example_one'],
-        keyword: 'hello',
-      },
-    },
-  ]);
+  assert.deepEqual(fixture.propagated, []);
   assert.deepEqual((await fixture.repository.loadConfig(tenantId))?.configuration, {
     unrelated: { preserved: true },
     automation: {
@@ -159,7 +159,6 @@ async function createFixture(options: Readonly<{ valid?: boolean }> = {}) {
     { tenantId, configuration: initialConfiguration },
     null,
   );
-  const propagated: Array<unknown> = [];
   const validated: Array<unknown> = [];
   const service = createAutomationConfigMutationService({
     repository,
@@ -168,15 +167,11 @@ async function createFixture(options: Readonly<{ valid?: boolean }> = {}) {
       validated.push(policy);
       return options.valid ?? true;
     },
-    propagateCommittedConfig: (input) => {
-      propagated.push(input);
-      return Promise.resolve();
-    },
   });
   return {
     service,
     repository,
-    propagated,
+    propagated: [],
     validated,
     createdAt: created.createdAt,
     updatedAt: created.updatedAt,
