@@ -5,6 +5,8 @@ import { evaluateAutomation } from '../../src/modules/automation/application/aut
 
 const policy = {
   enabled: true,
+  opsStatus: 'active',
+  timeWindow: { enabled: true, startMinute: 540, endMinute: 1020 },
   targetGroupId: 'group_example_one',
   adminIds: ['admin_example_one'],
   keyword: 'hello',
@@ -17,7 +19,7 @@ const message = {
 } as const;
 
 void test('accepts a matching synthetic automation message with a frozen explicit decision', () => {
-  const decision = evaluateAutomation(message, policy);
+  const decision = evaluateAutomation(message, policy, 600);
 
   assert.deepEqual(decision, { code: 'ACCEPTED' });
   assert.equal(Object.isFrozen(decision), true);
@@ -26,14 +28,34 @@ void test('accepts a matching synthetic automation message with a frozen explici
 void test('returns one deterministic rejection code at the first failing gate', () => {
   const cases = [
     [{ ...policy, enabled: false }, { code: 'BOT_DISABLED' }],
+    [{ ...policy, opsStatus: 'inactive' }, { code: 'OPS_STATUS_INACTIVE' }],
+    [
+      { ...policy, timeWindow: { enabled: true, startMinute: 601, endMinute: 700 } },
+      { code: 'TIME_WINDOW_CLOSED' },
+    ],
     [{ ...policy, targetGroupId: 'group_example_other' }, { code: 'TARGET_GROUP_MISMATCH' }],
     [{ ...policy, adminIds: ['admin_example_other'] }, { code: 'TRIGGER_NOT_ADMIN' }],
     [{ ...policy, keyword: 'other' }, { code: 'KEYWORD_NOT_MATCHED' }],
-    [{ ...policy, enabled: false, targetGroupId: 'group_example_other' }, { code: 'BOT_DISABLED' }],
+    [{ ...policy, enabled: false, opsStatus: 'inactive' }, { code: 'BOT_DISABLED' }],
   ] as const;
 
   for (const [candidatePolicy, expected] of cases) {
-    assert.deepEqual(evaluateAutomation(message, candidatePolicy), expected);
+    assert.deepEqual(evaluateAutomation(message, candidatePolicy, 600), expected);
+  }
+});
+
+void test('uses inclusive normal and overnight time windows from injected minute-of-day', () => {
+  for (const [timeWindow, currentMinute, expected] of [
+    [{ enabled: true, startMinute: 540, endMinute: 1020 }, 540, 'ACCEPTED'],
+    [{ enabled: true, startMinute: 540, endMinute: 1020 }, 1020, 'ACCEPTED'],
+    [{ enabled: true, startMinute: 1320, endMinute: 360 }, 1320, 'ACCEPTED'],
+    [{ enabled: true, startMinute: 1320, endMinute: 360 }, 360, 'ACCEPTED'],
+    [{ enabled: true, startMinute: 1320, endMinute: 360 }, 720, 'TIME_WINDOW_CLOSED'],
+    [{ enabled: false, startMinute: 540, endMinute: 1020 }, 0, 'ACCEPTED'],
+  ] as const) {
+    assert.deepEqual(evaluateAutomation(message, { ...policy, timeWindow }, currentMinute), {
+      code: expected,
+    });
   }
 });
 

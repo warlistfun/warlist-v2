@@ -1,6 +1,8 @@
 export type AutomationDecisionCode =
   | 'ACCEPTED'
   | 'BOT_DISABLED'
+  | 'OPS_STATUS_INACTIVE'
+  | 'TIME_WINDOW_CLOSED'
   | 'TARGET_GROUP_MISMATCH'
   | 'TRIGGER_NOT_ADMIN'
   | 'KEYWORD_NOT_MATCHED';
@@ -15,16 +17,33 @@ export interface SyntheticInboundMessage {
 
 export interface AutomationPolicy {
   readonly enabled: boolean;
+  readonly opsStatus?: 'active' | 'inactive';
+  readonly timeWindow?: Readonly<{
+    enabled: boolean;
+    startMinute: number;
+    endMinute: number;
+  }>;
   readonly targetGroupId: string;
   readonly adminIds: readonly string[];
   readonly keyword: string;
 }
 
-export function evaluateAutomation(message: unknown, policy: unknown): AutomationDecision {
+export function evaluateAutomation(
+  message: unknown,
+  policy: unknown,
+  currentMinute?: unknown,
+): AutomationDecision {
   if (!isMessage(message) || !isPolicy(policy))
     throw new Error('Invalid automation evaluation input');
 
   if (!policy.enabled) return decision('BOT_DISABLED');
+  if (policy.opsStatus === 'inactive') return decision('OPS_STATUS_INACTIVE');
+  if (
+    policy.timeWindow?.enabled &&
+    (!isMinuteOfDay(currentMinute) || !isWithinTimeWindow(policy.timeWindow, currentMinute))
+  ) {
+    return decision('TIME_WINDOW_CLOSED');
+  }
   if (message.groupId !== policy.targetGroupId) return decision('TARGET_GROUP_MISMATCH');
   if (!policy.adminIds.includes(message.senderId)) return decision('TRIGGER_NOT_ADMIN');
   if (
@@ -50,9 +69,22 @@ function isMessage(value: unknown): value is SyntheticInboundMessage {
   );
 }
 
-function isPolicy(value: unknown): value is AutomationPolicy {
+function isPolicy(value: unknown): value is AutomationPolicy & {
+  readonly opsStatus?: 'active' | 'inactive';
+  readonly timeWindow?: Readonly<{ enabled: boolean; startMinute: number; endMinute: number }>;
+} {
   return (
-    isExactRecord(value, ['enabled', 'targetGroupId', 'adminIds', 'keyword']) &&
+    (isExactRecord(value, ['enabled', 'targetGroupId', 'adminIds', 'keyword']) ||
+      (isExactRecord(value, [
+        'enabled',
+        'opsStatus',
+        'timeWindow',
+        'targetGroupId',
+        'adminIds',
+        'keyword',
+      ]) &&
+        (value.opsStatus === 'active' || value.opsStatus === 'inactive') &&
+        isTimeWindow(value.timeWindow))) &&
     typeof value.enabled === 'boolean' &&
     isIdentifier(value.targetGroupId) &&
     isIdentifierArray(value.adminIds) &&
@@ -60,6 +92,31 @@ function isPolicy(value: unknown): value is AutomationPolicy {
     value.keyword.trim().length > 0 &&
     value.keyword.length <= 256
   );
+}
+
+function isTimeWindow(
+  value: unknown,
+): value is Readonly<{ enabled: boolean; startMinute: number; endMinute: number }> {
+  return (
+    isExactRecord(value, ['enabled', 'startMinute', 'endMinute']) &&
+    typeof value.enabled === 'boolean' &&
+    isMinuteOfDay(value.startMinute) &&
+    isMinuteOfDay(value.endMinute)
+  );
+}
+
+function isMinuteOfDay(value: unknown): value is number {
+  return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value < 1_440;
+}
+
+function isWithinTimeWindow(
+  window: Readonly<{ enabled: boolean; startMinute: number; endMinute: number }>,
+  currentMinute: number,
+): boolean {
+  if (!window.enabled) return true;
+  if (window.startMinute <= window.endMinute)
+    return currentMinute >= window.startMinute && currentMinute <= window.endMinute;
+  return currentMinute >= window.startMinute || currentMinute <= window.endMinute;
 }
 
 function isExactRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
