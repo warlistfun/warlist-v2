@@ -43,6 +43,28 @@ void test('simulates normalized synthetic input through the existing evaluator',
   );
 });
 
+void test('simulates a synthetic OPS-status and time-window decision from an injected minute', () => {
+  assert.deepEqual(
+    runAutomationSimulation({
+      currentMinute: 720,
+      message: {
+        groupId: 'group_example_one',
+        senderId: 'admin_example_one',
+        text: 'list today',
+      },
+      policy: {
+        enabled: true,
+        opsStatus: 'active',
+        timeWindow: { enabled: true, startMinute: 1320, endMinute: 360 },
+        targetGroupId: 'group_example_one',
+        adminIds: ['admin_example_one'],
+        keyword: 'list',
+      },
+    }),
+    { code: 'TIME_WINDOW_CLOSED' },
+  );
+});
+
 void test('runs the CLI with one JSON fixture and prints only its decision', () => {
   const root = mkdtempSync(join(tmpdir(), 'warlist-automation-simulator-'));
   try {

@@ -15,7 +15,11 @@ export function runAutomationSimulation(input: unknown): AutomationDecision {
   if (!fixture) throw invalidFixture();
 
   try {
-    return evaluateAutomation(normalizeSyntheticInboundMessage(fixture.message), fixture.policy);
+    return evaluateAutomation(
+      normalizeSyntheticInboundMessage(fixture.message),
+      fixture.policy,
+      fixture.currentMinute,
+    );
   } catch {
     throw invalidFixture();
   }
@@ -23,22 +27,34 @@ export function runAutomationSimulation(input: unknown): AutomationDecision {
 
 function exactFixture(
   input: unknown,
-): Readonly<{ message: unknown; policy: AutomationPolicy }> | undefined {
+): Readonly<{ message: unknown; policy: AutomationPolicy; currentMinute?: unknown }> | undefined {
   if (typeof input !== 'object' || input === null || Array.isArray(input)) return undefined;
   try {
     const prototype: unknown = Object.getPrototypeOf(input);
     if (prototype !== Object.prototype && prototype !== null) return undefined;
     const keys = Reflect.ownKeys(input);
-    if (keys.length !== 2 || !keys.every((key) => key === 'message' || key === 'policy'))
+    if (
+      (keys.length !== 2 && keys.length !== 3) ||
+      !keys.every((key) => key === 'message' || key === 'policy' || key === 'currentMinute')
+    ) {
       return undefined;
+    }
     const descriptors = Object.getOwnPropertyDescriptors(input);
     for (const key of ['message', 'policy'] as const) {
       const descriptor = descriptors[key];
       if (descriptor?.enumerable !== true || !Object.hasOwn(descriptor, 'value')) return undefined;
     }
+    if (
+      Object.hasOwn(descriptors, 'currentMinute') &&
+      (descriptors.currentMinute?.enumerable !== true ||
+        !Object.hasOwn(descriptors.currentMinute, 'value'))
+    ) {
+      return undefined;
+    }
     return {
       message: descriptors.message?.value,
       policy: descriptors.policy?.value as AutomationPolicy,
+      currentMinute: descriptors.currentMinute?.value,
     };
   } catch {
     return undefined;
