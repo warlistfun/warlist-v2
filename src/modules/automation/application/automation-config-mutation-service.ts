@@ -16,7 +16,6 @@ export function createAutomationConfigMutationService(dependencies: {
   readonly repository: BusinessRepositoryPort;
   readonly trustedTenant: Readonly<{ tenantId: string }>;
   readonly validateGroupAdmins: (policy: AutomationPolicy) => boolean | Promise<boolean>;
-  readonly propagateCommittedConfig: (config: CommittedAutomationConfig) => Promise<void>;
 }): Readonly<{
   mutate(
     input: Readonly<{ expectedRevision: number; mutation: AutomationConfigMutation }>,
@@ -34,16 +33,14 @@ export function createAutomationConfigMutationService(dependencies: {
       if (!(await dependencies.validateGroupAdmins(policy))) {
         throw new Error('Invalid automation configuration');
       }
-      const saved = await dependencies.repository.compareAndSaveConfig(
+      const saved = await dependencies.repository.compareAndSaveConfigWithSync(
         {
           tenantId: dependencies.trustedTenant.tenantId,
           configuration: Object.freeze({ ...current.configuration, automation: policy }),
         },
         input.expectedRevision,
       );
-      const committed = Object.freeze({ revision: saved.revision, policy });
-      await dependencies.propagateCommittedConfig(committed);
-      return committed;
+      return Object.freeze({ revision: saved.config.revision, policy });
     },
   });
 }

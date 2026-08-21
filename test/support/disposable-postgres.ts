@@ -20,6 +20,11 @@ const migrations = [
     name: 'business-foundation',
     sql: readFileSync(resolve('migrations/0002-business-foundation.sql'), 'utf8'),
   },
+  {
+    revision: 3,
+    name: 'automation-config-sync-outbox',
+    sql: readFileSync(resolve('migrations/0003-automation-config-sync-outbox.sql'), 'utf8'),
+  },
 ] as const;
 
 export type DisposablePostgres = Readonly<{
