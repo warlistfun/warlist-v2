@@ -38,6 +38,8 @@ Worker IPC protocol v1 is a resource-free contract boundary. Parent commands and
 
 `createLocalWhatsAppCredentialDirectory()` is a separate local filesystem boundary for future provider composition. It accepts an explicit canonical absolute root and exact tenant UUID, creates or reuses owner-only root/tenant directories, rejects symlink traversal and unsafe type/ownership/permissions with stable path-free errors, and returns a frozen infrastructure-only handle. It reads no environment and never reads, writes, serializes, deletes, backs up, or migrates credential payloads. No Baileys adapter or runtime is composed.
 
+`evaluateAutomation()` is a pure, resource-free policy gate over a runtime-validated synthetic inbound message and explicit policy snapshot. It returns one frozen closed decision code for bot-enabled, target-group, admin-trigger, and keyword gates, in that order. It does not load or mutate configuration, resolve group/admin identity, inspect provider payloads, schedule windows, check entitlements, dedupe, create delivery operations, invoke workers, or send messages.
+
 `createHttpApp()` is an in-process adapter with versioned health/readiness routes, runtime request validation, generated request IDs, and canonical response envelopes. It does not bind a port or own network lifecycle.
 
 `createBootstrap()` explicitly owns application startup and shutdown-signal registration through a port. It serializes transitions, unregisters handlers before shutdown, rolls back partial registration, and retains failed cleanup for retry. No `process` listener is registered at import time.
