@@ -61,20 +61,20 @@ Phase 3 is complete: the owner selected the synthetic persistence-contract found
 
 ## Phase 4 — Supabase schema and repository foundation
 
-**Status:** In progress — disposable PostgreSQL schema/repository subset verified (2026-08-21)
+**Status:** Complete (2026-08-21); Phase 5 is authorized for one bounded automation/configuration Issue.
 
-- [x] Disposable PostgreSQL 16 lifecycle-state repository behind the existing application port, with injected server-owned tenant authorization and trust-boundary validation (Issue #42, PR #43)
-- [x] Forward-only idempotent lifecycle-state migration; lower-generation and cross-connection expected-generation write fencing; disposable migration and backup/restore proof (Issue #42, PR #43)
-- [x] Disposable teardown hardening: client-close failures do not prevent fast cluster stop and temporary-directory removal (Issue #44, PR #45)
-- [x] Versioned transactional migrator and canonical tenant/config/delivery/audit schema foundation with synthetic PostgreSQL rerun, checksum-drift, rollback, concurrency, ownership, idempotency, and bounded-column evidence (Issue #50)
-- [x] Tenant/config/`PREPARED`-delivery/audit repository contract with matching in-memory and disposable PostgreSQL adapters (Issue #52)
-- [x] Explicit bounded PostgreSQL pool configuration, timeout/error mapping, readiness, cleanup retry, and safe telemetry (Issue #52)
-- [x] Separate local protected WhatsApp credential-directory adapter with owner-only tenant isolation and unsafe-path rejection; no credential payload I/O or provider composition (Issue #54)
-- [ ] Database-outage fail-closed behavior for unclaimed external sends; verified Supabase Free-plan capacity guardrails
+| Master-plan task / acceptance                                           | Evidence                                                                                                                                                       | Status   |
+| ----------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------- |
+| PostgreSQL migrations; migration table/revisions; safe synthetic reruns | Issues #42/#50; PRs #43/#51; disposable PostgreSQL 16 tests prove ordered application, rerun, checksum drift rejection, rollback, and concurrent serialization | VERIFIED |
+| Repository contracts and in-memory/PostgreSQL adapters                  | Issue #52 / PR #53; shared tenant/config/`PREPARED`-delivery/audit contract against in-memory and disposable PostgreSQL                                        | VERIFIED |
+| Pooling, timeout/error mapping, readiness, and telemetry                | Issue #52 / PR #53; bounded pool, safe errors, readiness, cleanup retry, and fixed-name telemetry tests                                                        | VERIFIED |
+| Local WhatsApp credential boundary                                      | Issue #54 / PR #55; owner-only local credential-directory adapter, path hardening, no credential-payload I/O                                                   | VERIFIED |
+| Database outage prevents unclaimed external sends                       | Issue #56 / this PR; `DatabaseSendAdmission` RED→GREEN proof rejects unavailable/failed readiness before injected sender invocation                            | VERIFIED |
+| Supabase-compatible / Free-plan evidence                                | Issue #56 / this PR; portable PostgreSQL 16 migrations/repository contract; dated official Free-plan guardrails in `docs/operations.md`                        | VERIFIED |
 
-The verified PostgreSQL and local credential-directory work is a synthetic foundation subset, not Phase 4 closure. Phase 4 remains open until its master-plan objective and acceptance evidence are met: canonical transactional business storage, WhatsApp credentials remaining local, repository contracts against a test Postgres/Supabase-compatible environment, migrations safely rerunnable on synthetic databases, and database outage behavior that prevents unclaimed external sends. No hosted Supabase configuration, Production operation, deployment, legacy/runtime/customer-data access, credential access, worker/provider composition, data migration, or cutover has been authorized or verified.
+Phase 4 delivers a **non-Production foundation** only: portable PostgreSQL/Supabase-compatible SQL and disposable local PostgreSQL proof, not a hosted Supabase project, credentials, hosted runtime, provider send, delivery claim/attempt/lease semantics, migration/cutover, backup/restore drill for hosted data, deployment, or Production readiness. WhatsApp credential payloads remain local and unimplemented in database storage.
 
-PR #47's Phase 4 closure status is superseded by this correction. Its factually accurate as-built documentation remains valid, and Issue #42 / PR #43 plus Issue #44 / PR #45 remain verified subset evidence. Phase 5 is not authorized.
+PR #47's former Phase 4 closure claim remains superseded; its factually accurate as-built documentation and Issues #42/#44/#50/#52/#54 remain preserved verified evidence. The Phase 4 master-plan objective and all four acceptance rows are now reconciled above. Phase 5 implementation is authorized; it is not started by this closure.
 
 ## Later phases
 
