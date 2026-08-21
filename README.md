@@ -1,8 +1,8 @@
 # WARLIST 2.0
 
-WARLIST 2.0 is a clean, backend-first migration of WARLIST. This repository contains the completed Phase 0–4 foundations and the in-progress Phase 5 automation evaluator and field-scoped configuration work.
+WARLIST 2.0 is a clean, backend-first migration of WARLIST. This repository contains the completed Phase 0–5 backend foundations.
 
-**Status:** Phases 0–4 are complete. Phase 5 is **IN PROGRESS**: Issue #58 / PR #59 provides the pure evaluator foundation, and Issue #60 adds synthetic inbound normalization. These bounded slices do not complete Phase 5. No hosted Supabase runtime, Production behavior, legacy/runtime/customer-data access, credentials, deployment, cutover, WhatsApp/provider integration, or public automation API has been configured or verified.
+**Status:** Phases 0–5 are complete. Phase 6 delivery and entitlement integrity is authorized. No hosted Supabase runtime, concrete child-process launch, Production behavior, legacy/runtime/customer-data access, credentials, deployment, cutover, WhatsApp/provider send, or public automation API has been configured or verified.
 
 ## Requirements
 

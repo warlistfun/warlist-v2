@@ -39,7 +39,7 @@ void test('simulates normalized synthetic input through the existing evaluator',
         keyword: 'list',
       },
     }),
-    { code: 'TRIGGER_NOT_ADMIN' },
+    { code: 'SENDER_NOT_ADMIN' },
   );
 });
 
@@ -61,7 +61,27 @@ void test('simulates a synthetic OPS-status and time-window decision from an inj
         keyword: 'list',
       },
     }),
-    { code: 'TIME_WINDOW_CLOSED' },
+    { code: 'OUTSIDE_SCHEDULE' },
+  );
+});
+
+void test('simulates explicit synthetic delivery state', () => {
+  assert.deepEqual(
+    runAutomationSimulation({
+      message: {
+        groupId: 'group_example_one',
+        senderId: 'admin_example_one',
+        text: 'list today',
+      },
+      policy: {
+        enabled: true,
+        targetGroupId: 'group_example_one',
+        adminIds: ['admin_example_one'],
+        keyword: 'list',
+      },
+      state: { hasEntitlement: true, duplicateMessage: true, deliveryExists: false },
+    }),
+    { code: 'DUPLICATE_MESSAGE' },
   );
 });
 
