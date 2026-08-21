@@ -1,0 +1,131 @@
+import { RepositoryError, type BusinessRepositoryPort } from '../../../app/business-repository';
+import type { AutomationPolicy } from './automation-evaluator';
+
+export type AutomationConfigMutation =
+  | Readonly<{ field: 'enabled'; value: boolean }>
+  | Readonly<{ field: 'targetGroupId'; value: string }>
+  | Readonly<{ field: 'adminIds'; value: readonly string[] }>
+  | Readonly<{ field: 'keyword'; value: string }>;
+
+export type CommittedAutomationConfig = Readonly<{
+  revision: number;
+  policy: AutomationPolicy;
+}>;
+
+export function createAutomationConfigMutationService(dependencies: {
+  readonly repository: BusinessRepositoryPort;
+  readonly trustedTenant: Readonly<{ tenantId: string }>;
+  readonly validateGroupAdmins: (policy: AutomationPolicy) => boolean | Promise<boolean>;
+  readonly propagateCommittedConfig: (config: CommittedAutomationConfig) => Promise<void>;
+}): Readonly<{
+  mutate(
+    input: Readonly<{ expectedRevision: number; mutation: AutomationConfigMutation }>,
+  ): Promise<CommittedAutomationConfig>;
+}> {
+  return Object.freeze({
+    async mutate(input): Promise<CommittedAutomationConfig> {
+      if (!isInput(input)) throw new Error('Invalid automation configuration mutation');
+      const current = await dependencies.repository.loadConfig(dependencies.trustedTenant.tenantId);
+      if (!current || current.revision !== input.expectedRevision) {
+        throw new RepositoryError('CONFIG_VERSION_CONFLICT');
+      }
+      const policy = mutatePolicy(current.configuration, input.mutation);
+      if (!policy) throw new Error('Invalid automation configuration');
+      if (!(await dependencies.validateGroupAdmins(policy))) {
+        throw new Error('Invalid automation configuration');
+      }
+      const saved = await dependencies.repository.compareAndSaveConfig(
+        {
+          tenantId: dependencies.trustedTenant.tenantId,
+          configuration: Object.freeze({ ...current.configuration, automation: policy }),
+        },
+        input.expectedRevision,
+      );
+      const committed = Object.freeze({ revision: saved.revision, policy });
+      await dependencies.propagateCommittedConfig(committed);
+      return committed;
+    },
+  });
+}
+
+function isInput(value: unknown): value is Readonly<{
+  expectedRevision: number;
+  mutation: AutomationConfigMutation;
+}> {
+  if (!isExactRecord(value, ['expectedRevision', 'mutation'])) return false;
+  const expectedRevision = value.expectedRevision;
+  return (
+    typeof expectedRevision === 'number' &&
+    Number.isSafeInteger(expectedRevision) &&
+    expectedRevision > 0 &&
+    isMutation(value.mutation)
+  );
+}
+
+function isMutation(value: unknown): value is AutomationConfigMutation {
+  if (!isExactRecord(value, ['field', 'value']) || typeof value.field !== 'string') return false;
+  if (value.field === 'enabled') return typeof value.value === 'boolean';
+  if (value.field === 'targetGroupId' || value.field === 'keyword')
+    return typeof value.value === 'string';
+  return value.field === 'adminIds' && isStringArray(value.value);
+}
+
+function mutatePolicy(
+  configuration: Readonly<Record<string, unknown>>,
+  mutation: AutomationConfigMutation,
+): AutomationPolicy | undefined {
+  const automation = configuration.automation;
+  if (!isPolicy(automation)) return undefined;
+  const candidate = { ...automation, [mutation.field]: mutation.value };
+  return isPolicy(candidate)
+    ? Object.freeze({ ...candidate, adminIds: Object.freeze([...candidate.adminIds]) })
+    : undefined;
+}
+
+function isPolicy(value: unknown): value is AutomationPolicy {
+  return (
+    isExactRecord(value, ['enabled', 'targetGroupId', 'adminIds', 'keyword']) &&
+    typeof value.enabled === 'boolean' &&
+    isIdentifier(value.targetGroupId) &&
+    isStringArray(value.adminIds) &&
+    typeof value.keyword === 'string' &&
+    value.keyword.trim().length > 0 &&
+    value.keyword.length <= 256
+  );
+}
+
+function isStringArray(value: unknown): value is readonly string[] {
+  return (
+    Array.isArray(value) && value.length > 0 && value.length <= 100 && value.every(isIdentifier)
+  );
+}
+
+function isIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9_:-]{1,160}$/.test(value);
+}
+
+function isExactRecord(value: unknown, keys: readonly string[]): value is Record<string, unknown> {
+  if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
+  try {
+    const actual = Reflect.ownKeys(value).sort((left, right) =>
+      String(left).localeCompare(String(right)),
+    );
+    const expected = [...keys].sort();
+    return (
+      (Object.getPrototypeOf(value) === Object.prototype ||
+        Object.getPrototypeOf(value) === null) &&
+      actual.length === expected.length &&
+      actual.every((key, index) => {
+        const descriptor =
+          typeof key === 'string' ? Object.getOwnPropertyDescriptor(value, key) : undefined;
+        return (
+          key === expected[index] &&
+          descriptor?.enumerable === true &&
+          Object.hasOwn(descriptor, 'value')
+        );
+      })
+    );
+  } catch {
+    return false;
+  }
+}
