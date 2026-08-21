@@ -1,0 +1,34 @@
+# Phase 5 authority reconciliation
+
+**Authority:** the durable WARLIST V2 backend master plan, Phase 5 lines 1585–1605, defines this phase. This matrix reconciles that authority against `origin/main` at `68a58d3ef0066d6b837fbe9e2afb8272c0fb9059` on 2026-08-21.
+
+## Matrix
+
+| Master-plan requirement                                       | Status             | Current evidence                                                                                                                                                     | Limit / remaining evidence                                                                                                                                |
+| ------------------------------------------------------------- | ------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. Normalize inbound synthetic messages                       | VERIFIED           | #60 / PR #61: `inbound-message-normalizer.ts`, `test/unit/inbound-message-normalizer.test.ts`                                                                        | Synthetic input only; provider payload decoding remains excluded.                                                                                         |
+| 2. Build pure evaluator gate by gate                          | VERIFIED           | #58 / PR #59; #67 / PR #71: `automation-evaluator.ts`, `test/unit/automation-evaluator.test.ts`                                                                      | Implemented synthetic gates only; no external effects.                                                                                                    |
+| 3. Create explicit decision codes                             | VERIFIED           | `AutomationDecisionCode` plus focused evaluator tests in PRs #59 and #71                                                                                             | Codes cover implemented synthetic gates.                                                                                                                  |
+| 4. Field-scoped/versioned config mutation                     | VERIFIED           | #62 / PR #63: `automation-config-mutation-service.ts`, `test/unit/automation-config-mutation-service.test.ts`                                                        | Resource-free V2 foundation.                                                                                                                              |
+| 5. Validate group/admin relationship server-side              | PARTIALLY VERIFIED | PR #63 invokes injected `validateGroupAdmins(policy)` before persistence and tests rejection before persistence/propagation                                          | No concrete server-side current-membership lookup exists.                                                                                                 |
+| 6. Propagate exact committed config version to worker         | PARTIALLY VERIFIED | PR #63 freezes and passes exact `{ revision, policy }` to injected `propagateCommittedConfig`; tests prove exact propagation                                         | No worker-process propagation exists.                                                                                                                     |
+| 7. Build `debug:automation` CLI                               | VERIFIED           | #64 / PR #65; #67 / PR #71: `src/debug-automation.ts`, `test/unit/automation-simulator.test.ts`                                                                      | Synthetic fixture only; no provider/customer data.                                                                                                        |
+| 8. Migrate one active automation slice at a time              | PARTIALLY VERIFIED | #68 / PR #69: `active-automation-slice.ts`, `test/unit/active-automation-slice.test.ts` composes committed synthetic configuration with the simulator/evaluator path | Resource-free synthetic characterization/foundation only; no active runtime automation migration, sender-specific configuration, or matching is migrated. |
+| Evaluator has no transport/database effects                   | VERIFIED           | Application evaluator imports no adapter; architecture and repository-boundary checks passed in PRs #59 and #71                                                      | Does not prove runtime composition.                                                                                                                       |
+| Every implemented rejection reason is unit-tested             | VERIFIED           | `test/unit/automation-evaluator.test.ts` covers bot, OPS, time, group, admin, keyword precedence and accepted path                                                   | Applies to implemented decision codes.                                                                                                                    |
+| Stale config update conflicts rather than overwrites          | VERIFIED           | `test/unit/automation-config-mutation-service.test.ts` proves `CONFIG_VERSION_CONFLICT` with no propagation                                                          | Concrete worker behavior remains unimplemented.                                                                                                           |
+| Simulator reproduces decisions without WhatsApp/customer data | VERIFIED           | `test/unit/automation-simulator.test.ts` and active-slice test use invented synthetic fixtures                                                                       | No provider payload or runtime-state claim.                                                                                                               |
+
+## Verdict
+
+**Phase 5 is IN PROGRESS. Phase 6 is NOT AUTHORIZED.**
+
+Tasks 5 and 6 are only verified at an injected synthetic boundary. The remaining operational bounded slice is concrete server-side group/admin validation plus exact committed revision propagation through a real worker-process boundary, with no provider/Production behavior. This reconciliation does not alter runtime, source, test, schema, migration, provider, worker, deployment, or customer state.
+
+## Preserved evidence
+
+PRs #59, #61, #63, #65, #69, #70, and #71 remain valid bounded foundations or slices. They do not individually or collectively override the unresolved literal master-plan requirements above.
+
+## Verification record
+
+This documentation-only reconciliation requires independent review and repository CI before publication.

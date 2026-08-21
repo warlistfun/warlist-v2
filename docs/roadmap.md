@@ -84,9 +84,10 @@ PR #47's former Phase 4 closure claim remains superseded; its factually accurate
 - [x] Pure synthetic inbound-message normalization into immutable evaluator input (Issue #60 / this PR)
 - [x] Field-scoped/versioned synthetic configuration mutation with injected server-side group/admin validation and exact committed-version propagation boundary (Issue #62 / this PR)
 - [x] Safe simulator CLI (Issue #64 / this PR)
-- [ ] Bounded active-slice migration
+- [x] Resource-free synthetic global-keyword active-slice characterization (Issue #68 / PR #69)
+- [ ] Active runtime automation migration, concrete server-side group/admin validation, and worker-process propagation remain
 
-Phase 5 remains **IN PROGRESS**. The landed evaluator, normalization, synthetic configuration, and simulator foundations have no transport/database effects and do not establish provider payload decoding, concrete server-side group/admin lookup, worker-process propagation, active automation migration, deployment, or Production readiness.
+Phase 5 remains **IN PROGRESS** and Phase 6 is **NOT AUTHORIZED**. The [Phase 5 authority reconciliation](phase5-reconciliation.md) preserves the landed foundations/slices and records that injected validation/propagation boundaries are not concrete lookup/worker-process evidence, and that #68 is not active runtime automation migration. The foundations have no transport/database effects and do not establish provider payload decoding, active runtime automation, deployment, or Production readiness.
 
 ## Later phases
 
