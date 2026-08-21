@@ -66,7 +66,8 @@ Phase 3 is complete: the owner selected the synthetic persistence-contract found
 - [x] Disposable PostgreSQL 16 lifecycle-state repository behind the existing application port, with injected server-owned tenant authorization and trust-boundary validation (Issue #42, PR #43)
 - [x] Forward-only idempotent lifecycle-state migration; lower-generation and cross-connection expected-generation write fencing; disposable migration and backup/restore proof (Issue #42, PR #43)
 - [x] Disposable teardown hardening: client-close failures do not prevent fast cluster stop and temporary-directory removal (Issue #44, PR #45)
-- [ ] Canonical tenant/config/delivery/audit schema foundation, schema migration/revision model, and corresponding repository contracts
+- [x] Versioned transactional migrator and canonical tenant/config/delivery/audit schema foundation with synthetic PostgreSQL rerun, checksum-drift, rollback, concurrency, ownership, idempotency, and bounded-column evidence (Issue #50)
+- [ ] Corresponding tenant/config/delivery/audit repository contracts and in-memory/Postgres adapters
 - [ ] Supabase/Postgres adapter posture for pooling, timeout, safe error mapping, readiness, and telemetry
 - [ ] Separate local protected WhatsApp credential adapter; database-outage fail-closed behavior for unclaimed external sends; verified Supabase Free-plan capacity guardrails
 
