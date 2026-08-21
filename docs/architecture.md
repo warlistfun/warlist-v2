@@ -12,6 +12,8 @@ test -> src/app/config.ts
      -> src/modules/whatsapp/application/worker-diagnostics-service.ts
      -> src/modules/whatsapp/application/worker-runtime-service.ts
      -> src/modules/whatsapp/application/worker-ownership-service.ts
+     -> src/modules/automation/application/automation-evaluator.ts
+     -> src/modules/automation/application/inbound-message-normalizer.ts
      -> src/shared/version.ts
      -> scripts/check-repository-boundary.mjs
 ```
@@ -39,6 +41,8 @@ Worker IPC protocol v1 is a resource-free contract boundary. Parent commands and
 `createLocalWhatsAppCredentialDirectory()` is a separate local filesystem boundary for future provider composition. It accepts an explicit canonical absolute root and exact tenant UUID, creates or reuses owner-only root/tenant directories, rejects symlink traversal and unsafe type/ownership/permissions with stable path-free errors, and returns a frozen infrastructure-only handle. It reads no environment and never reads, writes, serializes, deletes, backs up, or migrates credential payloads. No Baileys adapter or runtime is composed.
 
 `evaluateAutomation()` is a pure, resource-free policy gate over a runtime-validated synthetic inbound message and explicit policy snapshot. It returns one frozen closed decision code for bot-enabled, target-group, admin-trigger, and keyword gates, in that order. It does not load or mutate configuration, resolve group/admin identity, inspect provider payloads, schedule windows, check entitlements, dedupe, create delivery operations, invoke workers, or send messages.
+
+`normalizeSyntheticInboundMessage()` is a pure trust-boundary transformation for exact synthetic `{ groupId, senderId, text }` records. It returns a frozen evaluator-compatible value with trimmed ASCII-lowercase identifiers, NFC text, `\n` line endings, and trimmed text edges; the input remains unchanged. Bounded validation rejects extra/hidden/symbol properties, accessors, custom prototypes, invalid identifiers, unsafe control content, empty text, and oversized values with one input-independent error. It does not decode or accept Baileys/provider payloads, identifiers from customer fixtures, configuration, repositories, workers, logging, or external resources.
 
 `createHttpApp()` is an in-process adapter with versioned health/readiness routes, runtime request validation, generated request IDs, and canonical response envelopes. It does not bind a port or own network lifecycle.
 
