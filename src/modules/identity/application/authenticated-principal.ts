@@ -50,6 +50,22 @@ export function deriveTenantAccess(principal: unknown, tenantId: string): Tenant
   return Object.freeze({ tenantId });
 }
 
+export function createPrincipalTenantAuthorization(principal: unknown): Readonly<{
+  assertAuthorized(tenantId: string): void;
+}> {
+  const authenticatedPrincipal = decodeAuthenticatedPrincipal(principal);
+  return Object.freeze({
+    assertAuthorized(tenantId): void {
+      if (
+        !isUuid(tenantId) ||
+        !authenticatedPrincipal.memberships.some((membership) => membership.tenantId === tenantId)
+      ) {
+        throw new PrincipalError('TENANT_ACCESS_DENIED');
+      }
+    },
+  });
+}
+
 function decodeMembership(
   value: unknown,
 ): Readonly<{ tenantId: string; role: 'OWNER' }> | undefined {
