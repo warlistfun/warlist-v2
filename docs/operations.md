@@ -35,4 +35,6 @@ These are implementation/cutover guardrails, not a hosted-project configuration 
 - **Monitoring and degradation:** retain safe application telemetry for database readiness, query failures/timeouts, pool pressure, and storage/capacity signals; never put provider, credential, customer, or raw payload values in telemetry. When the database/network is unavailable or read-only, fail closed for external-send admission and do not guess payment/entitlement/delivery state.
 - **Exit:** migrations are portable PostgreSQL SQL and current proof runs on disposable PostgreSQL 16. This is compatibility evidence only: no Supabase project, credentials, hosted connection, backup, monitoring API, or failover behavior was used.
 
+Phase 6 delivery/entitlement evidence is limited to synthetic/application/disposable PostgreSQL tests; see `docs/phase6-reconciliation.md`. It does not authorize a provider, hosted database, deployment, cutover, or Production operation.
+
 Deployment readiness, migration/cutover, release, and Production rollback procedures remain unimplemented.
