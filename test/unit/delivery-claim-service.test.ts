@@ -6,6 +6,7 @@ import { Client } from 'pg';
 import { RepositoryError } from '../../src/app/business-repository';
 import { createPostgresBusinessRepository } from '../../src/infrastructure/database/postgres-business-repository';
 import { createDeliveryClaimService } from '../../src/modules/delivery/application/delivery-claim-service';
+import { createDeliverySettlementPort } from '../../src/modules/delivery/application/claim-gated-delivery-sender';
 import { createPostgresWorkerLifecycleStateRepository } from '../../src/modules/whatsapp/infrastructure/postgres-worker-lifecycle-state-repository';
 import { MutableTenantAuthorization } from '../support/business-repository-contract';
 import { createDisposablePostgres } from '../support/disposable-postgres';
@@ -134,6 +135,115 @@ void test('preserves a pre-existing attempt while fencing the claim attempt sepa
     (await fixture.repository.loadDeliveryAttempt(tenantId, '00000000-0000-4000-8000-000000000805'))
       ?.claimFence,
     null,
+  );
+});
+
+void test('durably settles only the exact claimed operation, attempt, fence, and worker authority', async (t) => {
+  const fixture = await createFixture(t);
+  const claim = await claimService(fixture.repository, {
+    ownerId: 'claim_owner_one',
+    attemptId: attemptOneId,
+    now: '2030-08-22T07:00:00.000Z',
+  }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' });
+
+  const begun = await fixture.repository.beginDelivery({
+    tenantId,
+    operationId,
+    attemptId: attemptOneId,
+    claimFence: claim.operation.claimFence,
+    workerGeneration: 3,
+    childId: 'child_example_3',
+  });
+  assert.equal(begun.operation.status, 'SENDING');
+
+  const settled = await fixture.repository.settleDelivery({
+    tenantId,
+    operationId,
+    attemptId: attemptOneId,
+    claimFence: claim.operation.claimFence,
+    workerGeneration: 3,
+    childId: 'child_example_3',
+    outcome: 'SENT',
+    providerMessageId: 'provider_message_example_1',
+  });
+
+  assert.equal(settled.operation.status, 'SENT');
+  assert.equal(settled.attempt.status, 'SENT');
+  assert.equal(settled.attempt.providerMessageId, 'provider_message_example_1');
+  const crashOperationId = '00000000-0000-4000-8000-000000000808';
+  await fixture.repository.prepareDelivery({
+    id: crashOperationId,
+    tenantId,
+    operationKey: 'automation:message_example_crash_boundary',
+  });
+  const crashClaim = await claimService(fixture.repository, {
+    ownerId: 'claim_owner_crash',
+    attemptId: '00000000-0000-4000-8000-000000000809',
+    now: '2030-08-22T07:02:00.000Z',
+  }).claim({ operationId: crashOperationId, workerGeneration: 3, childId: 'child_example_3' });
+  await fixture.repository.beginDelivery({
+    tenantId,
+    operationId: crashOperationId,
+    attemptId: crashClaim.attempt.id,
+    claimFence: crashClaim.operation.claimFence,
+    workerGeneration: 3,
+    childId: 'child_example_3',
+  });
+  await assert.rejects(
+    claimService(fixture.repository, {
+      ownerId: 'claim_owner_recovery',
+      attemptId: '00000000-0000-4000-8000-000000000810',
+      now: '2030-08-22T07:04:00.000Z',
+    }).claim({ operationId: crashOperationId, workerGeneration: 3, childId: 'child_example_3' }),
+    { code: 'DELIVERY_CLAIM_CONFLICT' },
+  );
+  assert.equal(
+    (await fixture.repository.loadDelivery(tenantId, crashOperationId))?.status,
+    'AMBIGUOUS',
+  );
+
+  const settle = createDeliverySettlementPort({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+  });
+  await assert.rejects(
+    settle({
+      operationId,
+      attemptId: attemptOneId,
+      claimFence: claim.operation.claimFence + 1,
+      workerGeneration: 3,
+      childId: 'child_example_3',
+      outcome: 'AMBIGUOUS',
+    }),
+    { code: 'DELIVERY_CLAIM_CONFLICT' },
+  );
+
+  const nextOperationId = '00000000-0000-4000-8000-000000000806';
+  const nextAttemptId = '00000000-0000-4000-8000-000000000807';
+  await fixture.repository.prepareDelivery({
+    id: nextOperationId,
+    tenantId,
+    operationKey: 'automation:message_example_stale_settlement',
+  });
+  const nextClaim = await claimService(fixture.repository, {
+    ownerId: 'claim_owner_two',
+    attemptId: nextAttemptId,
+    now: '2030-08-22T07:02:00.000Z',
+  }).claim({ operationId: nextOperationId, workerGeneration: 3, childId: 'child_example_3' });
+  await fixture.workerRepository.compareAndSave(
+    { ...currentWorker, state: 'STOPPED', childId: null },
+    3,
+  );
+  await assert.rejects(
+    settle({
+      operationId: nextOperationId,
+      attemptId: nextAttemptId,
+      claimFence: nextClaim.operation.claimFence,
+      workerGeneration: 3,
+      childId: 'child_example_3',
+      outcome: 'AMBIGUOUS',
+    }),
+    { code: 'DELIVERY_CLAIM_CONFLICT' },
   );
 });
 

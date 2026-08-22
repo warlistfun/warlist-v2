@@ -34,7 +34,8 @@ export type AutomationConfigSyncRecord = Readonly<{
   nextAttemptAt: string | null;
 }>;
 
-export type DeliveryStatus = 'PREPARED' | 'CLAIMED' | 'SENT' | 'AMBIGUOUS' | 'CONFIRMED';
+export type DeliveryStatus =
+  'PREPARED' | 'CLAIMED' | 'SENDING' | 'SENT' | 'AMBIGUOUS' | 'CONFIRMED';
 
 export type DeliveryRecord = Readonly<{
   id: string;
@@ -61,6 +62,7 @@ export type DeliveryAttemptRecord = Readonly<{
   attemptNumber: number;
   status: DeliveryAttemptStatus;
   claimFence: number | null;
+  providerMessageId: string | null;
   schemaVersion: number;
   revision: number;
   createdAt: string;
@@ -83,6 +85,28 @@ export interface DeliveryClaimRepositoryPort {
       leaseUntil: string;
       workerGeneration: number;
       childId: string;
+    }>,
+  ): Promise<DeliveryClaimRecord>;
+  beginDelivery(
+    input: Readonly<{
+      tenantId: string;
+      operationId: string;
+      attemptId: string;
+      claimFence: number;
+      workerGeneration: number;
+      childId: string;
+    }>,
+  ): Promise<DeliveryClaimRecord>;
+  settleDelivery(
+    input: Readonly<{
+      tenantId: string;
+      operationId: string;
+      attemptId: string;
+      claimFence: number;
+      workerGeneration: number;
+      childId: string;
+      outcome: Extract<DeliveryAttemptStatus, 'SENT' | 'AMBIGUOUS'>;
+      providerMessageId: string | null;
     }>,
   ): Promise<DeliveryClaimRecord>;
 }
@@ -461,6 +485,7 @@ export function createInMemoryBusinessRepository(dependencies: {
         ...input,
         status: 'PREPARED',
         claimFence: null,
+        providerMessageId: null,
         schemaVersion: 1,
         revision: 1,
         createdAt: now,
