@@ -58,11 +58,11 @@ export function createPostgresTenantEnrollmentRepository(
         await client.query('BEGIN');
         const grant = await client.query(
           `UPDATE enrollment_grants
-           SET used_at = $2::timestamptz
+           SET used_at = transaction_timestamp()
            WHERE id = $1::uuid AND purpose = 'TENANT_ENROLLMENT'
-             AND used_at IS NULL AND expires_at > $2::timestamptz
+             AND used_at IS NULL AND expires_at > transaction_timestamp()
            RETURNING id`,
-          [input.grantId, input.now],
+          [input.grantId],
         );
         if (grant.rowCount !== 1) throw new EnrollmentError('ENROLLMENT_GRANT_UNAVAILABLE');
         await client.query('INSERT INTO users (id) VALUES ($1::uuid)', [input.userId]);
@@ -98,7 +98,6 @@ function isInput(value: unknown): value is Readonly<{
   userId: string;
   tenantId: string;
   publicOpsId: string;
-  now: string;
 }> {
   if (typeof value !== 'object' || value === null) return false;
   const input = value as Record<string, unknown>;
@@ -107,9 +106,7 @@ function isInput(value: unknown): value is Readonly<{
     isUuid(input.userId) &&
     isUuid(input.tenantId) &&
     typeof input.publicOpsId === 'string' &&
-    /^[a-z0-9_]{1,64}$/.test(input.publicOpsId) &&
-    typeof input.now === 'string' &&
-    Number.isFinite(Date.parse(input.now))
+    /^[a-z0-9_]{1,64}$/.test(input.publicOpsId)
   );
 }
 

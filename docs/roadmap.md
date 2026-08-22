@@ -108,7 +108,7 @@ Phase 6 is complete only for synthetic/application/disposable PostgreSQL behavio
 
 **Status:** In progress (2026-08-22)
 
-- [x] Atomic synthetic/disposable-PostgreSQL enrollment foundation: one purpose-bound, expiring, single-use grant allocates one tenant and sole owner membership (Issue #93; PR pending)
+- [x] Atomic synthetic/disposable-PostgreSQL enrollment foundation: one purpose-bound, expiring, single-use grant allocates one tenant and sole owner membership (Issue #93 / PR #94); expiry authority is PostgreSQL transaction time, corrected by Issue #95.
 - [ ] User/session/token-family schema and authenticated-principal tenant derivation
 - [ ] Cross-tenant authorization matrix and legacy OPS migration tooling
 - [ ] Disabled PIN/passkey credential ports

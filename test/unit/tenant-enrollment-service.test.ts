@@ -12,9 +12,10 @@ const grant = {
   purpose: 'TENANT_ENROLLMENT' as const,
   expiresAt: '2030-01-01T00:00:00.000Z',
 };
+const now = () => new Date('2026-08-22T12:00:00.000Z');
 
 void test('consumes one valid enrollment grant to create its sole tenant owner', async () => {
-  const repository = createInMemoryTenantEnrollmentRepository([grant]);
+  const repository = createInMemoryTenantEnrollmentRepository([grant], now);
   const enroll = createTenantEnrollmentService({ repository });
 
   const enrolled = await enroll({
@@ -22,7 +23,6 @@ void test('consumes one valid enrollment grant to create its sole tenant owner',
     userId: '00000000-0000-4000-8000-000000000702',
     tenantId: '00000000-0000-4000-8000-000000000703',
     publicOpsId: 'ops_example_identity',
-    now: '2026-08-22T12:00:00.000Z',
   });
 
   assert.deepEqual(enrolled, {
@@ -37,13 +37,9 @@ void test('consumes one valid enrollment grant to create its sole tenant owner',
 });
 
 void test('allows exactly one concurrent consumption of the same enrollment grant', async () => {
-  const repository = createInMemoryTenantEnrollmentRepository([grant]);
+  const repository = createInMemoryTenantEnrollmentRepository([grant], now);
   const enroll = createTenantEnrollmentService({ repository });
-  const input = {
-    grantId: grant.id,
-    publicOpsId: 'ops_example_race',
-    now: '2026-08-22T12:00:00.000Z',
-  };
+  const input = { grantId: grant.id, publicOpsId: 'ops_example_race' };
 
   const results = await Promise.allSettled([
     enroll({
@@ -59,7 +55,6 @@ void test('allows exactly one concurrent consumption of the same enrollment gran
   ]);
 
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
-  assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
   const rejected = results.find((result) => result.status === 'rejected');
   assert.equal(rejected?.status, 'rejected');
   assert.ok(rejected.reason instanceof EnrollmentError);
@@ -76,7 +71,7 @@ for (const [name, seededGrant, expectedCode] of [
   ],
 ] as const) {
   void test(`rejects ${name} grant without allocating tenant membership`, async () => {
-    const repository = createInMemoryTenantEnrollmentRepository([seededGrant]);
+    const repository = createInMemoryTenantEnrollmentRepository([seededGrant], now);
     const enroll = createTenantEnrollmentService({ repository });
     await assert.rejects(
       enroll({
@@ -84,7 +79,6 @@ for (const [name, seededGrant, expectedCode] of [
         userId: '00000000-0000-4000-8000-000000000721',
         tenantId: '00000000-0000-4000-8000-000000000722',
         publicOpsId: 'ops_example_rejected',
-        now: '2026-08-22T12:00:00.000Z',
       }),
       (error: unknown) => error instanceof EnrollmentError && error.code === expectedCode,
     );
