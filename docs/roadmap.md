@@ -109,11 +109,11 @@ Phase 6 is complete only for synthetic/application/disposable PostgreSQL behavio
 **Status:** In progress (2026-08-22)
 
 - [x] Atomic synthetic/disposable-PostgreSQL enrollment foundation: one purpose-bound, expiring, single-use grant allocates one tenant and sole owner membership (Issue #93 / PR #94); expiry authority is PostgreSQL transaction time, corrected by Issue #95.
-- [ ] User/session/token-family schema and authenticated-principal tenant derivation
-- [ ] Cross-tenant authorization matrix and legacy OPS migration tooling
-- [ ] Disabled PIN/passkey credential ports
+- [x] Authenticated-principal tenant derivation and negative cross-tenant authorization matrix (Issues #97/#99; PRs #98/#100).
+- [x] Disabled PIN/passkey credential ports (Issue #101 / this PR).
+- [ ] User/session/token-family schema and legacy OPS migration tooling.
 
-This first slice does **not** close Phase 7. PIN/passkey user-facing rollout, credential payloads, sessions/token families, HTTP authentication, hosted Supabase, legacy migration, deployment, and Production behavior remain out of scope.
+Phase 7 remains **IN PROGRESS**. PIN/passkey user-facing rollout, credential payloads, sessions/token families, HTTP authentication, hosted Supabase, legacy migration, deployment, and Production behavior remain out of scope.
 
 ## Later phases
 
