@@ -106,17 +106,15 @@ Phase 6 is complete only for synthetic/application/disposable PostgreSQL behavio
 
 ## Phase 7 — Identity/tenant foundation (PIN deferred but enabled)
 
-**Status:** In progress (2026-08-22)
+**Status:** Execution stopped by owner at PR #100 (2026-08-22); technical Phase 7 closure is **not claimed**.
 
 - [x] Atomic synthetic/disposable-PostgreSQL enrollment foundation: one purpose-bound, expiring, single-use grant allocates one tenant and sole owner membership (Issue #93 / PR #94); expiry authority is PostgreSQL transaction time, corrected by Issue #95.
-- [ ] User/session/token-family schema and authenticated-principal tenant derivation
-- [ ] Cross-tenant authorization matrix and legacy OPS migration tooling
-- [ ] Disabled PIN/passkey credential ports
+- [x] Authenticated-principal tenant derivation and negative cross-tenant authorization matrix (Issues #97/#99; PRs #98/#100).
+- [ ] User/session/token-family schema and legacy OPS migration tooling — deferred by owner decision.
+- [ ] Disabled PIN/passkey credential ports — deferred by owner decision; Issue #101/PR #102 were closed without merge.
 
-This first slice does **not** close Phase 7. PIN/passkey user-facing rollout, credential payloads, sessions/token families, HTTP authentication, hosted Supabase, legacy migration, deployment, and Production behavior remain out of scope.
+**Execution boundary:** PR #100 is the final landed WARLIST 2.0 implementation. All remaining Phase 7 work and every later phase remain roadmap-only and must not be started, implemented, or published without a new explicit owner decision.
 
 ## Later phases
 
-Backend composition, workers, Telegram retirement, automation, delivery/entitlements, admin, billing, notification retirement, and eventual migration/cutover each require separate bounded Issues and acceptance evidence.
-
-Deferred product features are not active implementation scope.
+All later phases remain planned but deferred by owner decision at the PR #100 execution boundary. They require a new explicit owner decision plus separate bounded Issues and acceptance evidence before any implementation resumes.
