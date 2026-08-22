@@ -38,6 +38,14 @@ This is a characterization boundary, not active migration/cutover. It does not d
 
 The V2 evaluator accepts only explicit synthetic status and minute-of-day inputs. It preserves the observed legacy active-status and inclusive/overnight window semantics without reading a clock, configuration, or external state. It does not characterize entitlement/balance, delivery, provider payload, or worker behavior.
 
+## Phase 6 entitlement daily-rule characterization
+
+| Legacy evidence                                                                                         | V2 owner                                                                    | Behavioral evidence                                                                                                               | Licensing                                                   | Fixture review                                                              |
+| ------------------------------------------------------------------------------------------------------- | --------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------- | --------------------------------------------------------------------------- |
+| `lib/worker.js` `_recordConfirmation()` / `_consumeActiveDay()`; `lib/delivery-protocol.js` `confirm()` | Issue #87; `src/modules/entitlements/application/daily-entitlement-rule.ts` | `test/unit/daily-entitlement-rule.test.ts` proves the UTC+7/WIB calendar rollover and one-consumption-per-business-date predicate | Behavior rewritten from inspection; no legacy source copied | Invented timestamps and identifiers only; no runtime/customer/provider data |
+
+The observed rule consumes one remaining day only after a confirmed delivery, keyed by an ISO calendar date calculated as UTC+7 (WIB). A second confirmation for the same business date does not consume again. Slice 4 characterizes only this date/once-per-day rule and creates standalone ledger credits/debits; it does not connect confirmation to a debit, alter payment/coupon behavior, or migrate legacy state.
+
 ## Phase 6 delivery sender characterization
 
 | Legacy evidence                                                                                               | Observed behavior                                                                                                                       | V2 decision                 | Synthetic evidence / reason                                                                                                                                                       |
