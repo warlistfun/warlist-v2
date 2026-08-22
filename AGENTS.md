@@ -7,12 +7,12 @@
 - Prefer the smallest explicit implementation; do not pre-create empty architecture.
 - GitHub Issues, PRs, commits, tests, ADRs, and current-state docs are the change record.
 
-### Phase authority — mandatory for WARLIST V2
+### Execution-roadmap authority — mandatory for WARLIST V2
 
-- The durable WARLIST V2 backend master plan is the authority for phase names, order, scope, and definition of done. The repository `docs/roadmap.md` is a concise current-status view only; it must not be treated as phase authority.
-- Before interpreting, starting, closing, or claiming readiness for a phase/slice, reconcile the current work with the master-plan definition of done and the current tracked source/docs.
-- A merged Issue/PR or a verified bounded slice/foundation never proves its parent phase complete by itself. Label it as a slice/foundation until every applicable master-plan requirement has evidence.
-- Do not change a phase status to `Complete`, create a phase-closure Issue/PR, or state that the next phase is authorized until that reconciliation is explicit and reviewable.
+- `docs/execution-roadmap.md` is the active execution authority. Its Backend Foundation is frozen at PR #100 pending as-built audit; do not start implementation unless a new explicit owner decision authorizes one bounded Issue.
+- The durable WARLIST V2 backend master plan and `docs/roadmap.md` are preserved historical planning/scope references. Consult them for traceability and gap analysis; they do not authorize work beyond the execution roadmap.
+- A merged Issue/PR or a verified bounded slice/foundation never proves a historical parent phase complete by itself. Do not create or claim historical phase closure without explicit reconciliation against the master plan.
+- No status wording authorizes Production, migration/cutover, provider, credential, customer-data, deployment, or financial actions.
 - Current guardrail: Phase 4 is **Supabase schema and repository foundation** in the master plan. Disposable local PostgreSQL evidence is a verified subset only; it is not Phase 4 closure evidence for the master plan.
 
 ## Hard boundaries
