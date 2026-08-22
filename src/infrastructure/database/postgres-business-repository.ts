@@ -10,6 +10,8 @@ import {
   type BusinessRepositoryPort,
   type ConfigRecord,
   type DeliveryAttemptRecord,
+  type DeliveryClaimRecord,
+  type DeliveryClaimRepositoryPort,
   type DeliveryRecord,
   type TenantAuthorizationPort,
   type TenantRecord,
@@ -55,7 +57,7 @@ export function createPostgresBusinessRepository(dependencies: {
   readonly logger: LoggerPort;
   readonly metrics: MetricsPort;
   readonly poolFactory?: (options: PoolOptions) => PoolPort;
-}): BusinessRepositoryPort {
+}): BusinessRepositoryPort & DeliveryClaimRepositoryPort {
   const config = parseConfig(dependencies.config);
   const poolFactory = dependencies.poolFactory ?? defaultPoolFactory;
   let pool: PoolPort | undefined;
@@ -344,7 +346,8 @@ export function createPostgresBusinessRepository(dependencies: {
       const result = await query(
         `INSERT INTO delivery_operations (id, tenant_id, operation_key)
          VALUES ($1, $2, $3)
-         RETURNING id, tenant_id, operation_key, status, schema_version, revision,
+         RETURNING id, tenant_id, operation_key, status, claim_owner, claim_fence,
+                   claim_lease_until, worker_generation, worker_child_id, schema_version, revision,
                    created_at, updated_at`,
         [input.id, input.tenantId, input.operationKey],
         (error) => {
@@ -360,7 +363,8 @@ export function createPostgresBusinessRepository(dependencies: {
       authorize(tenantId);
       if (!isUuid(deliveryId)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       const result = await query(
-        `SELECT id, tenant_id, operation_key, status, schema_version, revision,
+        `SELECT id, tenant_id, operation_key, status, claim_owner, claim_fence,
+                claim_lease_until, worker_generation, worker_child_id, schema_version, revision,
                 created_at, updated_at
          FROM delivery_operations WHERE tenant_id = $1 AND id = $2`,
         [tenantId, deliveryId],
@@ -379,7 +383,8 @@ export function createPostgresBusinessRepository(dependencies: {
       const result = await query(
         `INSERT INTO delivery_attempts (id, tenant_id, operation_id, attempt_number)
          SELECT $1, $2, id, $4 FROM delivery_operations WHERE tenant_id = $2 AND id = $3
-         RETURNING id, tenant_id, operation_id, attempt_number, status, schema_version, revision,
+         RETURNING id, tenant_id, operation_id, attempt_number, status, claim_fence,
+                   schema_version, revision,
                    created_at, updated_at`,
         [input.id, input.tenantId, input.operationId, input.attemptNumber],
         (error) =>
@@ -394,12 +399,80 @@ export function createPostgresBusinessRepository(dependencies: {
       authorize(tenantId);
       if (!isUuid(attemptId)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       const result = await query(
-        `SELECT id, tenant_id, operation_id, attempt_number, status, schema_version, revision,
+        `SELECT id, tenant_id, operation_id, attempt_number, status, claim_fence,
+                schema_version, revision,
                 created_at, updated_at
          FROM delivery_attempts WHERE tenant_id = $1 AND id = $2`,
         [tenantId, attemptId],
       );
       return parseOptional(result, parseDeliveryAttempt);
+    },
+    async claimDelivery(input): Promise<DeliveryClaimRecord> {
+      authorize(input.tenantId);
+      if (!isDeliveryClaimInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const result = await query(
+        `WITH current_worker AS (
+           SELECT tenant_id
+           FROM tenant_worker_ownerships
+           WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
+             AND generation = $7 AND child_id = $8
+           FOR SHARE
+         ), claimed AS (
+           UPDATE delivery_operations AS operation
+           SET status = 'CLAIMED', claim_owner = $4,
+               claim_fence = operation.claim_fence + 1,
+               claim_lease_until = $6::timestamptz,
+               worker_generation = $7, worker_child_id = $8,
+               revision = operation.revision + 1, updated_at = now()
+           FROM current_worker
+           WHERE operation.tenant_id = current_worker.tenant_id
+             AND operation.tenant_id = $1 AND operation.id = $2
+             AND (operation.status = 'PREPARED'
+               OR (operation.status = 'CLAIMED'
+                 AND operation.claim_lease_until <= $5::timestamptz))
+           RETURNING operation.*
+         ), created_attempt AS (
+           INSERT INTO delivery_attempts
+             (id, tenant_id, operation_id, attempt_number, claim_fence)
+           SELECT $3, claimed.tenant_id, claimed.id,
+                  COALESCE((SELECT max(attempt_number) + 1 FROM delivery_attempts
+                            WHERE tenant_id = claimed.tenant_id AND operation_id = claimed.id), 1),
+                  claimed.claim_fence
+           FROM claimed
+           RETURNING *
+         )
+         SELECT claimed.id AS operation_id, claimed.tenant_id, claimed.operation_key,
+                claimed.status AS operation_status, claimed.claim_owner, claimed.claim_fence,
+                claimed.claim_lease_until, claimed.worker_generation, claimed.worker_child_id,
+                claimed.schema_version AS operation_schema_version,
+                claimed.revision AS operation_revision,
+                claimed.created_at AS operation_created_at,
+                claimed.updated_at AS operation_updated_at,
+                created_attempt.id AS attempt_id, created_attempt.attempt_number,
+                created_attempt.status AS attempt_status,
+                created_attempt.claim_fence AS attempt_claim_fence,
+                created_attempt.schema_version AS attempt_schema_version,
+                created_attempt.revision AS attempt_revision,
+                created_attempt.created_at AS attempt_created_at,
+                created_attempt.updated_at AS attempt_updated_at
+         FROM claimed JOIN created_attempt ON created_attempt.operation_id = claimed.id`,
+        [
+          input.tenantId,
+          input.operationId,
+          input.attemptId,
+          input.claimOwner,
+          input.now,
+          input.leaseUntil,
+          input.workerGeneration,
+          input.childId,
+        ],
+        (error) =>
+          postgresCode(error) === '23505'
+            ? new RepositoryError('DELIVERY_CLAIM_CONFLICT')
+            : undefined,
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
+      return parseSingle(result, parseDeliveryClaim);
     },
     async appendAuditEvent(input): Promise<AuditEvent> {
       authorize(input.tenantId);
@@ -669,11 +742,21 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
   const schemaVersion = positiveInteger(row.schema_version);
   const createdAt = timestamp(row.created_at);
   const updatedAt = timestamp(row.updated_at);
+  const claimOwner = nullableIdentifier(row.claim_owner);
+  const claimFence = nonNegativeInteger(row.claim_fence);
+  const leaseUntil = nullableTimestamp(row.claim_lease_until);
+  const workerGeneration = nullablePositiveInteger(row.worker_generation);
+  const childId = nullableIdentifier(row.worker_child_id);
   if (
     !isUuid(row.id) ||
     !isUuid(row.tenant_id) ||
     !isIdentifier(row.operation_key, false) ||
     !isDeliveryStatus(row.status) ||
+    claimOwner === undefined ||
+    claimFence === undefined ||
+    leaseUntil === undefined ||
+    workerGeneration === undefined ||
+    childId === undefined ||
     !revision ||
     !schemaVersion ||
     !createdAt ||
@@ -687,6 +770,11 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
     tenantId: row.tenant_id,
     operationKey: row.operation_key,
     status: row.status,
+    claimOwner,
+    claimFence,
+    leaseUntil,
+    workerGeneration,
+    childId,
     schemaVersion,
     revision,
     createdAt,
@@ -701,12 +789,14 @@ function parseDeliveryAttempt(row: unknown): DeliveryAttemptRecord | undefined {
   const schemaVersion = positiveInteger(row.schema_version);
   const createdAt = timestamp(row.created_at);
   const updatedAt = timestamp(row.updated_at);
+  const claimFence = nullablePositiveInteger(row.claim_fence);
   if (
     !isUuid(row.id) ||
     !isUuid(row.tenant_id) ||
     !isUuid(row.operation_id) ||
     !attemptNumber ||
     !isDeliveryAttemptStatus(row.status) ||
+    claimFence === undefined ||
     !revision ||
     !schemaVersion ||
     !createdAt ||
@@ -720,11 +810,56 @@ function parseDeliveryAttempt(row: unknown): DeliveryAttemptRecord | undefined {
     operationId: row.operation_id,
     attemptNumber,
     status: row.status,
+    claimFence,
     schemaVersion,
     revision,
     createdAt,
     updatedAt,
   });
+}
+
+function parseDeliveryClaim(row: unknown): DeliveryClaimRecord | undefined {
+  if (!isRecord(row)) return undefined;
+  const operation = parseDelivery({
+    id: row.operation_id,
+    tenant_id: row.tenant_id,
+    operation_key: row.operation_key,
+    status: row.operation_status,
+    claim_owner: row.claim_owner,
+    claim_fence: row.claim_fence,
+    claim_lease_until: row.claim_lease_until,
+    worker_generation: row.worker_generation,
+    worker_child_id: row.worker_child_id,
+    schema_version: row.operation_schema_version,
+    revision: row.operation_revision,
+    created_at: row.operation_created_at,
+    updated_at: row.operation_updated_at,
+  });
+  const attempt = parseDeliveryAttempt({
+    id: row.attempt_id,
+    tenant_id: row.tenant_id,
+    operation_id: row.operation_id,
+    attempt_number: row.attempt_number,
+    status: row.attempt_status,
+    claim_fence: row.attempt_claim_fence,
+    schema_version: row.attempt_schema_version,
+    revision: row.attempt_revision,
+    created_at: row.attempt_created_at,
+    updated_at: row.attempt_updated_at,
+  });
+  if (
+    !operation ||
+    operation.status !== 'CLAIMED' ||
+    operation.claimOwner === null ||
+    operation.claimFence < 1 ||
+    operation.leaseUntil === null ||
+    operation.workerGeneration === null ||
+    operation.childId === null ||
+    !attempt ||
+    attempt.claimFence !== operation.claimFence
+  )
+    return undefined;
+  return Object.freeze({ operation, attempt });
 }
 
 function parseAuditEvent(row: unknown): AuditEvent | undefined {
@@ -891,6 +1026,21 @@ function isFailureInput(value: unknown): value is Readonly<{
   );
 }
 
+function isDeliveryClaimInput(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isUuid(value.tenantId) &&
+    isUuid(value.operationId) &&
+    isUuid(value.attemptId) &&
+    isIdentifier(value.claimOwner, false) &&
+    timestamp(value.now) !== undefined &&
+    timestamp(value.leaseUntil) !== undefined &&
+    Date.parse(value.leaseUntil as string) > Date.parse(value.now as string) &&
+    isPositiveInteger(value.workerGeneration) &&
+    isIdentifier(value.childId, false)
+  );
+}
+
 function isPositiveInteger(value: unknown): value is number {
   return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
@@ -917,6 +1067,18 @@ function positiveInteger(value: unknown): number | undefined {
   return typeof number === 'number' && Number.isSafeInteger(number) && number > 0
     ? number
     : undefined;
+}
+
+function nullablePositiveInteger(value: unknown): number | null | undefined {
+  return value === null ? null : positiveInteger(value);
+}
+
+function nullableIdentifier(value: unknown): string | null | undefined {
+  return value === null ? null : isIdentifier(value, false) ? value : undefined;
+}
+
+function nullableTimestamp(value: unknown): string | null | undefined {
+  return value === null ? null : timestamp(value);
 }
 
 function timestamp(value: unknown): string | undefined {

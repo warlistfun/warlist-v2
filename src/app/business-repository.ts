@@ -41,6 +41,11 @@ export type DeliveryRecord = Readonly<{
   tenantId: string;
   operationKey: string;
   status: DeliveryStatus;
+  claimOwner: string | null;
+  claimFence: number;
+  leaseUntil: string | null;
+  workerGeneration: number | null;
+  childId: string | null;
   schemaVersion: number;
   revision: number;
   createdAt: string;
@@ -55,11 +60,32 @@ export type DeliveryAttemptRecord = Readonly<{
   operationId: string;
   attemptNumber: number;
   status: DeliveryAttemptStatus;
+  claimFence: number | null;
   schemaVersion: number;
   revision: number;
   createdAt: string;
   updatedAt: string;
 }>;
+
+export type DeliveryClaimRecord = Readonly<{
+  operation: DeliveryRecord;
+  attempt: DeliveryAttemptRecord;
+}>;
+
+export interface DeliveryClaimRepositoryPort {
+  claimDelivery(
+    input: Readonly<{
+      tenantId: string;
+      operationId: string;
+      attemptId: string;
+      claimOwner: string;
+      now: string;
+      leaseUntil: string;
+      workerGeneration: number;
+      childId: string;
+    }>,
+  ): Promise<DeliveryClaimRecord>;
+}
 
 export type AuditEvent = Readonly<{
   id: string;
@@ -143,6 +169,7 @@ const repositoryErrors = {
   CONFIG_VERSION_CONFLICT: ['Configuration version conflict', false],
   AUTOMATION_CONFIG_SYNC_CLAIM_CONFLICT: ['Automation config sync claim conflict', false],
   DELIVERY_ALREADY_EXISTS: ['Delivery operation already exists', false],
+  DELIVERY_CLAIM_CONFLICT: ['Delivery claim conflict', false],
   AUDIT_EVENT_ALREADY_EXISTS: ['Audit event already exists', false],
   DATABASE_UNAVAILABLE: ['Database is unavailable', true],
   DATABASE_TIMEOUT: ['Database request timed out', true],
@@ -390,6 +417,11 @@ export function createInMemoryBusinessRepository(dependencies: {
       const delivery = freezeDelivery({
         ...input,
         status: 'PREPARED',
+        claimOwner: null,
+        claimFence: 0,
+        leaseUntil: null,
+        workerGeneration: null,
+        childId: null,
         schemaVersion: 1,
         revision: 1,
         createdAt: now,
@@ -428,6 +460,7 @@ export function createInMemoryBusinessRepository(dependencies: {
       const attempt = freezeDeliveryAttempt({
         ...input,
         status: 'PREPARED',
+        claimFence: null,
         schemaVersion: 1,
         revision: 1,
         createdAt: now,
