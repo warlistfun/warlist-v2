@@ -13,6 +13,9 @@ import {
   type DeliveryClaimRecord,
   type DeliveryClaimRepositoryPort,
   type DeliveryRecord,
+  type EntitlementBalance,
+  type EntitlementEntryType,
+  type EntitlementLedgerEntry,
   type TenantAuthorizationPort,
   type TenantRecord,
 } from '../../app/business-repository';
@@ -569,6 +572,50 @@ export function createPostgresBusinessRepository(dependencies: {
       if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
       return parseSingle(result, parseDeliveryClaim);
     },
+    async appendEntitlementLedgerEntry(input): Promise<EntitlementLedgerEntry> {
+      authorize(input.tenantId);
+      if (!isEntitlementLedgerInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const values = [
+        input.id,
+        input.tenantId,
+        input.entryType,
+        input.units,
+        input.businessKey,
+        input.correlationId,
+      ];
+      const inserted = await query(
+        `INSERT INTO entitlement_ledger (id, tenant_id, entry_type, units, business_key, correlation_id)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT DO NOTHING
+         RETURNING id, tenant_id, entry_type, units, business_key, correlation_id, created_at`,
+        values,
+        (error) => {
+          const code = postgresCode(error);
+          if (code === '23503') return new RepositoryError('TENANT_NOT_FOUND');
+          return undefined;
+        },
+      );
+      if (inserted.rowCount === 1) return parseSingle(inserted, parseEntitlementLedgerEntry);
+      const existing = await query(
+        `SELECT id, tenant_id, entry_type, units, business_key, correlation_id, created_at
+         FROM entitlement_ledger WHERE tenant_id = $1 AND business_key = $2`,
+        [input.tenantId, input.businessKey],
+      );
+      const entry =
+        existing.rowCount === 1 ? parseSingle(existing, parseEntitlementLedgerEntry) : undefined;
+      if (!entry || !sameEntitlementLedgerEntry(entry, input))
+        throw new RepositoryError('ENTITLEMENT_BUSINESS_KEY_CONFLICT');
+      return entry;
+    },
+    async readEntitlementBalance(tenantId): Promise<EntitlementBalance> {
+      authorize(tenantId);
+      const result = await query(
+        `SELECT $1::uuid AS tenant_id, COALESCE(sum(units), 0)::bigint AS units
+         FROM entitlement_ledger WHERE tenant_id = $1`,
+        [tenantId],
+      );
+      return parseSingle(result, parseEntitlementBalance);
+    },
     async appendAuditEvent(input): Promise<AuditEvent> {
       authorize(input.tenantId);
       if (!isAuditInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
@@ -965,6 +1012,53 @@ function parseDeliveryClaim(row: unknown): DeliveryClaimRecord | undefined {
   return Object.freeze({ operation, attempt });
 }
 
+function parseEntitlementLedgerEntry(row: unknown): EntitlementLedgerEntry | undefined {
+  if (!isRecord(row)) return undefined;
+  const units = nonZeroInteger(row.units);
+  const createdAt = timestamp(row.created_at);
+  if (
+    !isUuid(row.id) ||
+    !isUuid(row.tenant_id) ||
+    !isEntitlementEntryType(row.entry_type) ||
+    units === undefined ||
+    !isIdentifier(row.business_key, false) ||
+    !isIdentifier(row.correlation_id, false) ||
+    !createdAt
+  )
+    return undefined;
+  return Object.freeze({
+    id: row.id,
+    tenantId: row.tenant_id,
+    entryType: row.entry_type,
+    units,
+    businessKey: row.business_key,
+    correlationId: row.correlation_id,
+    createdAt,
+  });
+}
+
+function sameEntitlementLedgerEntry(
+  entry: EntitlementLedgerEntry,
+  input: Readonly<Omit<EntitlementLedgerEntry, 'createdAt'>>,
+): boolean {
+  return (
+    entry.id === input.id &&
+    entry.tenantId === input.tenantId &&
+    entry.entryType === input.entryType &&
+    entry.units === input.units &&
+    entry.businessKey === input.businessKey &&
+    entry.correlationId === input.correlationId
+  );
+}
+
+function parseEntitlementBalance(row: unknown): EntitlementBalance | undefined {
+  if (!isRecord(row)) return undefined;
+  const units = safeInteger(row.units);
+  return isUuid(row.tenant_id) && units !== undefined
+    ? Object.freeze({ tenantId: row.tenant_id, units })
+    : undefined;
+}
+
 function parseAuditEvent(row: unknown): AuditEvent | undefined {
   if (!isRecord(row)) return undefined;
   const createdAt = timestamp(row.created_at);
@@ -1066,6 +1160,29 @@ function isIdentifier(value: unknown, upperCase: boolean): value is string {
 
 function isTenantStatus(value: unknown): value is TenantRecord['status'] {
   return value === 'ACTIVE' || value === 'INACTIVE' || value === 'DELETING' || value === 'DELETED';
+}
+
+function isEntitlementLedgerInput(
+  value: unknown,
+): value is Readonly<Omit<EntitlementLedgerEntry, 'createdAt'>> {
+  return (
+    isRecord(value) &&
+    isUuid(value.id) &&
+    isUuid(value.tenantId) &&
+    isEntitlementEntryType(value.entryType) &&
+    nonZeroInteger(value.units) !== undefined &&
+    isIdentifier(value.businessKey, false) &&
+    isIdentifier(value.correlationId, false)
+  );
+}
+
+function isEntitlementEntryType(value: unknown): value is EntitlementEntryType {
+  return (
+    value === 'CREDIT_PAYMENT' ||
+    value === 'CREDIT_COUPON' ||
+    value === 'DEBIT_CONFIRMED_DELIVERY' ||
+    value === 'ADJUSTMENT'
+  );
 }
 
 function isDeliveryStatus(value: unknown): value is DeliveryRecord['status'] {
@@ -1185,6 +1302,21 @@ function positiveInteger(value: unknown): number | undefined {
   return typeof number === 'number' && Number.isSafeInteger(number) && number > 0
     ? number
     : undefined;
+}
+
+function safeInteger(value: unknown): number | undefined {
+  const number = typeof value === 'string' && /^-?\d+$/.test(value) ? Number(value) : value;
+  return typeof number === 'number' && Number.isSafeInteger(number) ? number : undefined;
+}
+
+function nonNegativeOrNegativeInteger(value: unknown): number | undefined {
+  const number = safeInteger(value);
+  return number !== undefined && Math.abs(number) <= 1_000_000 ? number : undefined;
+}
+
+function nonZeroInteger(value: unknown): number | undefined {
+  const number = nonNegativeOrNegativeInteger(value);
+  return number === 0 || number === undefined ? undefined : number;
 }
 
 function nullablePositiveInteger(value: unknown): number | null | undefined {

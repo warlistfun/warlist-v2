@@ -74,6 +74,21 @@ export type DeliveryClaimRecord = Readonly<{
   attempt: DeliveryAttemptRecord;
 }>;
 
+export type EntitlementEntryType =
+  'CREDIT_PAYMENT' | 'CREDIT_COUPON' | 'DEBIT_CONFIRMED_DELIVERY' | 'ADJUSTMENT';
+
+export type EntitlementLedgerEntry = Readonly<{
+  id: string;
+  tenantId: string;
+  entryType: EntitlementEntryType;
+  units: number;
+  businessKey: string;
+  correlationId: string;
+  createdAt: string;
+}>;
+
+export type EntitlementBalance = Readonly<{ tenantId: string; units: number }>;
+
 export interface DeliveryClaimRepositoryPort {
   claimDelivery(
     input: Readonly<{
@@ -181,6 +196,17 @@ export interface BusinessRepositoryPort extends RepositoryPort {
     tenantId: string,
     attemptId: string,
   ): Promise<DeliveryAttemptRecord | undefined>;
+  appendEntitlementLedgerEntry(
+    input: Readonly<{
+      id: string;
+      tenantId: string;
+      entryType: EntitlementEntryType;
+      units: number;
+      businessKey: string;
+      correlationId: string;
+    }>,
+  ): Promise<EntitlementLedgerEntry>;
+  readEntitlementBalance(tenantId: string): Promise<EntitlementBalance>;
   appendAuditEvent(input: AuditEventInput): Promise<AuditEvent>;
   readAuditEvents(tenantId: string, limit: number): Promise<readonly AuditEvent[]>;
 }
@@ -194,6 +220,7 @@ const repositoryErrors = {
   AUTOMATION_CONFIG_SYNC_CLAIM_CONFLICT: ['Automation config sync claim conflict', false],
   DELIVERY_ALREADY_EXISTS: ['Delivery operation already exists', false],
   DELIVERY_CLAIM_CONFLICT: ['Delivery claim conflict', false],
+  ENTITLEMENT_BUSINESS_KEY_CONFLICT: ['Entitlement business key conflict', false],
   AUDIT_EVENT_ALREADY_EXISTS: ['Audit event already exists', false],
   DATABASE_UNAVAILABLE: ['Database is unavailable', true],
   DATABASE_TIMEOUT: ['Database request timed out', true],
@@ -223,6 +250,8 @@ export function createInMemoryBusinessRepository(dependencies: {
   const deliveryIdsByTenantKey = new Map<string, string>();
   const deliveryAttempts = new Map<string, DeliveryAttemptRecord>();
   const deliveryAttemptIdsByTenantOperationNumber = new Map<string, string>();
+  const entitlementEntries = new Map<string, EntitlementLedgerEntry>();
+  const entitlementEntryIdsByBusinessKey = new Map<string, string>();
   const auditEvents = new Map<string, AuditEvent>();
   let started = false;
 
@@ -503,6 +532,36 @@ export function createInMemoryBusinessRepository(dependencies: {
       const attempt = deliveryAttempts.get(attemptId);
       return attempt?.tenantId === tenantId ? freezeDeliveryAttempt(attempt) : undefined;
     },
+    async appendEntitlementLedgerEntry(input): Promise<EntitlementLedgerEntry> {
+      await Promise.resolve();
+      requireStarted();
+      authorize(input.tenantId);
+      if (!tenants.has(input.tenantId)) throw new RepositoryError('TENANT_NOT_FOUND');
+      if (!isEntitlementLedgerInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const key = entitlementBusinessKey(input.tenantId, input.businessKey);
+      const existingId = entitlementEntryIdsByBusinessKey.get(key);
+      if (existingId) {
+        const existing = entitlementEntries.get(existingId);
+        if (existing && sameEntitlementEntry(existing, input))
+          return freezeEntitlementEntry(existing);
+        throw new RepositoryError('ENTITLEMENT_BUSINESS_KEY_CONFLICT');
+      }
+      if (entitlementEntries.has(input.id))
+        throw new RepositoryError('ENTITLEMENT_BUSINESS_KEY_CONFLICT');
+      const entry = freezeEntitlementEntry({ ...input, createdAt: new Date().toISOString() });
+      entitlementEntries.set(entry.id, entry);
+      entitlementEntryIdsByBusinessKey.set(key, entry.id);
+      return freezeEntitlementEntry(entry);
+    },
+    async readEntitlementBalance(tenantId): Promise<EntitlementBalance> {
+      await Promise.resolve();
+      requireStarted();
+      authorize(tenantId);
+      const units = [...entitlementEntries.values()]
+        .filter((entry) => entry.tenantId === tenantId)
+        .reduce((sum, entry) => sum + entry.units, 0);
+      return Object.freeze({ tenantId, units });
+    },
     async appendAuditEvent(input): Promise<AuditEvent> {
       requireStarted();
       authorize(input.tenantId);
@@ -632,6 +691,55 @@ function freezeDeliveryAttempt(attempt: DeliveryAttemptRecord): DeliveryAttemptR
 
 function deliveryAttemptKey(tenantId: string, operationId: string, attemptNumber: number): string {
   return `${tenantId}\u0000${operationId}\u0000${attemptNumber}`;
+}
+
+function entitlementBusinessKey(tenantId: string, businessKey: string): string {
+  return `${tenantId}\u0000${businessKey}`;
+}
+
+function freezeEntitlementEntry(entry: EntitlementLedgerEntry): EntitlementLedgerEntry {
+  return Object.freeze({ ...entry });
+}
+
+function sameEntitlementEntry(
+  entry: EntitlementLedgerEntry,
+  input: Readonly<Omit<EntitlementLedgerEntry, 'createdAt'>>,
+): boolean {
+  return (
+    entry.id === input.id &&
+    entry.entryType === input.entryType &&
+    entry.units === input.units &&
+    entry.businessKey === input.businessKey &&
+    entry.correlationId === input.correlationId
+  );
+}
+
+function isEntitlementLedgerInput(
+  input: unknown,
+): input is Readonly<Omit<EntitlementLedgerEntry, 'createdAt'>> {
+  if (!isPlainObject(input)) return false;
+  const units = input.units;
+  return (
+    isUuid(input.id) &&
+    isUuid(input.tenantId) &&
+    isEntitlementEntryType(input.entryType) &&
+    typeof units === 'number' &&
+    Number.isSafeInteger(units) &&
+    units >= -1_000_000 &&
+    units <= 1_000_000 &&
+    units !== 0 &&
+    isBoundedIdentifier(input.businessKey, false) &&
+    isBoundedIdentifier(input.correlationId, false)
+  );
+}
+
+function isEntitlementEntryType(value: unknown): value is EntitlementEntryType {
+  return (
+    value === 'CREDIT_PAYMENT' ||
+    value === 'CREDIT_COUPON' ||
+    value === 'DEBIT_CONFIRMED_DELIVERY' ||
+    value === 'ADJUSTMENT'
+  );
 }
 
 function freezeAuditEvent(event: AuditEvent): AuditEvent {
