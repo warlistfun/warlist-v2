@@ -48,7 +48,7 @@ export function createPostgresWorkerLifecycleStateRepository(dependencies: {
     validateSnapshot(snapshot);
     const result = await dependencies.client.query(
       expectedGeneration === undefined
-        ? `INSERT INTO worker_lifecycle_states
+        ? `INSERT INTO tenant_worker_ownerships
              (tenant_id, state, generation, child_id, quarantined)
            VALUES ($1, $2, $3, $4, $5)
            ON CONFLICT (tenant_id) DO UPDATE
@@ -57,15 +57,15 @@ export function createPostgresWorkerLifecycleStateRepository(dependencies: {
                  child_id = EXCLUDED.child_id,
                  quarantined = EXCLUDED.quarantined,
                  updated_at = now()
-           WHERE worker_lifecycle_states.generation <= EXCLUDED.generation
+           WHERE tenant_worker_ownerships.generation <= EXCLUDED.generation
            RETURNING tenant_id`
-        : `INSERT INTO worker_lifecycle_states
+        : `INSERT INTO tenant_worker_ownerships
              (tenant_id, state, generation, child_id, quarantined)
            SELECT $1, $2, $3, $4, $5
            WHERE $6::integer IS NULL
               OR EXISTS (
                 SELECT 1
-                FROM worker_lifecycle_states
+                FROM tenant_worker_ownerships
                 WHERE tenant_id = $1 AND generation = $6
               )
            ON CONFLICT (tenant_id) DO UPDATE
@@ -74,7 +74,7 @@ export function createPostgresWorkerLifecycleStateRepository(dependencies: {
                  child_id = EXCLUDED.child_id,
                  quarantined = EXCLUDED.quarantined,
                  updated_at = now()
-           WHERE worker_lifecycle_states.generation = $6
+           WHERE tenant_worker_ownerships.generation = $6
            RETURNING tenant_id`,
       expectedGeneration === undefined
         ? [
@@ -107,7 +107,7 @@ export function createPostgresWorkerLifecycleStateRepository(dependencies: {
       authorizeTenant(tenantId);
       const result = await dependencies.client.query(
         `SELECT tenant_id, state, generation, child_id, quarantined
-         FROM worker_lifecycle_states
+         FROM tenant_worker_ownerships
          WHERE tenant_id = $1`,
         [tenantId],
       );
@@ -159,11 +159,14 @@ function isRecord(value: unknown): value is Readonly<Record<string, unknown>> {
 }
 
 function isTenantId(value: unknown): value is string {
-  return typeof value === 'string' && /^tenant_example_[a-z0-9_]+$/.test(value);
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
+  );
 }
 
 function isIdentifier(value: unknown): value is string {
-  return typeof value === 'string' && /^[a-z0-9_]+$/.test(value);
+  return typeof value === 'string' && /^[a-z0-9_]{1,160}$/.test(value);
 }
 
 function isState(value: unknown): value is WorkerLifecycleSnapshot['state'] {

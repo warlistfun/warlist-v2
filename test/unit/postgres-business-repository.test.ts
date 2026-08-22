@@ -130,6 +130,66 @@ void test('pooled PostgreSQL atomically saves config syncs, fences settlements, 
   });
 });
 
+void test('pooled PostgreSQL rejects a claim row with mismatched operation and attempt fences', async (t) => {
+  const tenantId = '00000000-0000-4000-8000-000000000901';
+  const authorization = new MutableTenantAuthorization();
+  authorization.allowed.add(tenantId);
+  const repository = createPostgresBusinessRepository({
+    config: syntheticConfig(),
+    authorization,
+    logger: new NoopLogger(),
+    metrics: new NoopMetrics(),
+    poolFactory: () => ({
+      query: () =>
+        Promise.resolve({
+          rowCount: 1,
+          rows: [
+            {
+              operation_id: '00000000-0000-4000-8000-000000000902',
+              tenant_id: tenantId,
+              operation_key: 'automation:message_example_claim_validation',
+              operation_status: 'CLAIMED',
+              claim_owner: 'claim_owner_validation',
+              claim_fence: 2,
+              claim_lease_until: new Date('2030-08-22T07:01:00.000Z'),
+              worker_generation: 3,
+              worker_child_id: 'child_example_3',
+              operation_schema_version: 1,
+              operation_revision: 2,
+              operation_created_at: new Date('2030-08-22T07:00:00.000Z'),
+              operation_updated_at: new Date('2030-08-22T07:00:00.000Z'),
+              attempt_id: '00000000-0000-4000-8000-000000000903',
+              attempt_number: 2,
+              attempt_status: 'PREPARED',
+              attempt_claim_fence: 1,
+              attempt_schema_version: 1,
+              attempt_revision: 1,
+              attempt_created_at: new Date('2030-08-22T07:00:00.000Z'),
+              attempt_updated_at: new Date('2030-08-22T07:00:00.000Z'),
+            },
+          ],
+        }),
+      end: () => Promise.resolve(),
+    }),
+  });
+  await repository.start();
+  t.after(() => repository.stop());
+
+  await assert.rejects(
+    repository.claimDelivery({
+      tenantId,
+      operationId: '00000000-0000-4000-8000-000000000902',
+      attemptId: '00000000-0000-4000-8000-000000000903',
+      claimOwner: 'claim_owner_validation',
+      now: '2030-08-22T07:00:00.000Z',
+      leaseUntil: '2030-08-22T07:01:00.000Z',
+      workerGeneration: 3,
+      childId: 'child_example_3',
+    }),
+    { code: 'DATABASE_ROW_INVALID' },
+  );
+});
+
 void test('pooled PostgreSQL lifecycle is bounded, safe, and cleanup-retryable', async () => {
   const events: string[] = [];
   const logs: Array<Readonly<{ message: string; context?: Readonly<Record<string, unknown>> }>> =

@@ -14,6 +14,7 @@ const lifecycleMigration = resolve('migrations/0001-worker-lifecycle-states.sql'
 const businessMigration = resolve('migrations/0002-business-foundation.sql');
 const automationConfigSyncMigration = resolve('migrations/0003-automation-config-sync-outbox.sql');
 const deliveryAttemptMigration = resolve('migrations/0004-delivery-attempt-foundation.sql');
+const deliveryClaimMigration = resolve('migrations/0005-delivery-claim-lease.sql');
 const migrations = [
   { revision: 1, name: 'worker-lifecycle-states', sql: readFileSync(lifecycleMigration, 'utf8') },
   { revision: 2, name: 'business-foundation', sql: readFileSync(businessMigration, 'utf8') },
@@ -26,6 +27,11 @@ const migrations = [
     revision: 4,
     name: 'delivery-attempt-foundation',
     sql: readFileSync(deliveryAttemptMigration, 'utf8'),
+  },
+  {
+    revision: 5,
+    name: 'delivery-claim-lease',
+    sql: readFileSync(deliveryClaimMigration, 'utf8'),
   },
 ] as const;
 
@@ -95,6 +101,7 @@ void test('versioned migrator applies ordered migrations once and reruns safely'
       { revision: 2, name: 'business-foundation', checksumLength: 64 },
       { revision: 3, name: 'automation-config-sync-outbox', checksumLength: 64 },
       { revision: 4, name: 'delivery-attempt-foundation', checksumLength: 64 },
+      { revision: 5, name: 'delivery-claim-lease', checksumLength: 64 },
     ],
   );
 });
@@ -134,7 +141,7 @@ void test('versioned migrator rejects applied migration checksum drift', async (
   const applied = await database.client.query<{ count: string }>(
     'SELECT count(*)::text AS count FROM schema_migrations',
   );
-  assert.equal(applied.rows[0]?.count, '4');
+  assert.equal(applied.rows[0]?.count, '5');
 });
 
 void test('versioned migrator rolls back the migration batch when a revision fails', async (t) => {
@@ -320,7 +327,8 @@ void test('canonical delivery foundation enforces ownership, idempotency, prepar
 
 void test('delivery attempt migration expands durable operation states and enforces tenant-owned attempt identity', async (t) => {
   const database = await createDisposableDatabase(t);
-  await runPostgresMigrations({ client: database.client, migrations });
+  const attemptMigrations = migrations.slice(0, 4);
+  await runPostgresMigrations({ client: database.client, migrations: attemptMigrations });
   await database.client.query(
     `INSERT INTO tenants (id, public_ops_id)
      VALUES ('00000000-0000-4000-8000-000000000040', 'ops_example_attempt')`,
@@ -331,7 +339,7 @@ void test('delivery attempt migration expands durable operation states and enfor
        '00000000-0000-4000-8000-000000000041',
        '00000000-0000-4000-8000-000000000040',
        'automation:message_example_attempt',
-       'CLAIMED'
+       'PREPARED'
      )`,
   );
   await database.client.query(
@@ -371,11 +379,68 @@ void test('delivery attempt migration expands durable operation states and enfor
     );
   }
 
-  await runPostgresMigrations({ client: database.client, migrations });
+  await runPostgresMigrations({ client: database.client, migrations: attemptMigrations });
   const applied = await database.client.query<{ revision: number; name: string }>(
     'SELECT revision, name FROM schema_migrations ORDER BY revision',
   );
   assert.deepEqual(applied.rows.at(-1), { revision: 4, name: 'delivery-attempt-foundation' });
+});
+
+void test('delivery claim migration enforces UUID worker ownership and complete claim state', async (t) => {
+  const database = await createDisposableDatabase(t);
+  await runPostgresMigrations({ client: database.client, migrations });
+  await database.client.query(
+    `INSERT INTO tenants (id, public_ops_id)
+     VALUES ('00000000-0000-4000-8000-000000000050', 'ops_example_claim_schema')`,
+  );
+  await database.client.query(
+    `INSERT INTO tenant_worker_ownerships
+       (tenant_id, state, generation, child_id, quarantined)
+     VALUES (
+       '00000000-0000-4000-8000-000000000050',
+       'RUNNING',
+       1,
+       'child_example_claim',
+       false
+     )`,
+  );
+  await database.client.query(
+    `INSERT INTO delivery_operations (id, tenant_id, operation_key)
+     VALUES (
+       '00000000-0000-4000-8000-000000000051',
+       '00000000-0000-4000-8000-000000000050',
+       'automation:message_example_claim_schema'
+     )`,
+  );
+
+  for (const sql of [
+    `INSERT INTO tenant_worker_ownerships
+       (tenant_id, state, generation, child_id, quarantined)
+     VALUES ('tenant_example_text', 'RUNNING', 1, 'child_example_claim', false)`,
+    `UPDATE delivery_operations SET status = 'CLAIMED'`,
+    `UPDATE delivery_operations
+     SET status = 'CLAIMED', claim_owner = 'invalid owner', claim_fence = 1,
+         claim_lease_until = now() + interval '1 minute', worker_generation = 1,
+         worker_child_id = 'child_example_claim'`,
+    `UPDATE delivery_operations
+     SET status = 'CLAIMED', claim_owner = 'claim_owner_schema', claim_fence = 0,
+         claim_lease_until = now() + interval '1 minute', worker_generation = 1,
+         worker_child_id = 'child_example_claim'`,
+    `INSERT INTO delivery_attempts
+       (id, tenant_id, operation_id, attempt_number, claim_fence)
+     VALUES (
+       '00000000-0000-4000-8000-000000000052',
+       '00000000-0000-4000-8000-000000000050',
+       '00000000-0000-4000-8000-000000000051',
+       1,
+       0
+     )`,
+  ]) {
+    await assert.rejects(
+      database.client.query(sql),
+      /invalid input syntax for type uuid|violates check constraint/,
+    );
+  }
 });
 
 void test('canonical audit foundation exposes only bounded actor, action, target metadata', async (t) => {
@@ -489,6 +554,7 @@ void test('versioned migrator adopts an existing idempotent lifecycle schema', a
     { revision: 2, name: 'business-foundation' },
     { revision: 3, name: 'automation-config-sync-outbox' },
     { revision: 4, name: 'delivery-attempt-foundation' },
+    { revision: 5, name: 'delivery-claim-lease' },
   ]);
 });
 

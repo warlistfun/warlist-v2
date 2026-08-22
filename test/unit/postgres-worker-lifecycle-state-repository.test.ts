@@ -14,11 +14,21 @@ import {
 
 const postgresBin = '/usr/lib/postgresql/16/bin';
 const migration = resolve('migrations/0001-worker-lifecycle-states.sql');
-const tenantOne = 'tenant_example_1';
-const tenantTwo = 'tenant_example_2';
+const businessMigration = resolve('migrations/0002-business-foundation.sql');
+const attemptMigration = resolve('migrations/0004-delivery-attempt-foundation.sql');
+const claimMigration = resolve('migrations/0005-delivery-claim-lease.sql');
+const tenantOne = '00000000-0000-4000-8000-000000000901';
+const tenantTwo = '00000000-0000-4000-8000-000000000902';
 
 void test('PostgreSQL repository fences lifecycle writes and authorizes tenant access', async (t) => {
   const database = await createDisposableDatabase(t);
+  await database.client.query(readFileSync(businessMigration, 'utf8'));
+  await database.client.query(readFileSync(attemptMigration, 'utf8'));
+  await database.client.query(readFileSync(claimMigration, 'utf8'));
+  await database.client.query(
+    `INSERT INTO tenants (id, public_ops_id) VALUES ($1, 'ops_example_worker_state')`,
+    [tenantOne],
+  );
   const allowed = new Set([tenantOne]);
   const authorization: TenantAuthorizationPort = {
     assertAuthorized(tenantId): void {
@@ -63,7 +73,7 @@ void test('PostgreSQL repository fences lifecycle writes and authorizes tenant a
     /invalid tenant identifier/,
   );
   const count = await database.client.query<{ count: string }>(
-    'SELECT count(*)::text AS count FROM worker_lifecycle_states',
+    'SELECT count(*)::text AS count FROM tenant_worker_ownerships',
   );
   assert.equal(count.rows[0]?.count, '1');
 });
