@@ -11,6 +11,7 @@ import {
   type ConfigRecord,
   type DeliveryAttemptRecord,
   type DeliveryClaimRecord,
+  type DeliveryConfirmationRecord,
   type DeliveryClaimRepositoryPort,
   type DeliveryRecord,
   type EntitlementBalance,
@@ -572,6 +573,80 @@ export function createPostgresBusinessRepository(dependencies: {
       if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
       return parseSingle(result, parseDeliveryClaim);
     },
+    async confirmDelivery(input): Promise<DeliveryConfirmationRecord> {
+      authorize(input.tenantId);
+      if (!isDeliveryConfirmationInput(input))
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const result = await query(
+        `WITH transitioned AS (
+           UPDATE delivery_operations AS operation
+           SET status = 'CONFIRMED', confirmation_business_key = $8,
+               confirmation_correlation_id = $9, revision = operation.revision + 1, updated_at = now()
+           FROM delivery_attempts AS attempt, tenant_worker_ownerships AS worker
+           WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'SENT'
+             AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
+             AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+             AND attempt.id = $3 AND attempt.status = 'SENT' AND attempt.claim_fence = operation.claim_fence
+             AND worker.tenant_id = operation.tenant_id AND worker.state = 'RUNNING'
+             AND worker.quarantined = false AND worker.generation = $5 AND worker.child_id = $6
+             AND NOT EXISTS (SELECT 1 FROM entitlement_ledger
+               WHERE tenant_id = operation.tenant_id AND business_key = $8
+                 AND (entry_type <> 'DEBIT_CONFIRMED_DELIVERY' OR units <> -1))
+           RETURNING operation.*
+         ), debited AS (
+           INSERT INTO entitlement_ledger (id, tenant_id, entry_type, units, business_key, correlation_id)
+           SELECT $7, tenant_id, 'DEBIT_CONFIRMED_DELIVERY', -1, $8, $9 FROM transitioned
+           ON CONFLICT (tenant_id, business_key) DO NOTHING
+           RETURNING id, tenant_id, entry_type, units, business_key, correlation_id, created_at
+         ), canonical AS (
+           SELECT * FROM transitioned
+           UNION ALL
+           SELECT operation.* FROM delivery_operations AS operation
+           JOIN delivery_attempts AS attempt ON attempt.tenant_id = operation.tenant_id
+             AND attempt.operation_id = operation.id
+           JOIN tenant_worker_ownerships AS worker ON worker.tenant_id = operation.tenant_id
+           WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'CONFIRMED'
+             AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
+             AND operation.confirmation_business_key = $8 AND operation.confirmation_correlation_id = $9
+             AND attempt.id = $3 AND attempt.status = 'SENT' AND attempt.claim_fence = operation.claim_fence
+             AND worker.state = 'RUNNING' AND worker.quarantined = false
+             AND worker.generation = $5 AND worker.child_id = $6
+             AND NOT EXISTS (SELECT 1 FROM transitioned)
+         ), ledger_result AS (
+           SELECT * FROM debited
+           UNION ALL
+           SELECT ledger.* FROM entitlement_ledger AS ledger
+           WHERE ledger.tenant_id = $1 AND ledger.business_key = $8
+             AND ledger.entry_type = 'DEBIT_CONFIRMED_DELIVERY' AND ledger.units = -1
+             AND NOT EXISTS (SELECT 1 FROM debited)
+         )
+         SELECT canonical.id, canonical.tenant_id, canonical.operation_key, canonical.status,
+                canonical.claim_owner, canonical.claim_fence, canonical.claim_lease_until,
+                canonical.worker_generation, canonical.worker_child_id, canonical.confirmation_business_key,
+                canonical.confirmation_correlation_id, canonical.schema_version, canonical.revision,
+                canonical.created_at, canonical.updated_at, ledger.id AS debit_id,
+                ledger.tenant_id AS debit_tenant_id, ledger.entry_type AS debit_entry_type,
+                ledger.units AS debit_units, ledger.business_key AS debit_business_key,
+                ledger.correlation_id AS debit_correlation_id, ledger.created_at AS debit_created_at
+         FROM canonical LEFT JOIN ledger_result AS ledger ON ledger.tenant_id = canonical.tenant_id
+           AND ledger.business_key = canonical.confirmation_business_key
+           AND ledger.correlation_id = canonical.confirmation_correlation_id
+           AND ledger.entry_type = 'DEBIT_CONFIRMED_DELIVERY' AND ledger.units = -1`,
+        [
+          input.tenantId,
+          input.operationId,
+          input.attemptId,
+          input.claimFence,
+          input.workerGeneration,
+          input.childId,
+          input.debitId,
+          input.businessKey,
+          input.correlationId,
+        ],
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
+      return parseSingle(result, parseDeliveryConfirmation);
+    },
     async appendEntitlementLedgerEntry(input): Promise<EntitlementLedgerEntry> {
       authorize(input.tenantId);
       if (!isEntitlementLedgerInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
@@ -889,6 +964,14 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
   const leaseUntil = nullableTimestamp(row.claim_lease_until);
   const workerGeneration = nullablePositiveInteger(row.worker_generation);
   const childId = nullableIdentifier(row.worker_child_id);
+  const confirmationBusinessKey =
+    row.confirmation_business_key === undefined
+      ? null
+      : nullableIdentifier(row.confirmation_business_key);
+  const confirmationCorrelationId =
+    row.confirmation_correlation_id === undefined
+      ? null
+      : nullableIdentifier(row.confirmation_correlation_id);
   if (
     !isUuid(row.id) ||
     !isUuid(row.tenant_id) ||
@@ -899,6 +982,8 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
     leaseUntil === undefined ||
     workerGeneration === undefined ||
     childId === undefined ||
+    confirmationBusinessKey === undefined ||
+    confirmationCorrelationId === undefined ||
     !revision ||
     !schemaVersion ||
     !createdAt ||
@@ -917,6 +1002,8 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
     leaseUntil,
     workerGeneration,
     childId,
+    confirmationBusinessKey,
+    confirmationCorrelationId,
     schemaVersion,
     revision,
     createdAt,
@@ -1010,6 +1097,32 @@ function parseDeliveryClaim(row: unknown): DeliveryClaimRecord | undefined {
   )
     return undefined;
   return Object.freeze({ operation, attempt });
+}
+
+function parseDeliveryConfirmation(row: unknown): DeliveryConfirmationRecord | undefined {
+  if (!isRecord(row)) return undefined;
+  const operation = parseDelivery(row);
+  if (
+    !operation ||
+    operation.status !== 'CONFIRMED' ||
+    operation.confirmationBusinessKey === null ||
+    operation.confirmationCorrelationId === null
+  )
+    return undefined;
+  const debit =
+    row.debit_id === null
+      ? null
+      : parseEntitlementLedgerEntry({
+          id: row.debit_id,
+          tenant_id: row.debit_tenant_id,
+          entry_type: row.debit_entry_type,
+          units: row.debit_units,
+          business_key: row.debit_business_key,
+          correlation_id: row.debit_correlation_id,
+          created_at: row.debit_created_at,
+        });
+  if (debit === undefined) return undefined;
+  return Object.freeze({ operation, debit });
 }
 
 function parseEntitlementLedgerEntry(row: unknown): EntitlementLedgerEntry | undefined {
@@ -1244,6 +1357,21 @@ function isFailureInput(value: unknown): value is Readonly<{
     typeof value.retryable === 'boolean' &&
     isIdentifier(value.failureCode, true) &&
     (value.retryable ? timestamp(value.nextAttemptAt) !== undefined : value.nextAttemptAt === null)
+  );
+}
+
+function isDeliveryConfirmationInput(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isUuid(value.tenantId) &&
+    isUuid(value.operationId) &&
+    isUuid(value.attemptId) &&
+    isPositiveInteger(value.claimFence) &&
+    isPositiveInteger(value.workerGeneration) &&
+    isIdentifier(value.childId, false) &&
+    isUuid(value.debitId) &&
+    isIdentifier(value.businessKey, false) &&
+    isIdentifier(value.correlationId, false)
   );
 }
 
