@@ -165,6 +165,26 @@ export async function verifyBusinessRepositoryContract(
           hasRepositoryCode(error, 'DELIVERY_ALREADY_EXISTS'),
         );
       }
+      const attempt = await repository.createDeliveryAttempt({
+        id: '00000000-0000-4000-8000-000000000204',
+        tenantId: tenantOne,
+        operationId: prepared.id,
+        attemptNumber: 1,
+      });
+      assert.equal(attempt.status, 'PREPARED');
+      assert.equal(Object.isFrozen(attempt), true);
+      assert.deepEqual(await repository.loadDeliveryAttempt(tenantOne, attempt.id), attempt);
+      await assert.rejects(
+        repository.createDeliveryAttempt({
+          ...attempt,
+          id: '00000000-0000-4000-8000-000000000205',
+        }),
+        (error: unknown) => hasRepositoryCode(error, 'DELIVERY_ALREADY_EXISTS'),
+      );
+      await assert.rejects(
+        repository.loadDeliveryAttempt(tenantDenied, attempt.id),
+        (error: unknown) => hasRepositoryCode(error, 'TENANT_ACCESS_DENIED'),
+      );
       await assert.rejects(repository.loadDelivery(tenantDenied, prepared.id), (error: unknown) =>
         hasRepositoryCode(error, 'TENANT_ACCESS_DENIED'),
       );

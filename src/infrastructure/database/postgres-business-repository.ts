@@ -9,6 +9,7 @@ import {
   type AutomationConfigSyncStatus,
   type BusinessRepositoryPort,
   type ConfigRecord,
+  type DeliveryAttemptRecord,
   type DeliveryRecord,
   type TenantAuthorizationPort,
   type TenantRecord,
@@ -366,6 +367,40 @@ export function createPostgresBusinessRepository(dependencies: {
       );
       return parseOptional(result, parseDelivery);
     },
+    async createDeliveryAttempt(input): Promise<DeliveryAttemptRecord> {
+      authorize(input.tenantId);
+      if (
+        !isUuid(input.id) ||
+        !isUuid(input.operationId) ||
+        !isPositiveInteger(input.attemptNumber)
+      ) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const result = await query(
+        `INSERT INTO delivery_attempts (id, tenant_id, operation_id, attempt_number)
+         SELECT $1, $2, id, $4 FROM delivery_operations WHERE tenant_id = $2 AND id = $3
+         RETURNING id, tenant_id, operation_id, attempt_number, status, schema_version, revision,
+                   created_at, updated_at`,
+        [input.id, input.tenantId, input.operationId, input.attemptNumber],
+        (error) =>
+          postgresCode(error) === '23505'
+            ? new RepositoryError('DELIVERY_ALREADY_EXISTS')
+            : undefined,
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      return parseSingle(result, parseDeliveryAttempt);
+    },
+    async loadDeliveryAttempt(tenantId, attemptId): Promise<DeliveryAttemptRecord | undefined> {
+      authorize(tenantId);
+      if (!isUuid(attemptId)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const result = await query(
+        `SELECT id, tenant_id, operation_id, attempt_number, status, schema_version, revision,
+                created_at, updated_at
+         FROM delivery_attempts WHERE tenant_id = $1 AND id = $2`,
+        [tenantId, attemptId],
+      );
+      return parseOptional(result, parseDeliveryAttempt);
+    },
     async appendAuditEvent(input): Promise<AuditEvent> {
       authorize(input.tenantId);
       if (!isAuditInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
@@ -638,7 +673,7 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
     !isUuid(row.id) ||
     !isUuid(row.tenant_id) ||
     !isIdentifier(row.operation_key, false) ||
-    row.status !== 'PREPARED' ||
+    !isDeliveryStatus(row.status) ||
     !revision ||
     !schemaVersion ||
     !createdAt ||
@@ -651,7 +686,40 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
     id: row.id,
     tenantId: row.tenant_id,
     operationKey: row.operation_key,
-    status: 'PREPARED',
+    status: row.status,
+    schemaVersion,
+    revision,
+    createdAt,
+    updatedAt,
+  });
+}
+
+function parseDeliveryAttempt(row: unknown): DeliveryAttemptRecord | undefined {
+  if (!isRecord(row)) return undefined;
+  const attemptNumber = positiveInteger(row.attempt_number);
+  const revision = positiveInteger(row.revision);
+  const schemaVersion = positiveInteger(row.schema_version);
+  const createdAt = timestamp(row.created_at);
+  const updatedAt = timestamp(row.updated_at);
+  if (
+    !isUuid(row.id) ||
+    !isUuid(row.tenant_id) ||
+    !isUuid(row.operation_id) ||
+    !attemptNumber ||
+    !isDeliveryAttemptStatus(row.status) ||
+    !revision ||
+    !schemaVersion ||
+    !createdAt ||
+    !updatedAt ||
+    updatedAt < createdAt
+  )
+    return undefined;
+  return Object.freeze({
+    id: row.id,
+    tenantId: row.tenant_id,
+    operationId: row.operation_id,
+    attemptNumber,
+    status: row.status,
     schemaVersion,
     revision,
     createdAt,
@@ -760,6 +828,20 @@ function isIdentifier(value: unknown, upperCase: boolean): value is string {
 
 function isTenantStatus(value: unknown): value is TenantRecord['status'] {
   return value === 'ACTIVE' || value === 'INACTIVE' || value === 'DELETING' || value === 'DELETED';
+}
+
+function isDeliveryStatus(value: unknown): value is DeliveryRecord['status'] {
+  return (
+    value === 'PREPARED' ||
+    value === 'CLAIMED' ||
+    value === 'SENT' ||
+    value === 'AMBIGUOUS' ||
+    value === 'CONFIRMED'
+  );
+}
+
+function isDeliveryAttemptStatus(value: unknown): value is DeliveryAttemptRecord['status'] {
+  return value === 'PREPARED' || value === 'SENT' || value === 'AMBIGUOUS';
 }
 
 function isExpectedRevision(value: unknown): value is number | null {
