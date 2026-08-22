@@ -399,7 +399,7 @@ export function createPostgresBusinessRepository(dependencies: {
       authorize(tenantId);
       if (!isUuid(attemptId)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       const result = await query(
-        `SELECT id, tenant_id, operation_id, attempt_number, status, claim_fence,
+        `SELECT id, tenant_id, operation_id, attempt_number, status, claim_fence, provider_message_id,
                 schema_version, revision,
                 created_at, updated_at
          FROM delivery_attempts WHERE tenant_id = $1 AND id = $2`,
@@ -411,7 +411,12 @@ export function createPostgresBusinessRepository(dependencies: {
       authorize(input.tenantId);
       if (!isDeliveryClaimInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       const result = await query(
-        `WITH current_worker AS (
+        `WITH recovered AS (
+           UPDATE delivery_operations
+           SET status = 'AMBIGUOUS', revision = revision + 1, updated_at = now()
+           WHERE tenant_id = $1 AND id = $2 AND status = 'SENDING'
+             AND claim_lease_until <= $5::timestamptz
+         ), current_worker AS (
            SELECT tenant_id
            FROM tenant_worker_ownerships
            WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
@@ -470,6 +475,96 @@ export function createPostgresBusinessRepository(dependencies: {
           postgresCode(error) === '23505'
             ? new RepositoryError('DELIVERY_CLAIM_CONFLICT')
             : undefined,
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
+      return parseSingle(result, parseDeliveryClaim);
+    },
+    async beginDelivery(input): Promise<DeliveryClaimRecord> {
+      authorize(input.tenantId);
+      if (!isDeliverySettlementInput({ ...input, outcome: 'AMBIGUOUS', providerMessageId: null })) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const result = await query(
+        `WITH begun_operation AS (
+          UPDATE delivery_operations AS operation
+          SET status = 'SENDING', revision = operation.revision + 1, updated_at = now()
+          FROM delivery_attempts AS attempt, tenant_worker_ownerships AS worker
+          WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'CLAIMED'
+            AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
+            AND worker.tenant_id = operation.tenant_id
+            AND worker.state = 'RUNNING' AND worker.quarantined = false
+            AND worker.generation = $5 AND worker.child_id = $6
+            AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+            AND attempt.id = $3 AND attempt.status = 'PREPARED' AND attempt.claim_fence = operation.claim_fence
+          RETURNING operation.*
+        )
+         SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
+                operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
+                operation.schema_version AS operation_schema_version, operation.revision AS operation_revision,
+                operation.created_at AS operation_created_at, operation.updated_at AS operation_updated_at,
+                attempt.id AS attempt_id, attempt.attempt_number, attempt.status AS attempt_status,
+                attempt.claim_fence AS attempt_claim_fence, attempt.provider_message_id,
+                attempt.schema_version AS attempt_schema_version, attempt.revision AS attempt_revision,
+                attempt.created_at AS attempt_created_at, attempt.updated_at AS attempt_updated_at
+         FROM begun_operation AS operation JOIN delivery_attempts AS attempt
+           ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id AND attempt.id = $3`,
+        [
+          input.tenantId,
+          input.operationId,
+          input.attemptId,
+          input.claimFence,
+          input.workerGeneration,
+          input.childId,
+        ],
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
+      return parseSingle(result, parseDeliveryClaim);
+    },
+    async settleDelivery(input): Promise<DeliveryClaimRecord> {
+      authorize(input.tenantId);
+      if (!isDeliverySettlementInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const result = await query(
+        `WITH settled_operation AS (
+          UPDATE delivery_operations AS operation
+          SET status = $7, revision = operation.revision + 1, updated_at = now()
+          FROM delivery_attempts AS attempt, tenant_worker_ownerships AS worker
+          WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'SENDING'
+            AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
+            AND worker.tenant_id = operation.tenant_id
+            AND worker.state = 'RUNNING' AND worker.quarantined = false
+            AND worker.generation = $5 AND worker.child_id = $6
+            AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+            AND attempt.id = $3 AND attempt.status = 'PREPARED' AND attempt.claim_fence = operation.claim_fence
+          RETURNING operation.*
+        ), settled_attempt AS (
+          UPDATE delivery_attempts AS attempt
+          SET status = $7, provider_message_id = $8, revision = attempt.revision + 1, updated_at = now()
+          FROM settled_operation AS operation
+          WHERE attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+            AND attempt.id = $3 AND attempt.status = 'PREPARED' AND attempt.claim_fence = operation.claim_fence
+          RETURNING attempt.*
+        )
+         SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
+                operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
+                operation.schema_version AS operation_schema_version, operation.revision AS operation_revision,
+                operation.created_at AS operation_created_at, operation.updated_at AS operation_updated_at,
+                attempt.id AS attempt_id, attempt.attempt_number, attempt.status AS attempt_status,
+                attempt.claim_fence AS attempt_claim_fence, attempt.provider_message_id,
+                attempt.schema_version AS attempt_schema_version, attempt.revision AS attempt_revision,
+                attempt.created_at AS attempt_created_at, attempt.updated_at AS attempt_updated_at
+         FROM settled_operation AS operation JOIN settled_attempt AS attempt ON attempt.operation_id = operation.id`,
+        [
+          input.tenantId,
+          input.operationId,
+          input.attemptId,
+          input.claimFence,
+          input.workerGeneration,
+          input.childId,
+          input.outcome,
+          input.providerMessageId,
+        ],
       );
       if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
       return parseSingle(result, parseDeliveryClaim);
@@ -790,6 +885,8 @@ function parseDeliveryAttempt(row: unknown): DeliveryAttemptRecord | undefined {
   const createdAt = timestamp(row.created_at);
   const updatedAt = timestamp(row.updated_at);
   const claimFence = nullablePositiveInteger(row.claim_fence);
+  const providerMessageId =
+    row.provider_message_id === undefined ? null : nullableIdentifier(row.provider_message_id);
   if (
     !isUuid(row.id) ||
     !isUuid(row.tenant_id) ||
@@ -797,6 +894,7 @@ function parseDeliveryAttempt(row: unknown): DeliveryAttemptRecord | undefined {
     !attemptNumber ||
     !isDeliveryAttemptStatus(row.status) ||
     claimFence === undefined ||
+    providerMessageId === undefined ||
     !revision ||
     !schemaVersion ||
     !createdAt ||
@@ -811,6 +909,7 @@ function parseDeliveryAttempt(row: unknown): DeliveryAttemptRecord | undefined {
     attemptNumber,
     status: row.status,
     claimFence,
+    providerMessageId,
     schemaVersion,
     revision,
     createdAt,
@@ -842,6 +941,7 @@ function parseDeliveryClaim(row: unknown): DeliveryClaimRecord | undefined {
     attempt_number: row.attempt_number,
     status: row.attempt_status,
     claim_fence: row.attempt_claim_fence,
+    provider_message_id: row.provider_message_id,
     schema_version: row.attempt_schema_version,
     revision: row.attempt_revision,
     created_at: row.attempt_created_at,
@@ -849,7 +949,10 @@ function parseDeliveryClaim(row: unknown): DeliveryClaimRecord | undefined {
   });
   if (
     !operation ||
-    operation.status !== 'CLAIMED' ||
+    (operation.status !== 'CLAIMED' &&
+      operation.status !== 'SENDING' &&
+      operation.status !== 'SENT' &&
+      operation.status !== 'AMBIGUOUS') ||
     operation.claimOwner === null ||
     operation.claimFence < 1 ||
     operation.leaseUntil === null ||
@@ -969,6 +1072,7 @@ function isDeliveryStatus(value: unknown): value is DeliveryRecord['status'] {
   return (
     value === 'PREPARED' ||
     value === 'CLAIMED' ||
+    value === 'SENDING' ||
     value === 'SENT' ||
     value === 'AMBIGUOUS' ||
     value === 'CONFIRMED'
@@ -1023,6 +1127,20 @@ function isFailureInput(value: unknown): value is Readonly<{
     typeof value.retryable === 'boolean' &&
     isIdentifier(value.failureCode, true) &&
     (value.retryable ? timestamp(value.nextAttemptAt) !== undefined : value.nextAttemptAt === null)
+  );
+}
+
+function isDeliverySettlementInput(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isUuid(value.tenantId) &&
+    isUuid(value.operationId) &&
+    isUuid(value.attemptId) &&
+    isPositiveInteger(value.claimFence) &&
+    isPositiveInteger(value.workerGeneration) &&
+    isIdentifier(value.childId, false) &&
+    (value.outcome === 'SENT' || value.outcome === 'AMBIGUOUS') &&
+    (value.providerMessageId === null || isIdentifier(value.providerMessageId, false))
   );
 }
 

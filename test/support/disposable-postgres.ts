@@ -35,6 +35,11 @@ const migrations = [
     name: 'delivery-claim-lease',
     sql: readFileSync(resolve('migrations/0005-delivery-claim-lease.sql'), 'utf8'),
   },
+  {
+    revision: 6,
+    name: 'delivery-settlement',
+    sql: readFileSync(resolve('migrations/0006-delivery-settlement.sql'), 'utf8'),
+  },
 ] as const;
 
 export type DisposablePostgres = Readonly<{
