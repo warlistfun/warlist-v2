@@ -47,6 +47,8 @@ export type DeliveryRecord = Readonly<{
   leaseUntil: string | null;
   workerGeneration: number | null;
   childId: string | null;
+  confirmationBusinessKey?: string | null;
+  confirmationCorrelationId?: string | null;
   schemaVersion: number;
   revision: number;
   createdAt: string;
@@ -72,6 +74,11 @@ export type DeliveryAttemptRecord = Readonly<{
 export type DeliveryClaimRecord = Readonly<{
   operation: DeliveryRecord;
   attempt: DeliveryAttemptRecord;
+}>;
+
+export type DeliveryConfirmationRecord = Readonly<{
+  operation: DeliveryRecord;
+  debit: EntitlementLedgerEntry | null;
 }>;
 
 export type EntitlementEntryType =
@@ -124,6 +131,19 @@ export interface DeliveryClaimRepositoryPort {
       providerMessageId: string | null;
     }>,
   ): Promise<DeliveryClaimRecord>;
+  confirmDelivery(
+    input: Readonly<{
+      tenantId: string;
+      operationId: string;
+      attemptId: string;
+      claimFence: number;
+      workerGeneration: number;
+      childId: string;
+      debitId: string;
+      businessKey: string;
+      correlationId: string;
+    }>,
+  ): Promise<DeliveryConfirmationRecord>;
 }
 
 export type AuditEvent = Readonly<{
