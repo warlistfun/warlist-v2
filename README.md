@@ -1,8 +1,8 @@
 # WARLIST 2.0
 
-WARLIST 2.0 is a clean, backend-first migration of WARLIST. This repository contains the completed Phase 0–5 backend foundations.
+WARLIST 2.0 is a clean, backend-first migration of WARLIST. This repository contains the completed Phase 0–6 backend foundations.
 
-**Status:** Phases 0–5 are complete. Phase 6 delivery and entitlement integrity is authorized. No hosted Supabase runtime, concrete child-process launch, Production behavior, legacy/runtime/customer-data access, credentials, deployment, cutover, WhatsApp/provider send, or public automation API has been configured or verified.
+**Status:** Phases 0–6 are complete. Phase 6 is verified only for synthetic/application/disposable PostgreSQL delivery and entitlement behavior; Phase 7 identity/tenant foundation is authorized. No hosted Supabase runtime, concrete child-process launch, Production behavior, legacy/runtime/customer-data access, credentials, deployment, cutover, WhatsApp/provider send, or public automation API has been configured or verified.
 
 ## Requirements
 

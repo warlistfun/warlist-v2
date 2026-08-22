@@ -1,6 +1,6 @@
 # ADR 0006: Durable Delivery Claims and Ambiguous Outcomes
 
-- **Status:** Accepted; claim foundation implemented
+- **Status:** Accepted; Phase 6 synthetic/PostgreSQL foundation implemented
 
 ## Context
 
@@ -8,7 +8,7 @@ External WhatsApp delivery cannot provide application-level exactly-once guarant
 
 ## Decision
 
-Require one durable winning claim before send, fence stale workers, persist attempt identity, and classify unknown crash-after-send outcomes as ambiguous. The implemented claim foundation uses one PostgreSQL statement to verify the exact current UUID tenant worker, advance an operation fence, set its owner/lease, and create one attempt bound to that fence. Sender and outcome transitions remain future work.
+Require one durable winning claim before send, fence stale workers, persist attempt identity, and classify unknown crash-after-send outcomes as ambiguous. The implemented synthetic/PostgreSQL foundation verifies the exact current UUID tenant worker, advances an operation fence, creates a bound attempt, persists `SENDING` before the injected sender, settles `SENT` or `AMBIGUOUS`, and confirms `SENT` with a replay-safe once-per-WIB-date ledger debit. It has no real provider adapter or automatic ambiguous replay.
 
 ## Alternatives
 

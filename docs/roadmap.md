@@ -91,6 +91,19 @@ PR #47's former Phase 4 closure claim remains superseded; its factually accurate
 
 Phase 5 closes a non-Production application foundation. It does not claim provider payload decoding, concrete OS child-process launch, Baileys/provider send, delivery claim/send semantics, entitlement debit, hosted Supabase, deployment, migration/cutover, or Production readiness. Those boundaries remain assigned to later phases, beginning with Phase 6 delivery and entitlement integrity.
 
+## Phase 6 — Delivery and entitlement integrity
+
+**Status:** Complete (2026-08-22); Phase 7 is authorized for one bounded identity/tenant Issue.
+
+- [x] Tenant-owned delivery operations/attempts with PostgreSQL uniqueness constraints (Issue #81 / PR #82)
+- [x] Database-authoritative owner/fence/lease claim CAS and stale-worker fencing (Issue #83 / PR #84)
+- [x] Claim-gated synthetic sender with durable `SENT`/`AMBIGUOUS` outcomes and no blind retry (Issue #85 / PR #86)
+- [x] Append-only entitlement ledger and ledger-derived balance projection (Issue #87 / PR #88)
+- [x] Atomic confirmation and once-per-WIB-date replay-safe debit (Issue #89 / PR #90)
+- [x] Adversarial PostgreSQL authority matrix and master-plan reconciliation ([Phase 6 reconciliation](phase6-reconciliation.md))
+
+Phase 6 is complete only for synthetic/application/disposable PostgreSQL behavior. It does not establish real WhatsApp/provider delivery, provider credentials, hosted Supabase, deployment, cutover, or Production readiness.
+
 ## Later phases
 
 Backend composition, workers, Telegram retirement, automation, delivery/entitlements, identity/admin, billing, notification retirement, and eventual migration/cutover each require separate bounded Issues and acceptance evidence.
