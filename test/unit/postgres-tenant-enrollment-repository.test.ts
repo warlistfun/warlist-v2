@@ -8,8 +8,6 @@ import { createPostgresTenantEnrollmentRepository } from '../../src/modules/iden
 import { createDisposablePostgres } from '../support/disposable-postgres';
 
 const grantId = '00000000-0000-4000-8000-000000000801';
-const now = '2026-08-22T12:00:00.000Z';
-
 void test('PostgreSQL enrollment atomically consumes one grant and creates one owner membership', async (t) => {
   const database = await createDisposablePostgres(t);
   const seed = new Client(database.config);
@@ -30,14 +28,12 @@ void test('PostgreSQL enrollment atomically consumes one grant and creates one o
       userId: '00000000-0000-4000-8000-000000000802',
       tenantId: '00000000-0000-4000-8000-000000000803',
       publicOpsId: 'ops_example_pg_race',
-      now,
     }),
     repository.enroll({
       grantId,
       userId: '00000000-0000-4000-8000-000000000804',
       tenantId: '00000000-0000-4000-8000-000000000805',
       publicOpsId: 'ops_example_pg_race_two',
-      now,
     }),
   ]);
 
@@ -48,6 +44,39 @@ void test('PostgreSQL enrollment atomically consumes one grant and creates one o
   assert.equal(rejected.reason.code, 'ENROLLMENT_GRANT_UNAVAILABLE');
   const memberships = await seed.query('SELECT tenant_id, user_id, role FROM tenant_memberships');
   assert.equal(memberships.rowCount, 1);
+});
+
+void test('PostgreSQL rejects a database-expired grant despite a favorable application clock', async (t) => {
+  const database = await createDisposablePostgres(t);
+  const seed = new Client(database.config);
+  await seed.connect();
+  await seed.query(
+    `INSERT INTO enrollment_grants (id, purpose, expires_at, created_at)
+     VALUES ($1, 'TENANT_ENROLLMENT', now() - interval '1 second', now() - interval '2 seconds')`,
+    ['00000000-0000-4000-8000-000000000810'],
+  );
+  const repository = createPostgresTenantEnrollmentRepository({ config: database.config });
+  await repository.start();
+  t.after(() => repository.stop());
+  t.after(() => seed.end());
+
+  await assert.rejects(
+    repository.enroll({
+      grantId: '00000000-0000-4000-8000-000000000810',
+      userId: '00000000-0000-4000-8000-000000000814',
+      tenantId: '00000000-0000-4000-8000-000000000815',
+      publicOpsId: 'ops_example_db_clock',
+    }),
+    (error: unknown) =>
+      error instanceof EnrollmentError && error.code === 'ENROLLMENT_GRANT_UNAVAILABLE',
+  );
+  assert.equal((await seed.query('SELECT * FROM users')).rowCount, 0);
+  assert.equal((await seed.query('SELECT * FROM tenants')).rowCount, 0);
+  assert.equal((await seed.query('SELECT * FROM tenant_memberships')).rowCount, 0);
+  assert.equal(
+    (await seed.query('SELECT * FROM enrollment_grants WHERE used_at IS NOT NULL')).rowCount,
+    0,
+  );
 });
 
 void test('PostgreSQL rejects expired, wrong-purpose, and used grants without tenant allocation', async (t) => {
@@ -81,7 +110,6 @@ void test('PostgreSQL rejects expired, wrong-purpose, and used grants without te
         userId: '00000000-0000-4000-8000-000000000814',
         tenantId: '00000000-0000-4000-8000-000000000815',
         publicOpsId: `ops_example_reject_${id.at(-1)}`,
-        now,
       }),
       (error: unknown) =>
         error instanceof EnrollmentError && error.code === 'ENROLLMENT_GRANT_UNAVAILABLE',

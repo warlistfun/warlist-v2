@@ -30,13 +30,13 @@ export interface TenantEnrollmentRepositoryPort {
       userId: string;
       tenantId: string;
       publicOpsId: string;
-      now: string;
     }>,
   ): Promise<TenantEnrollment>;
 }
 
 export function createInMemoryTenantEnrollmentRepository(
   seededGrants: readonly EnrollmentGrant[],
+  now: () => Date,
 ): TenantEnrollmentRepositoryPort & {
   readMemberships(
     tenantId: string,
@@ -65,7 +65,7 @@ export function createInMemoryTenantEnrollmentRepository(
           !grant ||
           grant.purpose !== 'TENANT_ENROLLMENT' ||
           grant.usedAt !== undefined ||
-          Date.parse(grant.expiresAt) <= Date.parse(input.now) ||
+          Date.parse(grant.expiresAt) <= now().getTime() ||
           tenants.has(input.tenantId)
         ) {
           throw new EnrollmentError('ENROLLMENT_GRANT_UNAVAILABLE');
@@ -76,7 +76,7 @@ export function createInMemoryTenantEnrollmentRepository(
           publicOpsId: input.publicOpsId,
           role: 'OWNER' as const,
         });
-        grants.set(grant.id, { ...grant, usedAt: input.now });
+        grants.set(grant.id, { ...grant, usedAt: now().toISOString() });
         tenants.add(input.tenantId);
         memberships.set(
           input.tenantId,
@@ -96,7 +96,6 @@ function isInput(value: unknown): value is Readonly<{
   userId: string;
   tenantId: string;
   publicOpsId: string;
-  now: string;
 }> {
   if (typeof value !== 'object' || value === null) return false;
   const input = value as Record<string, unknown>;
@@ -105,9 +104,7 @@ function isInput(value: unknown): value is Readonly<{
     isUuid(input.userId) &&
     isUuid(input.tenantId) &&
     typeof input.publicOpsId === 'string' &&
-    /^[a-z0-9_]{1,64}$/.test(input.publicOpsId) &&
-    typeof input.now === 'string' &&
-    Number.isFinite(Date.parse(input.now))
+    /^[a-z0-9_]{1,64}$/.test(input.publicOpsId)
   );
 }
 

@@ -13,7 +13,6 @@ export function createTenantEnrollmentService(
     userId: string;
     tenantId: string;
     publicOpsId: string;
-    now: string;
   }>,
 ) => Promise<TenantEnrollment> {
   return (input) => dependencies.repository.enroll(input);
