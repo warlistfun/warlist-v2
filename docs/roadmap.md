@@ -104,8 +104,19 @@ Phase 5 closes a non-Production application foundation. It does not claim provid
 
 Phase 6 is complete only for synthetic/application/disposable PostgreSQL behavior. It does not establish real WhatsApp/provider delivery, provider credentials, hosted Supabase, deployment, cutover, or Production readiness.
 
+## Phase 7 — Identity/tenant foundation (PIN deferred but enabled)
+
+**Status:** In progress (2026-08-22)
+
+- [x] Atomic synthetic/disposable-PostgreSQL enrollment foundation: one purpose-bound, expiring, single-use grant allocates one tenant and sole owner membership (Issue #93; PR pending)
+- [ ] User/session/token-family schema and authenticated-principal tenant derivation
+- [ ] Cross-tenant authorization matrix and legacy OPS migration tooling
+- [ ] Disabled PIN/passkey credential ports
+
+This first slice does **not** close Phase 7. PIN/passkey user-facing rollout, credential payloads, sessions/token families, HTTP authentication, hosted Supabase, legacy migration, deployment, and Production behavior remain out of scope.
+
 ## Later phases
 
-Backend composition, workers, Telegram retirement, automation, delivery/entitlements, identity/admin, billing, notification retirement, and eventual migration/cutover each require separate bounded Issues and acceptance evidence.
+Backend composition, workers, Telegram retirement, automation, delivery/entitlements, admin, billing, notification retirement, and eventual migration/cutover each require separate bounded Issues and acceptance evidence.
 
 Deferred product features are not active implementation scope.
