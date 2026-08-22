@@ -12,9 +12,21 @@ import { runPostgresMigrations } from '../../src/infrastructure/database/postgre
 const postgresBin = '/usr/lib/postgresql/16/bin';
 const lifecycleMigration = resolve('migrations/0001-worker-lifecycle-states.sql');
 const businessMigration = resolve('migrations/0002-business-foundation.sql');
+const automationConfigSyncMigration = resolve('migrations/0003-automation-config-sync-outbox.sql');
+const deliveryAttemptMigration = resolve('migrations/0004-delivery-attempt-foundation.sql');
 const migrations = [
   { revision: 1, name: 'worker-lifecycle-states', sql: readFileSync(lifecycleMigration, 'utf8') },
   { revision: 2, name: 'business-foundation', sql: readFileSync(businessMigration, 'utf8') },
+  {
+    revision: 3,
+    name: 'automation-config-sync-outbox',
+    sql: readFileSync(automationConfigSyncMigration, 'utf8'),
+  },
+  {
+    revision: 4,
+    name: 'delivery-attempt-foundation',
+    sql: readFileSync(deliveryAttemptMigration, 'utf8'),
+  },
 ] as const;
 
 void test('versioned migrator rejects out-of-order revisions before querying PostgreSQL', async () => {
@@ -81,6 +93,8 @@ void test('versioned migrator applies ordered migrations once and reruns safely'
     [
       { revision: 1, name: 'worker-lifecycle-states', checksumLength: 64 },
       { revision: 2, name: 'business-foundation', checksumLength: 64 },
+      { revision: 3, name: 'automation-config-sync-outbox', checksumLength: 64 },
+      { revision: 4, name: 'delivery-attempt-foundation', checksumLength: 64 },
     ],
   );
 });
@@ -120,7 +134,7 @@ void test('versioned migrator rejects applied migration checksum drift', async (
   const applied = await database.client.query<{ count: string }>(
     'SELECT count(*)::text AS count FROM schema_migrations',
   );
-  assert.equal(applied.rows[0]?.count, '2');
+  assert.equal(applied.rows[0]?.count, '4');
 });
 
 void test('versioned migrator rolls back the migration batch when a revision fails', async (t) => {
@@ -304,6 +318,66 @@ void test('canonical delivery foundation enforces ownership, idempotency, prepar
   }
 });
 
+void test('delivery attempt migration expands durable operation states and enforces tenant-owned attempt identity', async (t) => {
+  const database = await createDisposableDatabase(t);
+  await runPostgresMigrations({ client: database.client, migrations });
+  await database.client.query(
+    `INSERT INTO tenants (id, public_ops_id)
+     VALUES ('00000000-0000-4000-8000-000000000040', 'ops_example_attempt')`,
+  );
+  await database.client.query(
+    `INSERT INTO delivery_operations (id, tenant_id, operation_key, status)
+     VALUES (
+       '00000000-0000-4000-8000-000000000041',
+       '00000000-0000-4000-8000-000000000040',
+       'automation:message_example_attempt',
+       'CLAIMED'
+     )`,
+  );
+  await database.client.query(
+    `INSERT INTO delivery_attempts (id, tenant_id, operation_id, attempt_number, status)
+     VALUES (
+       '00000000-0000-4000-8000-000000000042',
+       '00000000-0000-4000-8000-000000000040',
+       '00000000-0000-4000-8000-000000000041',
+       1,
+       'PREPARED'
+     )`,
+  );
+
+  for (const sql of [
+    `INSERT INTO delivery_attempts (id, tenant_id, operation_id, attempt_number)
+     VALUES (
+       '00000000-0000-4000-8000-000000000043',
+       '00000000-0000-4000-8000-000000000040',
+       '00000000-0000-4000-8000-000000000041',
+       1
+     )`,
+    `INSERT INTO delivery_attempts (id, tenant_id, operation_id, attempt_number)
+     VALUES (
+       '00000000-0000-4000-8000-000000000044',
+       '00000000-0000-4000-8000-000000000099',
+       '00000000-0000-4000-8000-000000000041',
+       2
+     )`,
+    `UPDATE delivery_operations SET status = 'INVALID'`,
+    `UPDATE delivery_attempts SET status = 'INVALID'`,
+    `UPDATE delivery_attempts SET revision = 0`,
+    `UPDATE delivery_attempts SET updated_at = created_at - interval '1 second'`,
+  ]) {
+    await assert.rejects(
+      database.client.query(sql),
+      /violates (foreign key|unique|check) constraint/,
+    );
+  }
+
+  await runPostgresMigrations({ client: database.client, migrations });
+  const applied = await database.client.query<{ revision: number; name: string }>(
+    'SELECT revision, name FROM schema_migrations ORDER BY revision',
+  );
+  assert.deepEqual(applied.rows.at(-1), { revision: 4, name: 'delivery-attempt-foundation' });
+});
+
 void test('canonical audit foundation exposes only bounded actor, action, target metadata', async (t) => {
   const database = await createDisposableDatabase(t);
   await database.client.query(readFileSync(businessMigration, 'utf8'));
@@ -413,6 +487,8 @@ void test('versioned migrator adopts an existing idempotent lifecycle schema', a
   assert.deepEqual(applied.rows, [
     { revision: 1, name: 'worker-lifecycle-states' },
     { revision: 2, name: 'business-foundation' },
+    { revision: 3, name: 'automation-config-sync-outbox' },
+    { revision: 4, name: 'delivery-attempt-foundation' },
   ]);
 });
 

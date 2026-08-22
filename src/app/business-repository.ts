@@ -34,11 +34,27 @@ export type AutomationConfigSyncRecord = Readonly<{
   nextAttemptAt: string | null;
 }>;
 
+export type DeliveryStatus = 'PREPARED' | 'CLAIMED' | 'SENT' | 'AMBIGUOUS' | 'CONFIRMED';
+
 export type DeliveryRecord = Readonly<{
   id: string;
   tenantId: string;
   operationKey: string;
-  status: 'PREPARED';
+  status: DeliveryStatus;
+  schemaVersion: number;
+  revision: number;
+  createdAt: string;
+  updatedAt: string;
+}>;
+
+export type DeliveryAttemptStatus = 'PREPARED' | 'SENT' | 'AMBIGUOUS';
+
+export type DeliveryAttemptRecord = Readonly<{
+  id: string;
+  tenantId: string;
+  operationId: string;
+  attemptNumber: number;
+  status: DeliveryAttemptStatus;
   schemaVersion: number;
   revision: number;
   createdAt: string;
@@ -108,6 +124,13 @@ export interface BusinessRepositoryPort extends RepositoryPort {
     input: Readonly<{ id: string; tenantId: string; operationKey: string }>,
   ): Promise<DeliveryRecord>;
   loadDelivery(tenantId: string, deliveryId: string): Promise<DeliveryRecord | undefined>;
+  createDeliveryAttempt(
+    input: Readonly<{ id: string; tenantId: string; operationId: string; attemptNumber: number }>,
+  ): Promise<DeliveryAttemptRecord>;
+  loadDeliveryAttempt(
+    tenantId: string,
+    attemptId: string,
+  ): Promise<DeliveryAttemptRecord | undefined>;
   appendAuditEvent(input: AuditEventInput): Promise<AuditEvent>;
   readAuditEvents(tenantId: string, limit: number): Promise<readonly AuditEvent[]>;
 }
@@ -147,6 +170,8 @@ export function createInMemoryBusinessRepository(dependencies: {
   const automationConfigSyncs = new Map<string, AutomationConfigSyncRecord>();
   const deliveries = new Map<string, DeliveryRecord>();
   const deliveryIdsByTenantKey = new Map<string, string>();
+  const deliveryAttempts = new Map<string, DeliveryAttemptRecord>();
+  const deliveryAttemptIdsByTenantOperationNumber = new Map<string, string>();
   const auditEvents = new Map<string, AuditEvent>();
   let started = false;
 
@@ -383,6 +408,43 @@ export function createInMemoryBusinessRepository(dependencies: {
         delivery?.tenantId === tenantId ? freezeDelivery(delivery) : undefined,
       );
     },
+    async createDeliveryAttempt(input): Promise<DeliveryAttemptRecord> {
+      await Promise.resolve();
+      requireStarted();
+      authorize(input.tenantId);
+      if (
+        !isUuid(input.id) ||
+        !isUuid(input.operationId) ||
+        !isPositiveInteger(input.attemptNumber) ||
+        deliveries.get(input.operationId)?.tenantId !== input.tenantId
+      ) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const key = deliveryAttemptKey(input.tenantId, input.operationId, input.attemptNumber);
+      if (deliveryAttempts.has(input.id) || deliveryAttemptIdsByTenantOperationNumber.has(key)) {
+        throw new RepositoryError('DELIVERY_ALREADY_EXISTS');
+      }
+      const now = new Date().toISOString();
+      const attempt = freezeDeliveryAttempt({
+        ...input,
+        status: 'PREPARED',
+        schemaVersion: 1,
+        revision: 1,
+        createdAt: now,
+        updatedAt: now,
+      });
+      deliveryAttempts.set(attempt.id, attempt);
+      deliveryAttemptIdsByTenantOperationNumber.set(key, attempt.id);
+      return freezeDeliveryAttempt(attempt);
+    },
+    async loadDeliveryAttempt(tenantId, attemptId): Promise<DeliveryAttemptRecord | undefined> {
+      await Promise.resolve();
+      requireStarted();
+      authorize(tenantId);
+      if (!isUuid(attemptId)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const attempt = deliveryAttempts.get(attemptId);
+      return attempt?.tenantId === tenantId ? freezeDeliveryAttempt(attempt) : undefined;
+    },
     async appendAuditEvent(input): Promise<AuditEvent> {
       requireStarted();
       authorize(input.tenantId);
@@ -504,6 +566,14 @@ function isDue(sync: AutomationConfigSyncRecord, now: string): boolean {
 
 function freezeDelivery(delivery: DeliveryRecord): DeliveryRecord {
   return Object.freeze({ ...delivery });
+}
+
+function freezeDeliveryAttempt(attempt: DeliveryAttemptRecord): DeliveryAttemptRecord {
+  return Object.freeze({ ...attempt });
+}
+
+function deliveryAttemptKey(tenantId: string, operationId: string, attemptNumber: number): string {
+  return `${tenantId}\u0000${operationId}\u0000${attemptNumber}`;
 }
 
 function freezeAuditEvent(event: AuditEvent): AuditEvent {
