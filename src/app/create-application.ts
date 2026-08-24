@@ -48,8 +48,8 @@ export function createApplication(dependencies: ApplicationDependencies): Applic
 
         try {
           for (const lifecycle of lifecycles) {
-            await lifecycle.start();
             started.push(lifecycle);
+            await lifecycle.start();
           }
           running = true;
         } catch (error) {

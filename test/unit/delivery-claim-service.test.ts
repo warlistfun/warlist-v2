@@ -232,7 +232,7 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
   }).claim({ operationId: nextOperationId, workerGeneration: 3, childId: 'child_example_3' });
   await fixture.workerRepository.compareAndSave(
     { ...currentWorker, state: 'STOPPED', childId: null },
-    3,
+    currentWorker,
   );
   await assert.rejects(
     settle({
@@ -267,7 +267,7 @@ void test('denies stale, quarantined, and unauthorized worker claimants without 
 
   await fixture.workerRepository.compareAndSave(
     { ...currentWorker, state: 'STOPPED', childId: null },
-    3,
+    currentWorker,
   );
   await assert.rejects(
     claimService(fixture.repository, {
@@ -277,8 +277,12 @@ void test('denies stale, quarantined, and unauthorized worker claimants without 
     }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' }),
     { code: 'DELIVERY_CLAIM_CONFLICT' },
   );
-  await fixture.workerRepository.compareAndSave(currentWorker, 3);
-  await fixture.workerRepository.compareAndSave({ ...currentWorker, quarantined: true }, 3);
+  const stoppedWorker = { ...currentWorker, state: 'STOPPED' as const, childId: null };
+  await fixture.workerRepository.compareAndSave(currentWorker, stoppedWorker);
+  await fixture.workerRepository.compareAndSave(
+    { ...currentWorker, quarantined: true },
+    currentWorker,
+  );
   await assert.rejects(
     claimService(fixture.repository, {
       ownerId: 'claim_owner_quarantined',

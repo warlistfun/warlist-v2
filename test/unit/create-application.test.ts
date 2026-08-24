@@ -109,9 +109,37 @@ void test('startup failure rolls back every started dependency and preserves the
   assert.deepEqual(events, [
     'start:repository',
     'start:worker-runtime',
+    'stop:worker-runtime',
     'stop:repository',
     'stop:repository',
   ]);
+});
+
+void test('startup failure cleans the dependency that partially allocated resources', async () => {
+  const events: string[] = [];
+  const repository = controlledLifecycle('repository', events);
+  let workerActive = false;
+  let workerStopCalls = 0;
+  const workerRuntime: WorkerRuntimePort = {
+    start(): Promise<void> {
+      workerActive = true;
+      return Promise.reject(new Error('worker failed after allocation'));
+    },
+    stop(): Promise<void> {
+      workerStopCalls += 1;
+      workerActive = false;
+      return Promise.resolve();
+    },
+    isReady(): Promise<boolean> {
+      return Promise.resolve(workerActive);
+    },
+  };
+  const application = createApplication(dependencies(repository, workerRuntime));
+
+  await assert.rejects(application.start(), /worker failed after allocation/);
+
+  assert.equal(workerStopCalls, 1);
+  assert.equal(workerActive, false);
 });
 
 void test('failed shutdown is retriable and cleanup continues in reverse order', async () => {

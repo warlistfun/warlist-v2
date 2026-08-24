@@ -96,6 +96,66 @@ void test('propagates a claimed revision through fenced IPC APPLY_CONFIG before 
   await repository.stop();
 });
 
+void test('child exit fences a pending config acknowledgement before durable apply', async () => {
+  const authorization = new MutableTenantAuthorization();
+  authorization.allowed.add(tenantId);
+  const repository = createInMemoryBusinessRepository({ authorization });
+  await repository.start();
+  await repository.createTenant({ id: tenantId, publicOpsId: 'ops_example_exit_fence' });
+  await repository.compareAndSaveConfig(
+    { tenantId, configuration: { automation: { enabled: false } } },
+    null,
+  );
+  await repository.compareAndSaveConfigWithSync(
+    { tenantId, configuration: { automation: { enabled: true } } },
+    1,
+  );
+
+  const transport = new ManualTransport();
+  const runtime = createWorkerRuntimeService({
+    transport,
+    scheduler: new ManualScheduler(),
+    idGenerator: new SequenceIdGenerator('request'),
+    commandTimeoutMs: 5_000,
+    diagnostics: createWorkerDiagnosticsService({ sink: { record() {} } }),
+  });
+  await runtime.start();
+  const ownership = createWorkerOwnershipService({
+    commands: runtime,
+    diagnostics: createWorkerDiagnosticsService({ sink: { record() {} } }),
+  });
+  const workers = createActiveTenantWorkerService({ lifecycle: ownership });
+  const boot = workers.bootActiveTenants([
+    {
+      tenantId,
+      childId: 'child_example_sync',
+      correlationId: 'correlation_example_start',
+      configVersion: 1,
+    },
+  ]);
+  await flush();
+  transport.acknowledge(transport.sent[0]!);
+  await boot;
+
+  const dispatch = createAutomationConfigSyncDispatcher({
+    repository,
+    worker: workers,
+    clock: new FixedClock(new Date('2026-08-21T12:00:00.000Z')),
+    idGenerator: new SequenceIdGenerator('sync'),
+  }).dispatchOne();
+  await flush();
+  const apply = transport.sent[1]!;
+
+  ownership.recordChildExit(tenantId, 1, 'child_example_sync');
+  transport.acknowledge(apply);
+
+  const result = await dispatch;
+  assert.equal(result?.status, 'RETRYABLE_FAILURE');
+  assert.equal(result?.failureCode, 'WORKER_CHILD_EXITED');
+  await runtime.stop();
+  await repository.stop();
+});
+
 class ManualScheduler implements ScheduleTaskPort {
   schedule(delayMs: number, task: () => void): CancelScheduledTask {
     void delayMs;

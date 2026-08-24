@@ -13,7 +13,7 @@ The legacy Production system is outside this repository's operational authority.
 
 ## Disposable PostgreSQL 16 persistence proofs
 
-The Phase 4 Slice 1 proof uses PostgreSQL 16 only through disposable local clusters created beneath `/tmp` by `test/unit/postgres-worker-lifecycle-state-repository.test.ts`. The test applies `migrations/0001-worker-lifecycle-states.sql`, uses only invented `tenant_example_*` identifiers, proves cross-connection expected-generation conditional writes, and runs a `pg_dump`/`pg_restore` drill into a fresh disposable cluster.
+The Phase 4 Slice 1 proof uses PostgreSQL 16 only through disposable local clusters created beneath `/tmp` by `test/unit/postgres-worker-lifecycle-state-repository.test.ts`. The test applies `migrations/0001-worker-lifecycle-states.sql`, uses only invented `tenant_example_*` identifiers, proves one winner for conflicting exact-prior-snapshot transitions across independent connections, rejects generation regression, and runs a `pg_dump`/`pg_restore` drill into a fresh disposable cluster.
 
 Run the proof only on a development machine with PostgreSQL 16 server and client tools installed:
 
