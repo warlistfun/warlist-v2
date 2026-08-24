@@ -49,12 +49,46 @@ class ManualTransport implements WorkerCommandTransportPort {
   readonly sent: ParentMessage[] = [];
   private handler: ((message: unknown) => void) | undefined;
   private ready = false;
+  private startError: Error | undefined;
   private stopError: Error | undefined;
+  private hangingStart = false;
+  private hangingStop = false;
+  private resolveStart: (() => void) | undefined;
+  private resolveStop: (() => void) | undefined;
   private hangingSend: Promise<void> | undefined;
   private sendError: Error | undefined;
 
+  failNextStart(error: Error): void {
+    this.startError = error;
+  }
+
   failNextStop(error: Error): void {
     this.stopError = error;
+  }
+
+  hangNextStart(): void {
+    this.hangingStart = true;
+  }
+
+  hangNextStop(): void {
+    this.hangingStop = true;
+  }
+
+  completeHangingStart(): void {
+    assert.ok(this.resolveStart, 'expected a hanging start');
+    const resolve = this.resolveStart;
+    this.resolveStart = undefined;
+    this.ready = true;
+    resolve();
+  }
+
+  completeHangingStop(): void {
+    assert.ok(this.resolveStop, 'expected a hanging stop');
+    const resolve = this.resolveStop;
+    this.resolveStop = undefined;
+    this.ready = false;
+    this.handler = undefined;
+    resolve();
   }
 
   hangNextSend(): void {
@@ -68,10 +102,27 @@ class ManualTransport implements WorkerCommandTransportPort {
   start(handler: (message: unknown) => void): Promise<void> {
     this.ready = true;
     this.handler = handler;
+    if (this.hangingStart) {
+      this.hangingStart = false;
+      return new Promise<void>((resolve) => {
+        this.resolveStart = resolve;
+      });
+    }
+    if (this.startError) {
+      const error = this.startError;
+      this.startError = undefined;
+      return Promise.reject(error);
+    }
     return Promise.resolve();
   }
 
   stop(): Promise<void> {
+    if (this.hangingStop) {
+      this.hangingStop = false;
+      return new Promise<void>((resolve) => {
+        this.resolveStop = resolve;
+      });
+    }
     if (this.stopError) {
       const error = this.stopError;
       this.stopError = undefined;
@@ -251,6 +302,29 @@ void test('deduplicates identical pending commands and serializes commands for o
 
   acknowledge(transport, transport.sent[1]!, { commandType: 'APPLY_CONFIG', configVersion: 2 });
   assert.deepEqual(await update, { ok: true });
+  await service.stop();
+});
+
+void test('child invalidation prevents an already queued command from sending', async () => {
+  const { service, transport } = fixture();
+  await service.start();
+
+  const active = service.startWorker({ ...worker, configVersion: 1 });
+  const queued = service.applyConfig({ ...worker, configVersion: 2 });
+  await flushCommands();
+  assert.equal(transport.sent.length, 1);
+
+  service.invalidateWorker(worker);
+  await assert.rejects(
+    active,
+    (error: unknown) => error instanceof WorkerRuntimeError && error.code === 'WORKER_CHILD_EXITED',
+  );
+  await assert.rejects(
+    queued,
+    (error: unknown) => error instanceof WorkerRuntimeError && error.code === 'WORKER_CHILD_EXITED',
+  );
+  await flushCommands();
+  assert.equal(transport.sent.length, 1);
   await service.stop();
 });
 
@@ -517,8 +591,8 @@ void test('maps transport failure safely without stalling another tenant', async
 
 void test('maps synchronous runtime dependency failure to one safe unavailable diagnostic', async () => {
   const { service, scheduler, diagnostics } = fixture();
-  scheduler.failNextSchedule(new Error('raw scheduler detail'));
   await service.start();
+  scheduler.failNextSchedule(new Error('raw scheduler detail'));
 
   await assert.rejects(
     service.startWorker({ ...worker, configVersion: 1 }),
@@ -564,6 +638,67 @@ void test('shutdown rejects pending commands and leaves the transport stopped', 
       childId: worker.childId,
     },
   ]);
+});
+
+void test('transport lifecycle timeouts remain cleanable and block restart', async () => {
+  const start = fixture();
+  start.transport.hangNextStart();
+  const startPromise = start.service.start();
+  await flushCommands();
+  start.scheduler.runNext();
+  await assert.rejects(startPromise, /Worker runtime start timed out/);
+  await assert.rejects(start.service.start(), /Worker runtime cleanup is incomplete/);
+  await assert.rejects(start.service.stop(), /Worker runtime cleanup is incomplete/);
+
+  const stop = fixture();
+  await stop.service.start();
+  stop.transport.hangNextStop();
+  const stopPromise = stop.service.stop();
+  await flushCommands();
+  stop.scheduler.runNext();
+  await assert.rejects(stopPromise, /Worker runtime stop timed out/);
+  await assert.rejects(stop.service.start(), /Worker runtime cleanup is incomplete/);
+  await assert.rejects(stop.service.stop(), /Worker runtime cleanup is incomplete/);
+  stop.transport.completeHangingStop();
+  await flushCommands();
+  await stop.service.stop();
+  await stop.service.start();
+  await stop.service.stop();
+});
+
+void test('late start completion keeps cleanup incomplete until stop retries', async () => {
+  const { service, transport, scheduler } = fixture();
+  transport.hangNextStart();
+  const start = service.start();
+  await flushCommands();
+  scheduler.runNext();
+  await assert.rejects(start, /Worker runtime start timed out/);
+
+  await assert.rejects(service.stop(), /Worker runtime cleanup is incomplete/);
+  transport.completeHangingStart();
+  await flushCommands();
+  assert.equal(await transport.isReady(), true);
+
+  await service.stop();
+  assert.equal(await transport.isReady(), false);
+  await service.start();
+  assert.equal(await service.isReady(), true);
+  await service.stop();
+});
+
+void test('failed transport start remains cleanable and blocks restart until cleaned', async () => {
+  const { service, transport } = fixture();
+  transport.failNextStart(new Error('transport failed after allocation'));
+
+  await assert.rejects(service.start(), /transport failed after allocation/);
+  assert.equal(await transport.isReady(), true);
+  await assert.rejects(service.start(), /Worker runtime cleanup is incomplete/);
+
+  await service.stop();
+  assert.equal(await transport.isReady(), false);
+  await service.start();
+  assert.equal(await service.isReady(), true);
+  await service.stop();
 });
 
 void test('failed transport shutdown remains retriable and blocks restart until cleaned', async () => {

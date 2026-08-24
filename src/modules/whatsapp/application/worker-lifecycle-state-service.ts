@@ -11,7 +11,7 @@ export interface WorkerLifecycleStateRepositoryPort {
   save(snapshot: WorkerLifecycleSnapshot): Promise<void>;
   compareAndSave(
     snapshot: WorkerLifecycleSnapshot,
-    expectedGeneration: number | null,
+    expectedSnapshot: WorkerLifecycleSnapshot | null,
   ): Promise<void>;
 }
 
@@ -43,21 +43,45 @@ export function createInMemoryWorkerLifecycleStateRepository(): WorkerLifecycleS
     },
     save(snapshot): Promise<void> {
       const current = snapshots.get(snapshot.tenantId);
+      if (current && !canUnconditionalSave(snapshot, current)) {
+        return Promise.reject(new Error('stale lifecycle state'));
+      }
+      snapshots.set(snapshot.tenantId, freezeSnapshot(snapshot));
+      return Promise.resolve();
+    },
+    compareAndSave(snapshot, expectedSnapshot): Promise<void> {
+      const current = snapshots.get(snapshot.tenantId);
+      if (!sameSnapshot(current, expectedSnapshot)) {
+        return Promise.reject(new Error('lifecycle state transition mismatch'));
+      }
       if (current && snapshot.generation < current.generation) {
         return Promise.reject(new Error('stale lifecycle state'));
       }
       snapshots.set(snapshot.tenantId, freezeSnapshot(snapshot));
       return Promise.resolve();
     },
-    compareAndSave(snapshot, expectedGeneration): Promise<void> {
-      const current = snapshots.get(snapshot.tenantId);
-      if ((current?.generation ?? null) !== expectedGeneration) {
-        return Promise.reject(new Error('lifecycle state generation mismatch'));
-      }
-      snapshots.set(snapshot.tenantId, freezeSnapshot(snapshot));
-      return Promise.resolve();
-    },
   };
+}
+
+function canUnconditionalSave(
+  snapshot: WorkerLifecycleSnapshot,
+  current: WorkerLifecycleSnapshot,
+): boolean {
+  return snapshot.generation > current.generation || sameSnapshot(snapshot, current);
+}
+
+function sameSnapshot(
+  current: WorkerLifecycleSnapshot | undefined,
+  expected: WorkerLifecycleSnapshot | null,
+): boolean {
+  if (current === undefined || expected === null) return current === undefined && expected === null;
+  return (
+    current.tenantId === expected.tenantId &&
+    current.state === expected.state &&
+    current.generation === expected.generation &&
+    current.childId === expected.childId &&
+    current.quarantined === expected.quarantined
+  );
 }
 
 function freezeSnapshot(snapshot: WorkerLifecycleSnapshot): WorkerLifecycleSnapshot {

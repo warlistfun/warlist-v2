@@ -28,6 +28,8 @@ class ControlledCommands implements WorkerCommandPort {
   readonly startResults: Array<Deferred<WorkerCommandResult>> = [];
   readonly stopResults: Array<Deferred<WorkerCommandResult>> = [];
 
+  invalidateWorker(): void {}
+
   failNextUpdate(error: Error): void {
     this.updateError = error;
   }

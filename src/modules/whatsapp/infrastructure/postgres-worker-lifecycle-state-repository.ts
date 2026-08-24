@@ -43,11 +43,27 @@ export function createPostgresWorkerLifecycleStateRepository(dependencies: {
 
   async function write(
     snapshot: WorkerLifecycleSnapshot,
-    expectedGeneration?: number | null,
+    expectedSnapshot?: WorkerLifecycleSnapshot | null,
   ): Promise<void> {
     validateSnapshot(snapshot);
+    if (expectedSnapshot) {
+      validateSnapshot(expectedSnapshot);
+      if (expectedSnapshot.tenantId !== snapshot.tenantId) {
+        throw new Error('invalid expected lifecycle snapshot');
+      }
+      if (snapshot.generation < expectedSnapshot.generation) {
+        throw new Error('stale lifecycle state');
+      }
+    }
+    const values = [
+      snapshot.tenantId,
+      snapshot.state,
+      snapshot.generation,
+      snapshot.childId,
+      snapshot.quarantined,
+    ];
     const result = await dependencies.client.query(
-      expectedGeneration === undefined
+      expectedSnapshot === undefined
         ? `INSERT INTO tenant_worker_ownerships
              (tenant_id, state, generation, child_id, quarantined)
            VALUES ($1, $2, $3, $4, $5)
@@ -57,47 +73,46 @@ export function createPostgresWorkerLifecycleStateRepository(dependencies: {
                  child_id = EXCLUDED.child_id,
                  quarantined = EXCLUDED.quarantined,
                  updated_at = now()
-           WHERE tenant_worker_ownerships.generation <= EXCLUDED.generation
+           WHERE tenant_worker_ownerships.generation < EXCLUDED.generation
+              OR (tenant_worker_ownerships.generation = EXCLUDED.generation
+                  AND tenant_worker_ownerships.state = EXCLUDED.state
+                  AND tenant_worker_ownerships.child_id IS NOT DISTINCT FROM EXCLUDED.child_id
+                  AND tenant_worker_ownerships.quarantined = EXCLUDED.quarantined)
            RETURNING tenant_id`
-        : `INSERT INTO tenant_worker_ownerships
-             (tenant_id, state, generation, child_id, quarantined)
-           SELECT $1, $2, $3, $4, $5
-           WHERE $6::integer IS NULL
-              OR EXISTS (
-                SELECT 1
-                FROM tenant_worker_ownerships
-                WHERE tenant_id = $1 AND generation = $6
-              )
-           ON CONFLICT (tenant_id) DO UPDATE
-             SET state = EXCLUDED.state,
-                 generation = EXCLUDED.generation,
-                 child_id = EXCLUDED.child_id,
-                 quarantined = EXCLUDED.quarantined,
+        : expectedSnapshot === null
+          ? `INSERT INTO tenant_worker_ownerships
+               (tenant_id, state, generation, child_id, quarantined)
+             VALUES ($1, $2, $3, $4, $5)
+             ON CONFLICT (tenant_id) DO NOTHING
+             RETURNING tenant_id`
+          : `UPDATE tenant_worker_ownerships
+             SET state = $2,
+                 generation = $3,
+                 child_id = $4,
+                 quarantined = $5,
                  updated_at = now()
-           WHERE tenant_worker_ownerships.generation = $6
-           RETURNING tenant_id`,
-      expectedGeneration === undefined
+             WHERE tenant_id = $1
+               AND state = $6
+               AND generation = $7
+               AND child_id IS NOT DISTINCT FROM $8
+               AND quarantined = $9
+               AND generation <= $3
+             RETURNING tenant_id`,
+      expectedSnapshot
         ? [
-            snapshot.tenantId,
-            snapshot.state,
-            snapshot.generation,
-            snapshot.childId,
-            snapshot.quarantined,
+            ...values,
+            expectedSnapshot.state,
+            expectedSnapshot.generation,
+            expectedSnapshot.childId,
+            expectedSnapshot.quarantined,
           ]
-        : [
-            snapshot.tenantId,
-            snapshot.state,
-            snapshot.generation,
-            snapshot.childId,
-            snapshot.quarantined,
-            expectedGeneration,
-          ],
+        : values,
     );
     if (result.rowCount !== 1) {
       throw new Error(
-        expectedGeneration === undefined
+        expectedSnapshot === undefined
           ? 'stale lifecycle state'
-          : 'lifecycle state generation mismatch',
+          : 'lifecycle state transition mismatch',
       );
     }
   }
@@ -123,14 +138,8 @@ export function createPostgresWorkerLifecycleStateRepository(dependencies: {
     save(snapshot): Promise<void> {
       return write(snapshot);
     },
-    compareAndSave(snapshot, expectedGeneration): Promise<void> {
-      if (
-        expectedGeneration !== null &&
-        (!Number.isSafeInteger(expectedGeneration) || expectedGeneration < 0)
-      ) {
-        return Promise.reject(new Error('invalid expected generation'));
-      }
-      return write(snapshot, expectedGeneration);
+    compareAndSave(snapshot, expectedSnapshot): Promise<void> {
+      return write(snapshot, expectedSnapshot);
     },
   };
 }

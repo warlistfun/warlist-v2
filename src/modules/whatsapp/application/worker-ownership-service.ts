@@ -5,6 +5,7 @@ export interface WorkerCommandPort {
   startWorker(input: VersionedWorkerCommand): Promise<WorkerCommandResult>;
   applyConfig(input: VersionedWorkerCommand): Promise<WorkerCommandResult>;
   stopWorker(input: WorkerCommand): Promise<WorkerCommandResult>;
+  invalidateWorker(input: WorkerCommand): void;
 }
 
 interface StartWorkerInput {
@@ -187,6 +188,7 @@ export function createWorkerOwnershipService(dependencies: {
       correlationId: state.correlationId,
     };
     const resolveStop = state.resolveStop;
+    dependencies.commands.invalidateWorker(command);
     release(state);
     recordOwnership(state, command);
     resolveStop?.({ ok: true });

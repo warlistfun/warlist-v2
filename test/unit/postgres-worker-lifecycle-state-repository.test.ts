@@ -55,16 +55,20 @@ void test('PostgreSQL repository fences lifecycle writes and authorizes tenant a
 
   await first.compareAndSave(current, null);
   const writers = await Promise.allSettled([
-    first.compareAndSave({ ...current, generation: 4, childId: 'child_example_4' }, 3),
-    second.compareAndSave({ ...current, generation: 5, childId: 'child_example_5' }, 3),
+    first.compareAndSave({ ...current, state: 'STOPPING', quarantined: true }, current),
+    second.compareAndSave({ ...current, state: 'STOPPED', childId: null }, current),
   ]);
   assert.equal(writers.filter((writer) => writer.status === 'fulfilled').length, 1);
   assert.equal(writers.filter((writer) => writer.status === 'rejected').length, 1);
-  const generation = (await first.load(tenantOne))?.generation;
-  assert.ok(generation === 4 || generation === 5);
+  const transitioned = await first.load(tenantOne);
+  assert.ok(transitioned?.state === 'STOPPING' || transitioned?.state === 'STOPPED');
 
+  await assert.rejects(
+    first.compareAndSave({ ...transitioned, generation: 2 }, transitioned),
+    /stale lifecycle state/,
+  );
   await assert.rejects(first.save({ ...current, generation: 2 }), /stale lifecycle state/);
-  assert.equal((await first.load(tenantOne))?.generation, generation);
+  assert.deepEqual(await first.load(tenantOne), transitioned);
 
   await assert.rejects(first.load(tenantTwo), /tenant access denied/);
   await assert.rejects(first.save({ ...current, tenantId: tenantTwo }), /tenant access denied/);

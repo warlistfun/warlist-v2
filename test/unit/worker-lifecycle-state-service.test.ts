@@ -49,21 +49,25 @@ void test('keeps lifecycle state isolated by tenant', async () => {
 void test('recovers the latest lifecycle state through a newly composed service', async () => {
   const repository = createInMemoryWorkerLifecycleStateRepository();
   const writer = createWorkerLifecycleStateService({ repository });
-
-  await writer.save({
+  const running = {
     tenantId: tenantOne,
-    state: 'RUNNING',
+    state: 'RUNNING' as const,
     generation: 2,
     childId: 'child_example_2',
     quarantined: false,
-  });
-  await writer.save({
-    tenantId: tenantOne,
-    state: 'STOPPED',
-    generation: 2,
-    childId: null,
-    quarantined: false,
-  });
+  };
+
+  await writer.save(running);
+  await repository.compareAndSave(
+    {
+      tenantId: tenantOne,
+      state: 'STOPPED',
+      generation: 2,
+      childId: null,
+      quarantined: false,
+    },
+    running,
+  );
 
   const recovered = createWorkerLifecycleStateService({ repository });
   assert.deepEqual(await recovered.recover(tenantOne), {
@@ -95,18 +99,18 @@ void test('rejects a stale lifecycle write without overwriting the newer tenant 
   assert.deepEqual(await service.recover(tenantOne), current);
 });
 
-void test('allows equal-generation state transitions without affecting another tenant', async () => {
-  const service = createWorkerLifecycleStateService({
-    repository: createInMemoryWorkerLifecycleStateRepository(),
-  });
-
-  await service.save({
+void test('allows an authorized equal-generation transition without affecting another tenant', async () => {
+  const repository = createInMemoryWorkerLifecycleStateRepository();
+  const service = createWorkerLifecycleStateService({ repository });
+  const running = {
     tenantId: tenantOne,
-    state: 'RUNNING',
+    state: 'RUNNING' as const,
     generation: 3,
     childId: 'child_example_3',
     quarantined: false,
-  });
+  };
+
+  await service.save(running);
   await service.save({
     tenantId: tenantTwo,
     state: 'RUNNING',
@@ -114,19 +118,22 @@ void test('allows equal-generation state transitions without affecting another t
     childId: 'child_example_1',
     quarantined: false,
   });
-  await service.save({
-    tenantId: tenantOne,
-    state: 'STOPPING',
-    generation: 3,
-    childId: 'child_example_3',
-    quarantined: true,
-  });
+  await repository.compareAndSave(
+    {
+      tenantId: tenantOne,
+      state: 'STOPPING',
+      generation: 3,
+      childId: 'child_example_3',
+      quarantined: true,
+    },
+    running,
+  );
 
   assert.equal((await service.recover(tenantOne))?.state, 'STOPPING');
   assert.equal((await service.recover(tenantTwo))?.generation, 1);
 });
 
-void test('compares the expected generation before saving without changing another tenant', async () => {
+void test('compares the exact prior snapshot before saving without changing another tenant', async () => {
   const repository = createInMemoryWorkerLifecycleStateRepository();
   const service = createWorkerLifecycleStateService({ repository });
   const next = {
@@ -145,7 +152,7 @@ void test('compares the expected generation before saving without changing anoth
     childId: 'child_example_7',
     quarantined: false,
   });
-  await repository.compareAndSave({ ...next, state: 'STOPPING', quarantined: true }, 2);
+  await repository.compareAndSave({ ...next, state: 'STOPPING', quarantined: true }, next);
 
   assert.equal((await service.recover(tenantOne))?.state, 'STOPPING');
   assert.equal((await service.recover(tenantTwo))?.generation, 7);
@@ -164,14 +171,55 @@ void test('rejects a mismatched compare-and-save without overwriting the recover
 
   await service.save(current);
   await assert.rejects(
-    repository.compareAndSave({ ...current, state: 'STOPPED', childId: null }, 3),
-    /lifecycle state generation mismatch/,
+    repository.compareAndSave(
+      { ...current, state: 'STOPPED', childId: null },
+      { ...current, generation: 3 },
+    ),
+    /lifecycle state transition mismatch/,
   );
   await assert.rejects(
     repository.compareAndSave({ ...current, generation: 5, childId: 'child_example_5' }, null),
-    /lifecycle state generation mismatch/,
+    /lifecycle state transition mismatch/,
   );
   assert.deepEqual(await service.recover(tenantOne), current);
+});
+
+void test('rejects generation regression through conditional lifecycle writes', async () => {
+  const repository = createInMemoryWorkerLifecycleStateRepository();
+  const current = {
+    tenantId: tenantOne,
+    state: 'RUNNING' as const,
+    generation: 4,
+    childId: 'child_example_4',
+    quarantined: false,
+  };
+  await repository.compareAndSave(current, null);
+
+  await assert.rejects(
+    repository.compareAndSave({ ...current, generation: 3 }, current),
+    /stale lifecycle state/,
+  );
+  assert.deepEqual(await repository.load(tenantOne), current);
+});
+
+void test('allows only one conflicting same-generation transition from one exact snapshot', async () => {
+  const repository = createInMemoryWorkerLifecycleStateRepository();
+  const current = {
+    tenantId: tenantOne,
+    state: 'RUNNING' as const,
+    generation: 4,
+    childId: 'child_example_4',
+    quarantined: false,
+  };
+  await repository.compareAndSave(current, null);
+
+  const transitions = await Promise.allSettled([
+    repository.compareAndSave({ ...current, state: 'STOPPING', quarantined: true }, current),
+    repository.compareAndSave({ ...current, state: 'STOPPED', childId: null }, current),
+  ]);
+
+  assert.equal(transitions.filter(({ status }) => status === 'fulfilled').length, 1);
+  assert.equal(transitions.filter(({ status }) => status === 'rejected').length, 1);
 });
 
 void test('preserves the prior snapshot when persistence fails', async () => {
@@ -217,8 +265,8 @@ class FailingRepository implements WorkerLifecycleStateRepositoryPort {
 
   compareAndSave(
     snapshot: Parameters<WorkerLifecycleStateRepositoryPort['compareAndSave']>[0],
-    expectedGeneration: Parameters<WorkerLifecycleStateRepositoryPort['compareAndSave']>[1],
+    expectedSnapshot: Parameters<WorkerLifecycleStateRepositoryPort['compareAndSave']>[1],
   ) {
-    return this.delegate.compareAndSave(snapshot, expectedGeneration);
+    return this.delegate.compareAndSave(snapshot, expectedSnapshot);
   }
 }
