@@ -55,6 +55,8 @@ class ManualTransport implements WorkerCommandTransportPort {
   private hangingStop = false;
   private resolveStart: (() => void) | undefined;
   private resolveStop: (() => void) | undefined;
+  private hangingStartSignal: AbortSignal | undefined;
+  private hangingStopSignal: AbortSignal | undefined;
   private hangingSend: Promise<void> | undefined;
   private sendError: Error | undefined;
 
@@ -78,7 +80,8 @@ class ManualTransport implements WorkerCommandTransportPort {
     assert.ok(this.resolveStart, 'expected a hanging start');
     const resolve = this.resolveStart;
     this.resolveStart = undefined;
-    this.ready = true;
+    if (!this.hangingStartSignal?.aborted) this.ready = true;
+    this.hangingStartSignal = undefined;
     resolve();
   }
 
@@ -86,8 +89,11 @@ class ManualTransport implements WorkerCommandTransportPort {
     assert.ok(this.resolveStop, 'expected a hanging stop');
     const resolve = this.resolveStop;
     this.resolveStop = undefined;
-    this.ready = false;
-    this.handler = undefined;
+    if (!this.hangingStopSignal?.aborted) {
+      this.ready = false;
+      this.handler = undefined;
+    }
+    this.hangingStopSignal = undefined;
     resolve();
   }
 
@@ -99,11 +105,12 @@ class ManualTransport implements WorkerCommandTransportPort {
     this.sendError = error;
   }
 
-  start(handler: (message: unknown) => void): Promise<void> {
+  start(handler: (message: unknown) => void, signal?: AbortSignal): Promise<void> {
     this.ready = true;
     this.handler = handler;
     if (this.hangingStart) {
       this.hangingStart = false;
+      this.hangingStartSignal = signal;
       return new Promise<void>((resolve) => {
         this.resolveStart = resolve;
       });
@@ -116,9 +123,10 @@ class ManualTransport implements WorkerCommandTransportPort {
     return Promise.resolve();
   }
 
-  stop(): Promise<void> {
+  stop(signal?: AbortSignal): Promise<void> {
     if (this.hangingStop) {
       this.hangingStop = false;
+      this.hangingStopSignal = signal;
       return new Promise<void>((resolve) => {
         this.resolveStop = resolve;
       });
@@ -640,48 +648,42 @@ void test('shutdown rejects pending commands and leaves the transport stopped', 
   ]);
 });
 
-void test('transport lifecycle timeouts remain cleanable and block restart', async () => {
-  const start = fixture();
-  start.transport.hangNextStart();
-  const startPromise = start.service.start();
-  await flushCommands();
-  start.scheduler.runNext();
-  await assert.rejects(startPromise, /Worker runtime start timed out/);
-  await assert.rejects(start.service.start(), /Worker runtime cleanup is incomplete/);
-  await assert.rejects(start.service.stop(), /Worker runtime cleanup is incomplete/);
-
-  const stop = fixture();
-  await stop.service.start();
-  stop.transport.hangNextStop();
-  const stopPromise = stop.service.stop();
-  await flushCommands();
-  stop.scheduler.runNext();
-  await assert.rejects(stopPromise, /Worker runtime stop timed out/);
-  await assert.rejects(stop.service.start(), /Worker runtime cleanup is incomplete/);
-  await assert.rejects(stop.service.stop(), /Worker runtime cleanup is incomplete/);
-  stop.transport.completeHangingStop();
-  await flushCommands();
-  await stop.service.stop();
-  await stop.service.start();
-  await stop.service.stop();
-});
-
-void test('late start completion keeps cleanup incomplete until stop retries', async () => {
+void test('cleans a never-settling start without waiting and fences its late completion', async () => {
   const { service, transport, scheduler } = fixture();
   transport.hangNextStart();
   const start = service.start();
   await flushCommands();
   scheduler.runNext();
   await assert.rejects(start, /Worker runtime start timed out/);
-
-  await assert.rejects(service.stop(), /Worker runtime cleanup is incomplete/);
-  transport.completeHangingStart();
-  await flushCommands();
-  assert.equal(await transport.isReady(), true);
+  await assert.rejects(service.start(), /Worker runtime cleanup is incomplete/);
 
   await service.stop();
+  transport.completeHangingStart();
+  await flushCommands();
   assert.equal(await transport.isReady(), false);
+  assert.equal(await service.isReady(), false);
+
   await service.start();
+  assert.equal(await service.isReady(), true);
+  await service.stop();
+});
+
+void test('retries a never-settling stop and fences its late completion after restart', async () => {
+  const { service, transport, scheduler } = fixture();
+  await service.start();
+  transport.hangNextStop();
+  const stop = service.stop();
+  await flushCommands();
+  scheduler.runNext();
+  await assert.rejects(stop, /Worker runtime stop timed out/);
+  assert.equal(await service.isReady(), false);
+  await assert.rejects(service.start(), /Worker runtime cleanup is incomplete/);
+
+  await service.stop();
+  await service.start();
+  assert.equal(await service.isReady(), true);
+  transport.completeHangingStop();
+  await flushCommands();
   assert.equal(await service.isReady(), true);
   await service.stop();
 });

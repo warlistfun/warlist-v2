@@ -24,6 +24,7 @@ const currentWorker = {
   generation: 3,
   childId: 'child_example_3',
   quarantined: false,
+  revision: 1,
 };
 
 void test('claims a prepared delivery for the exact current UUID tenant worker', async (t) => {
@@ -231,7 +232,7 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
     now: '2030-08-22T07:02:00.000Z',
   }).claim({ operationId: nextOperationId, workerGeneration: 3, childId: 'child_example_3' });
   await fixture.workerRepository.compareAndSave(
-    { ...currentWorker, state: 'STOPPED', childId: null },
+    { ...currentWorker, state: 'STOPPED', childId: null, revision: 2 },
     currentWorker,
   );
   await assert.rejects(
@@ -266,7 +267,7 @@ void test('denies stale, quarantined, and unauthorized worker claimants without 
   }
 
   await fixture.workerRepository.compareAndSave(
-    { ...currentWorker, state: 'STOPPED', childId: null },
+    { ...currentWorker, state: 'STOPPED', childId: null, revision: 2 },
     currentWorker,
   );
   await assert.rejects(
@@ -277,11 +278,17 @@ void test('denies stale, quarantined, and unauthorized worker claimants without 
     }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' }),
     { code: 'DELIVERY_CLAIM_CONFLICT' },
   );
-  const stoppedWorker = { ...currentWorker, state: 'STOPPED' as const, childId: null };
-  await fixture.workerRepository.compareAndSave(currentWorker, stoppedWorker);
+  const stoppedWorker = {
+    ...currentWorker,
+    state: 'STOPPED' as const,
+    childId: null,
+    revision: 2,
+  };
+  const restartedWorker = { ...currentWorker, revision: 3 };
+  await fixture.workerRepository.compareAndSave(restartedWorker, stoppedWorker);
   await fixture.workerRepository.compareAndSave(
-    { ...currentWorker, quarantined: true },
-    currentWorker,
+    { ...restartedWorker, quarantined: true, revision: 4 },
+    restartedWorker,
   );
   await assert.rejects(
     claimService(fixture.repository, {

@@ -24,6 +24,7 @@ const worker = {
   generation: 4,
   childId: 'child_example_matrix',
   quarantined: false,
+  revision: 1,
 };
 
 void test('adversarial matrix allows one synthetic sender call and never replays ambiguous delivery', async (t) => {
