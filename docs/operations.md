@@ -25,6 +25,16 @@ node --import tsx --test test/unit/in-memory-business-repository.test.ts test/un
 
 The lifecycle proof registers cleanup before opening database connections, waits for every client-close attempt, then attempts `pg_ctl --mode fast stop` and temporary-directory removal even after a client-close failure. Shared disposable PostgreSQL fixtures apply ordered migrations through `0010`; the business-schema proof separately verifies migrator ordering, checksum drift rejection, transaction rollback, concurrent-run serialization, safe adoption of the historical lifecycle migration, and tenant/config/delivery/audit constraints. If interrupted, inspect only the matching temporary prefix; stop its cluster with its local `postmaster.pid`, then remove that temporary directory. Rollback is limited to dropping the disposable test cluster and directory. No hosted database, environment file, credential, legacy/runtime/customer data, migration/cutover, or Production rollback procedure exists.
 
+## BF-01 ownership-admission race proof
+
+The delivery/entitlement integration test uses only invented records and disposable PostgreSQL connections. It locks one delivery operation, starts an ownership-loss transaction on a second connection, exercises the real pooled send-admission or confirmation repository path, and verifies the backend lock wait through `pg_stat_activity` before releasing either side. If ownership loss commits first, send admission returns a claim conflict without invoking the injected sender; confirmation leaves the operation `SENT` and the entitlement balance unchanged.
+
+```bash
+node --import tsx --test --test-name-pattern='ownership loss.*prevents' test/integration/delivery-entitlement-integrity.test.ts
+```
+
+This proves only the database serialization boundary exercised by the disposable fixture. It does not contact or prove a provider, hosted database, customer/runtime data, dev/staging, deployment, cutover, or Production behavior.
+
 ## Supabase Free-plan guardrails (checked 2026-08-21)
 
 These are implementation/cutover guardrails, not a hosted-project configuration or a Production readiness claim. Recheck the official sources immediately before provisioning or cutover; quotas and plan behavior change.
@@ -35,6 +45,6 @@ These are implementation/cutover guardrails, not a hosted-project configuration 
 - **Monitoring and degradation:** retain safe application telemetry for database readiness, query failures/timeouts, pool pressure, and storage/capacity signals; never put provider, credential, customer, or raw payload values in telemetry. When the database/network is unavailable or read-only, fail closed for external-send admission and do not guess payment/entitlement/delivery state.
 - **Exit:** migrations are portable PostgreSQL SQL and current proof runs on disposable PostgreSQL 16. This is compatibility evidence only: no Supabase project, credentials, hosted connection, backup, monitoring API, or failover behavior was used.
 
-Phase 6 delivery/entitlement evidence is limited to synthetic/application/disposable PostgreSQL tests; see `docs/phase6-reconciliation.md`. It does not authorize a provider, hosted database, deployment, cutover, or Production operation.
+Phase 6 delivery/entitlement evidence is limited to synthetic/application/disposable PostgreSQL tests. `docs/phase6-reconciliation.md` is historical evidence; the current interpretation is in `docs/backend-foundation-as-built-audit.md`. Neither authorizes a provider, hosted database, deployment, cutover, or Production operation.
 
 Deployment readiness, migration/cutover, release, and Production rollback procedures remain unimplemented.
