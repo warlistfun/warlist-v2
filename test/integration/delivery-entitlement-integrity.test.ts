@@ -205,6 +205,72 @@ void test('adversarial matrix allows one synthetic sender call and never replays
   }
 });
 
+void test('reclaim samples PostgreSQL time after waiting for operation serialization', async (t) => {
+  const fixture = await createFixture(t);
+  const operationId = '00000000-0000-4000-8000-000000000b20';
+  await fixture.repository.prepareDelivery({
+    id: operationId,
+    tenantId,
+    operationKey: 'automation:reclaim_after_lock_wait',
+  });
+  const first = await fixture.repository.claimDelivery({
+    tenantId,
+    operationId,
+    attemptId: '00000000-0000-4000-8000-000000000b21',
+    claimOwner: 'claim_owner_before_lock_wait',
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  });
+  const operationLock = new Client(fixture.database.config);
+  const observer = new Client(fixture.database.config);
+  let reclaim: Promise<unknown> | undefined;
+  await Promise.all([operationLock.connect(), observer.connect()]);
+  try {
+    await operationLock.query('BEGIN');
+    await operationLock.query(
+      'SELECT id FROM delivery_operations WHERE tenant_id = $1 AND id = $2 FOR UPDATE',
+      [tenantId, operationId],
+    );
+    const pending = fixture.secondRepository.claimDelivery({
+      tenantId,
+      operationId,
+      attemptId: '00000000-0000-4000-8000-000000000b22',
+      claimOwner: 'claim_owner_after_lock_wait',
+      workerGeneration: worker.generation,
+      childId: worker.childId,
+    });
+    reclaim = pending;
+    void pending.catch(() => undefined);
+    const queryStartedAt = await waitForLockWait(observer, 'locked_operation AS MATERIALIZED');
+    const expired = await operationLock.query<{ claim_lease_until: Date }>(
+      `UPDATE delivery_operations
+       SET claim_lease_until = date_trunc('milliseconds', $3::timestamptz + interval '1 millisecond')
+       WHERE tenant_id = $1 AND id = $2
+       RETURNING claim_lease_until`,
+      [tenantId, operationId, queryStartedAt],
+    );
+    assert.equal(expired.rowCount, 1);
+    const expiredBeforeUnlock = await observer.query<{ expired: boolean }>(
+      'SELECT clock_timestamp() >= $1::timestamptz AS expired',
+      [expired.rows[0]?.claim_lease_until],
+    );
+    assert.equal(expiredBeforeUnlock.rows[0]?.expired, true);
+    await operationLock.query('COMMIT');
+
+    const claimed = await pending;
+    assert.equal(claimed.operation.claimFence, first.operation.claimFence + 1);
+    assert.equal(claimed.operation.claimOwner, 'claim_owner_after_lock_wait');
+    assert.equal(claimed.attempt.id, '00000000-0000-4000-8000-000000000b22');
+  } finally {
+    await operationLock.query('ROLLBACK').catch(() => undefined);
+    if (reclaim) await Promise.allSettled([reclaim]);
+    await Promise.all([
+      operationLock.end().catch(() => undefined),
+      observer.end().catch(() => undefined),
+    ]);
+  }
+});
+
 void test('ownership loss wins before blocked send admission and prevents sender invocation', async (t) => {
   const fixture = await createFixture(t);
   const operationId = '00000000-0000-4000-8000-000000000b15';
@@ -418,10 +484,10 @@ async function blockAdmissionBehindOwnershipLoss<T>(
   }
 }
 
-async function waitForLockWait(client: Client, queryMarker: string): Promise<void> {
+async function waitForLockWait(client: Client, queryMarker: string): Promise<string> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const result = await client.query<{ wait_event_type: string | null }>(
-      `SELECT wait_event_type
+    const result = await client.query<{ query_start: Date; wait_event_type: string | null }>(
+      `SELECT query_start, wait_event_type
        FROM pg_stat_activity
        WHERE datname = current_database()
          AND state = 'active'
@@ -429,7 +495,8 @@ async function waitForLockWait(client: Client, queryMarker: string): Promise<voi
          AND position($1 in query) > 0`,
       [queryMarker],
     );
-    if (result.rowCount === 1) return;
+    const queryStartedAt = result.rows[0]?.query_start.toISOString();
+    if (queryStartedAt) return queryStartedAt;
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
   const activity = await client.query<{
