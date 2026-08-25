@@ -204,6 +204,105 @@ void test('adversarial matrix allows one synthetic sender call and never replays
   }
 });
 
+void test('ownership loss wins before blocked send admission and prevents sender invocation', async (t) => {
+  const fixture = await createFixture(t);
+  const operationId = '00000000-0000-4000-8000-000000000b15';
+  const attemptId = '00000000-0000-4000-8000-000000000b16';
+  await fixture.repository.prepareDelivery({
+    id: operationId,
+    tenantId,
+    operationKey: 'automation:ownership_loss_send',
+  });
+  const claim = await createDeliveryClaimService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    ownerId: 'claim_owner_ownership_loss_send',
+    clock: new FixedClock(new Date('2030-08-22T09:00:00.000Z')),
+    idGenerator: { generate: () => attemptId },
+  }).claim({ operationId, workerGeneration: worker.generation, childId: worker.childId });
+
+  let sends = 0;
+  const sender = createClaimGatedDeliverySender({
+    claim: () => Promise.resolve(claim),
+    begin: createDeliveryBeginPort({ repository: fixture.repository, trustedTenant: { tenantId } }),
+    settle: createDeliverySettlementPort({
+      repository: fixture.repository,
+      trustedTenant: { tenantId },
+    }),
+    sender: () => {
+      sends += 1;
+      return Promise.resolve({ providerMessageId: 'provider_message_ownership_loss_send' });
+    },
+  });
+  const { admission } = await blockAdmissionBehindOwnershipLoss(
+    fixture,
+    operationId,
+    "SET status = 'SENDING'",
+    () =>
+      sender.send({
+        operationId,
+        workerGeneration: worker.generation,
+        childId: worker.childId,
+      }),
+  );
+
+  await assert.rejects(admission, { code: 'DELIVERY_CLAIM_CONFLICT' });
+  assert.equal(sends, 0);
+  assert.equal((await fixture.repository.loadDelivery(tenantId, operationId))?.status, 'CLAIMED');
+  assert.equal(
+    (await fixture.repository.loadDeliveryAttempt(tenantId, attemptId))?.status,
+    'PREPARED',
+  );
+});
+
+void test('ownership loss wins before blocked confirmation and prevents debit', async (t) => {
+  const fixture = await createFixture(t);
+  const operationId = '00000000-0000-4000-8000-000000000b17';
+  const attemptId = '00000000-0000-4000-8000-000000000b18';
+  await fixture.repository.prepareDelivery({
+    id: operationId,
+    tenantId,
+    operationKey: 'automation:ownership_loss_confirmation',
+  });
+  const claim = await createDeliveryClaimService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    ownerId: 'claim_owner_ownership_loss_confirmation',
+    clock: new FixedClock(new Date('2030-08-22T09:01:00.000Z')),
+    idGenerator: { generate: () => attemptId },
+  }).claim({ operationId, workerGeneration: worker.generation, childId: worker.childId });
+  const authority = {
+    operationId,
+    attemptId,
+    claimFence: claim.operation.claimFence,
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  };
+  await fixture.repository.beginDelivery({ tenantId, ...authority });
+  await fixture.repository.settleDelivery({
+    tenantId,
+    ...authority,
+    outcome: 'SENT',
+    providerMessageId: 'provider_message_ownership_loss_confirmation',
+  });
+  const confirmation = createDeliveryConfirmationService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    clock: new FixedClock(new Date('2030-01-02T17:00:00.000Z')),
+    idGenerator: { generate: () => '00000000-0000-4000-8000-000000000b19' },
+  });
+  const { admission } = await blockAdmissionBehindOwnershipLoss(
+    fixture,
+    operationId,
+    "SET status = 'CONFIRMED'",
+    () => confirmation.confirm(authority),
+  );
+
+  await assert.rejects(admission, { code: 'DELIVERY_CLAIM_CONFLICT' });
+  assert.equal((await fixture.repository.loadDelivery(tenantId, operationId))?.status, 'SENT');
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
+});
+
 void test('adversarial matrix fences stale authority and makes confirmation replay debit once', async (t) => {
   const fixture = await createFixture(t);
   const operationId = '00000000-0000-4000-8000-000000000b08';
@@ -259,6 +358,89 @@ void test('adversarial matrix fences stale authority and makes confirmation repl
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
 });
 
+async function blockAdmissionBehindOwnershipLoss<T>(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  operationId: string,
+  queryMarker: string,
+  admit: () => Promise<T>,
+): Promise<Readonly<{ admission: Promise<T> }>> {
+  const operationLock = new Client(fixture.database.config);
+  const ownershipTransition = new Client(fixture.database.config);
+  const observer = new Client(fixture.database.config);
+  let admission: Promise<T> | undefined;
+  await Promise.all([operationLock.connect(), ownershipTransition.connect(), observer.connect()]);
+  try {
+    await operationLock.query('BEGIN');
+    await operationLock.query(
+      'SELECT id FROM delivery_operations WHERE tenant_id = $1 AND id = $2 FOR UPDATE',
+      [tenantId, operationId],
+    );
+    await ownershipTransition.query('BEGIN');
+    await createPostgresWorkerLifecycleStateRepository({
+      client: ownershipTransition,
+      authorization: fixture.authorization,
+    }).compareAndSave(
+      { ...worker, state: 'STOPPED', childId: null, revision: worker.revision + 1 },
+      worker,
+    );
+
+    admission = admit();
+    void admission.catch(() => undefined);
+    await waitForLockWait(observer, queryMarker);
+    await ownershipTransition.query('COMMIT');
+    const stopped = await observer.query<{ state: string; revision: string }>(
+      `SELECT state, revision::text AS revision
+       FROM tenant_worker_ownerships WHERE tenant_id = $1`,
+      [tenantId],
+    );
+    assert.deepEqual(stopped.rows[0], { state: 'STOPPED', revision: '2' });
+    await operationLock.query('COMMIT');
+    await Promise.allSettled([admission]);
+    return Object.freeze({ admission });
+  } finally {
+    await Promise.all([
+      ownershipTransition.query('ROLLBACK').catch(() => undefined),
+      operationLock.query('ROLLBACK').catch(() => undefined),
+    ]);
+    if (admission) await Promise.allSettled([admission]);
+    await Promise.all([
+      operationLock.end().catch(() => undefined),
+      ownershipTransition.end().catch(() => undefined),
+      observer.end().catch(() => undefined),
+    ]);
+  }
+}
+
+async function waitForLockWait(client: Client, queryMarker: string): Promise<void> {
+  for (let attempt = 0; attempt < 100; attempt += 1) {
+    const result = await client.query<{ wait_event_type: string | null }>(
+      `SELECT wait_event_type
+       FROM pg_stat_activity
+       WHERE datname = current_database()
+         AND state = 'active'
+         AND wait_event_type = 'Lock'
+         AND position($1 in query) > 0`,
+      [queryMarker],
+    );
+    if (result.rowCount === 1) return;
+    await new Promise<void>((resolve) => setImmediate(resolve));
+  }
+  const activity = await client.query<{
+    application_name: string;
+    state: string;
+    wait_event_type: string | null;
+    query: string;
+  }>(
+    `SELECT application_name, state, wait_event_type, query
+     FROM pg_stat_activity
+     WHERE datname = current_database() AND pid <> pg_backend_pid()
+     ORDER BY pid`,
+  );
+  throw new Error(
+    `admission query did not reach a PostgreSQL lock wait: ${queryMarker}; ${JSON.stringify(activity.rows)}`,
+  );
+}
+
 async function createFixture(t: test.TestContext) {
   const database = await createDisposablePostgres(t, 'warlist-pg16-phase6-matrix-');
   const authorization = new MutableTenantAuthorization();
@@ -284,5 +466,5 @@ async function createFixture(t: test.TestContext) {
     worker,
     null,
   );
-  return { repository, secondRepository };
+  return { repository, secondRepository, database, authorization };
 }

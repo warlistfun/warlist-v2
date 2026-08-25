@@ -489,15 +489,19 @@ export function createPostgresBusinessRepository(dependencies: {
         throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       }
       const result = await query(
-        `WITH begun_operation AS (
+        `WITH current_worker AS MATERIALIZED (
+          SELECT tenant_id
+          FROM tenant_worker_ownerships
+          WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
+            AND generation = $5 AND child_id = $6
+          FOR SHARE
+        ), begun_operation AS (
           UPDATE delivery_operations AS operation
           SET status = 'SENDING', revision = operation.revision + 1, updated_at = now()
-          FROM delivery_attempts AS attempt, tenant_worker_ownerships AS worker
+          FROM delivery_attempts AS attempt, current_worker AS worker
           WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'CLAIMED'
             AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
             AND worker.tenant_id = operation.tenant_id
-            AND worker.state = 'RUNNING' AND worker.quarantined = false
-            AND worker.generation = $5 AND worker.child_id = $6
             AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
             AND attempt.id = $3 AND attempt.status = 'PREPARED' AND attempt.claim_fence = operation.claim_fence
           RETURNING operation.*
@@ -578,17 +582,22 @@ export function createPostgresBusinessRepository(dependencies: {
       if (!isDeliveryConfirmationInput(input))
         throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       const result = await query(
-        `WITH transitioned AS (
+        `WITH current_worker AS MATERIALIZED (
+           SELECT tenant_id
+           FROM tenant_worker_ownerships
+           WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
+             AND generation = $5 AND child_id = $6
+           FOR SHARE
+         ), transitioned AS (
            UPDATE delivery_operations AS operation
            SET status = 'CONFIRMED', confirmation_business_key = $8,
                confirmation_correlation_id = $9, revision = operation.revision + 1, updated_at = now()
-           FROM delivery_attempts AS attempt, tenant_worker_ownerships AS worker
+           FROM delivery_attempts AS attempt, current_worker AS worker
            WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'SENT'
              AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
              AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
              AND attempt.id = $3 AND attempt.status = 'SENT' AND attempt.claim_fence = operation.claim_fence
-             AND worker.tenant_id = operation.tenant_id AND worker.state = 'RUNNING'
-             AND worker.quarantined = false AND worker.generation = $5 AND worker.child_id = $6
+             AND worker.tenant_id = operation.tenant_id
              AND NOT EXISTS (SELECT 1 FROM entitlement_ledger
                WHERE tenant_id = operation.tenant_id AND business_key = $8
                  AND (entry_type <> 'DEBIT_CONFIRMED_DELIVERY' OR units <> -1))
@@ -604,13 +613,11 @@ export function createPostgresBusinessRepository(dependencies: {
            SELECT operation.* FROM delivery_operations AS operation
            JOIN delivery_attempts AS attempt ON attempt.tenant_id = operation.tenant_id
              AND attempt.operation_id = operation.id
-           JOIN tenant_worker_ownerships AS worker ON worker.tenant_id = operation.tenant_id
+           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
            WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'CONFIRMED'
              AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
              AND operation.confirmation_business_key = $8 AND operation.confirmation_correlation_id = $9
              AND attempt.id = $3 AND attempt.status = 'SENT' AND attempt.claim_fence = operation.claim_fence
-             AND worker.state = 'RUNNING' AND worker.quarantined = false
-             AND worker.generation = $5 AND worker.child_id = $6
              AND NOT EXISTS (SELECT 1 FROM transitioned)
          ), ledger_result AS (
            SELECT * FROM debited
