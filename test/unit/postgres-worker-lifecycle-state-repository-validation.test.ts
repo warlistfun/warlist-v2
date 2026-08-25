@@ -25,6 +25,7 @@ void test('rejects malformed lifecycle rows before returning them to application
               generation: 1,
               child_id: null,
               quarantined: false,
+              revision: '1',
             },
           ],
         }),
@@ -41,6 +42,7 @@ void test('returns a frozen lifecycle snapshot detached from the database row', 
     generation: 1,
     child_id: 'child_example_1',
     quarantined: false,
+    revision: '1',
   };
   const repository = createPostgresWorkerLifecycleStateRepository({
     authorization,
@@ -73,6 +75,7 @@ void test('rejects an oversized child identity before querying PostgreSQL', asyn
       generation: 1,
       childId: 'a'.repeat(161),
       quarantined: false,
+      revision: 1,
     }),
     /invalid lifecycle snapshot/,
   );

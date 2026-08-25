@@ -13,7 +13,7 @@ The legacy Production system is outside this repository's operational authority.
 
 ## Disposable PostgreSQL 16 persistence proofs
 
-The Phase 4 Slice 1 proof uses PostgreSQL 16 only through disposable local clusters created beneath `/tmp` by `test/unit/postgres-worker-lifecycle-state-repository.test.ts`. The test applies `migrations/0001-worker-lifecycle-states.sql`, uses only invented `tenant_example_*` identifiers, proves one winner for conflicting exact-prior-snapshot transitions across independent connections, rejects generation regression, and runs a `pg_dump`/`pg_restore` drill into a fresh disposable cluster.
+The lifecycle proof uses PostgreSQL 16 only through disposable local clusters created beneath `/tmp` by `test/unit/postgres-worker-lifecycle-state-repository.test.ts`. It applies the historical lifecycle/business/claim schema and forward migration `0010-worker-lifecycle-revision.sql`, uses only invented identifiers, proves revision-`1` backfill with no lasting database default, rejects an invalid initial revision, proves one winner for conflicting exact-prior-snapshot transitions, rejects generation regression and same-generation ABA across independent connections, and retains the historical `pg_dump`/`pg_restore` drill in fresh disposable clusters.
 
 Run the proof only on a development machine with PostgreSQL 16 server and client tools installed:
 
@@ -23,7 +23,7 @@ node --import tsx --test test/unit/postgres-business-schema.test.ts
 node --import tsx --test test/unit/in-memory-business-repository.test.ts test/unit/postgres-business-repository.test.ts
 ```
 
-The lifecycle proof registers cleanup before opening database connections, waits for every client-close attempt, then attempts `pg_ctl --mode fast stop` and temporary-directory removal even after a client-close failure. The business-schema proof creates separate `/tmp/warlist-pg16-schema-*` clusters and verifies ordered revision application, checksum drift rejection, transaction rollback, concurrent-run serialization, safe adoption of the existing idempotent lifecycle migration, and tenant/config/delivery/audit constraints. If interrupted, inspect only the matching temporary prefix; stop its cluster with its local `postmaster.pid`, then remove that temporary directory. Rollback is limited to dropping the disposable test cluster and directory. No hosted database, environment file, credential, legacy/runtime/customer data, migration/cutover, or Production rollback procedure exists.
+The lifecycle proof registers cleanup before opening database connections, waits for every client-close attempt, then attempts `pg_ctl --mode fast stop` and temporary-directory removal even after a client-close failure. Shared disposable PostgreSQL fixtures apply ordered migrations through `0010`; the business-schema proof separately verifies migrator ordering, checksum drift rejection, transaction rollback, concurrent-run serialization, safe adoption of the historical lifecycle migration, and tenant/config/delivery/audit constraints. If interrupted, inspect only the matching temporary prefix; stop its cluster with its local `postmaster.pid`, then remove that temporary directory. Rollback is limited to dropping the disposable test cluster and directory. No hosted database, environment file, credential, legacy/runtime/customer data, migration/cutover, or Production rollback procedure exists.
 
 ## Supabase Free-plan guardrails (checked 2026-08-21)
 

@@ -17,6 +17,7 @@ const migration = resolve('migrations/0001-worker-lifecycle-states.sql');
 const businessMigration = resolve('migrations/0002-business-foundation.sql');
 const attemptMigration = resolve('migrations/0004-delivery-attempt-foundation.sql');
 const claimMigration = resolve('migrations/0005-delivery-claim-lease.sql');
+const revisionMigration = resolve('migrations/0010-worker-lifecycle-revision.sql');
 const tenantOne = '00000000-0000-4000-8000-000000000901';
 const tenantTwo = '00000000-0000-4000-8000-000000000902';
 
@@ -26,9 +27,33 @@ void test('PostgreSQL repository fences lifecycle writes and authorizes tenant a
   await database.client.query(readFileSync(attemptMigration, 'utf8'));
   await database.client.query(readFileSync(claimMigration, 'utf8'));
   await database.client.query(
-    `INSERT INTO tenants (id, public_ops_id) VALUES ($1, 'ops_example_worker_state')`,
-    [tenantOne],
+    `INSERT INTO tenants (id, public_ops_id)
+     VALUES ($1, 'ops_example_worker_state'), ($2, 'ops_example_worker_migration')`,
+    [tenantOne, tenantTwo],
   );
+  await database.client.query(
+    `INSERT INTO tenant_worker_ownerships
+       (tenant_id, state, generation, child_id, quarantined)
+     VALUES ($1, 'STOPPED', 1, null, false)`,
+    [tenantTwo],
+  );
+  await database.client.query(readFileSync(revisionMigration, 'utf8'));
+  const migrated = await database.client.query<{ revision: string }>(
+    'SELECT revision::text AS revision FROM tenant_worker_ownerships WHERE tenant_id = $1',
+    [tenantTwo],
+  );
+  assert.equal(migrated.rows[0]?.revision, '1');
+  const revisionColumn = await database.client.query<{ column_default: string | null }>(
+    `SELECT column_default
+     FROM information_schema.columns
+     WHERE table_schema = 'public'
+       AND table_name = 'tenant_worker_ownerships'
+       AND column_name = 'revision'`,
+  );
+  assert.equal(revisionColumn.rows[0]?.column_default, null);
+  await database.client.query('DELETE FROM tenant_worker_ownerships WHERE tenant_id = $1', [
+    tenantTwo,
+  ]);
   const allowed = new Set([tenantOne]);
   const authorization: TenantAuthorizationPort = {
     assertAuthorized(tenantId): void {
@@ -51,12 +76,27 @@ void test('PostgreSQL repository fences lifecycle writes and authorizes tenant a
     generation: 3,
     childId: 'child_example_3',
     quarantined: false,
+    revision: 1,
   };
 
+  await assert.rejects(first.save({ ...current, revision: 2 }), /stale lifecycle state/);
+  assert.equal(
+    (
+      await database.client.query<{ count: string }>(
+        'SELECT count(*)::text AS count FROM tenant_worker_ownerships',
+      )
+    ).rows[0]?.count,
+    '0',
+  );
+
+  await first.compareAndSave(current, null);
   await first.compareAndSave(current, null);
   const writers = await Promise.allSettled([
-    first.compareAndSave({ ...current, state: 'STOPPING', quarantined: true }, current),
-    second.compareAndSave({ ...current, state: 'STOPPED', childId: null }, current),
+    first.compareAndSave(
+      { ...current, state: 'STOPPING', quarantined: true, revision: 2 },
+      current,
+    ),
+    second.compareAndSave({ ...current, state: 'STOPPED', childId: null, revision: 2 }, current),
   ]);
   assert.equal(writers.filter((writer) => writer.status === 'fulfilled').length, 1);
   assert.equal(writers.filter((writer) => writer.status === 'rejected').length, 1);
@@ -64,11 +104,19 @@ void test('PostgreSQL repository fences lifecycle writes and authorizes tenant a
   assert.ok(transitioned?.state === 'STOPPING' || transitioned?.state === 'STOPPED');
 
   await assert.rejects(
-    first.compareAndSave({ ...transitioned, generation: 2 }, transitioned),
+    first.compareAndSave({ ...transitioned, generation: 2, revision: 3 }, transitioned),
     /stale lifecycle state/,
   );
   await assert.rejects(first.save({ ...current, generation: 2 }), /stale lifecycle state/);
   assert.deepEqual(await first.load(tenantOne), transitioned);
+
+  const runningAgain = { ...current, revision: 3 };
+  await first.compareAndSave(runningAgain, transitioned);
+  await assert.rejects(
+    first.compareAndSave({ ...current, state: 'STOPPED', childId: null, revision: 2 }, current),
+    /lifecycle state transition mismatch/,
+  );
+  assert.deepEqual(await first.load(tenantOne), runningAgain);
 
   await assert.rejects(first.load(tenantTwo), /tenant access denied/);
   await assert.rejects(first.save({ ...current, tenantId: tenantTwo }), /tenant access denied/);

@@ -15,8 +15,8 @@ export interface ScheduleTaskPort {
 }
 
 export interface WorkerCommandTransportPort {
-  start(handler: (message: unknown) => void): Promise<void>;
-  stop(): Promise<void>;
+  start(handler: (message: unknown) => void, signal: AbortSignal): Promise<void>;
+  stop(signal: AbortSignal): Promise<void>;
   isReady(): Promise<boolean>;
   send(message: ParentMessage): Promise<void>;
 }
@@ -105,8 +105,6 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
   const pendingByKey = new Map<string, PendingCommand>();
   let running = false;
   let cleanupIncomplete = false;
-  let startOperationPending = false;
-  let stopOperationPending = false;
   let lifecycleEpoch = 0;
   let transition = Promise.resolve();
 
@@ -117,15 +115,17 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
   }
 
   function runBoundedLifecycle(
-    operation: () => Promise<void>,
+    operation: (signal: AbortSignal) => Promise<void>,
     timeoutCode: 'WORKER_RUNTIME_START_TIMEOUT' | 'WORKER_RUNTIME_STOP_TIMEOUT',
     timeoutMessage: string,
   ): Promise<void> {
     return new Promise<void>((resolve, reject) => {
       let settled = false;
+      const controller = new AbortController();
       const cancelTimeout = dependencies.scheduler.schedule(dependencies.commandTimeoutMs, () => {
         if (settled) return;
         settled = true;
+        controller.abort();
         reject(new WorkerRuntimeError(timeoutCode, timeoutMessage, true));
       });
       const finish = (error?: unknown): void => {
@@ -136,7 +136,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
         else reject(error instanceof Error ? error : new Error('Worker runtime lifecycle failed'));
       };
       try {
-        void operation().then(
+        void operation(controller.signal).then(
           () => finish(),
           (error: unknown) => finish(error),
         );
@@ -283,25 +283,12 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
         if (running) return;
         if (cleanupIncomplete) throw new Error('Worker runtime cleanup is incomplete');
         cleanupIncomplete = true;
+        const startEpoch = lifecycleEpoch;
         await runBoundedLifecycle(
-          () => {
-            startOperationPending = true;
-            try {
-              const operation = dependencies.transport.start(onMessage);
-              void operation.then(
-                () => {
-                  startOperationPending = false;
-                },
-                () => {
-                  startOperationPending = false;
-                },
-              );
-              return operation;
-            } catch (error) {
-              startOperationPending = false;
-              throw error;
-            }
-          },
+          (signal) =>
+            dependencies.transport.start((message) => {
+              if (startEpoch === lifecycleEpoch) onMessage(message);
+            }, signal),
           'WORKER_RUNTIME_START_TIMEOUT',
           'Worker runtime start timed out',
         );
@@ -312,32 +299,12 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     stop(): Promise<void> {
       return enqueueLifecycle(async () => {
         if (!running && pendingByKey.size === 0 && !cleanupIncomplete) return;
-        if (startOperationPending || stopOperationPending) {
-          throw new Error('Worker runtime cleanup is incomplete');
-        }
         running = false;
         lifecycleEpoch += 1;
         for (const pending of [...pendingByKey.values()]) settle(pending, stoppedError());
         try {
           await runBoundedLifecycle(
-            () => {
-              stopOperationPending = true;
-              try {
-                const operation = dependencies.transport.stop();
-                void operation.then(
-                  () => {
-                    stopOperationPending = false;
-                  },
-                  () => {
-                    stopOperationPending = false;
-                  },
-                );
-                return operation;
-              } catch (error) {
-                stopOperationPending = false;
-                throw error;
-              }
-            },
+            (signal) => dependencies.transport.stop(signal),
             'WORKER_RUNTIME_STOP_TIMEOUT',
             'Worker runtime stop timed out',
           );
@@ -349,7 +316,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       });
     },
     async isReady(): Promise<boolean> {
-      return running && dependencies.transport.isReady();
+      return running && !cleanupIncomplete && dependencies.transport.isReady();
     },
     startWorker(input): Promise<WorkerCommandResult> {
       return command('START_WORKER', input, input.configVersion);

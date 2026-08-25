@@ -4,6 +4,7 @@ export type WorkerLifecycleSnapshot = Readonly<{
   generation: number;
   childId: string | null;
   quarantined: boolean;
+  revision: number;
 }>;
 
 export interface WorkerLifecycleStateRepositoryPort {
@@ -43,6 +44,9 @@ export function createInMemoryWorkerLifecycleStateRepository(): WorkerLifecycleS
     },
     save(snapshot): Promise<void> {
       const current = snapshots.get(snapshot.tenantId);
+      if (!current && snapshot.revision !== 1) {
+        return Promise.reject(new Error('stale lifecycle revision'));
+      }
       if (current && !canUnconditionalSave(snapshot, current)) {
         return Promise.reject(new Error('stale lifecycle state'));
       }
@@ -51,11 +55,15 @@ export function createInMemoryWorkerLifecycleStateRepository(): WorkerLifecycleS
     },
     compareAndSave(snapshot, expectedSnapshot): Promise<void> {
       const current = snapshots.get(snapshot.tenantId);
+      if (sameSnapshot(current, snapshot)) return Promise.resolve();
       if (!sameSnapshot(current, expectedSnapshot)) {
         return Promise.reject(new Error('lifecycle state transition mismatch'));
       }
       if (current && snapshot.generation < current.generation) {
         return Promise.reject(new Error('stale lifecycle state'));
+      }
+      if (!validNextRevision(snapshot, current)) {
+        return Promise.reject(new Error('stale lifecycle revision'));
       }
       snapshots.set(snapshot.tenantId, freezeSnapshot(snapshot));
       return Promise.resolve();
@@ -67,7 +75,17 @@ function canUnconditionalSave(
   snapshot: WorkerLifecycleSnapshot,
   current: WorkerLifecycleSnapshot,
 ): boolean {
-  return snapshot.generation > current.generation || sameSnapshot(snapshot, current);
+  return (
+    sameSnapshot(snapshot, current) ||
+    (snapshot.generation > current.generation && validNextRevision(snapshot, current))
+  );
+}
+
+function validNextRevision(
+  snapshot: WorkerLifecycleSnapshot,
+  current: WorkerLifecycleSnapshot | undefined,
+): boolean {
+  return current ? snapshot.revision === current.revision + 1 : snapshot.revision === 1;
 }
 
 function sameSnapshot(
@@ -80,7 +98,8 @@ function sameSnapshot(
     current.state === expected.state &&
     current.generation === expected.generation &&
     current.childId === expected.childId &&
-    current.quarantined === expected.quarantined
+    current.quarantined === expected.quarantined &&
+    current.revision === expected.revision
   );
 }
 

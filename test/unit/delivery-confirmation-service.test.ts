@@ -88,7 +88,14 @@ async function createFixture(t: test.TestContext) {
     authorization,
   });
   await workerRepository.compareAndSave(
-    { tenantId, state: 'RUNNING', generation: 1, childId: 'child_example_1', quarantined: false },
+    {
+      tenantId,
+      state: 'RUNNING',
+      generation: 1,
+      childId: 'child_example_1',
+      quarantined: false,
+      revision: 1,
+    },
     null,
   );
   return { repository, workerRepository };
