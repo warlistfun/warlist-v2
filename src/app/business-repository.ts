@@ -103,8 +103,6 @@ export interface DeliveryClaimRepositoryPort {
       operationId: string;
       attemptId: string;
       claimOwner: string;
-      now: string;
-      leaseUntil: string;
       workerGeneration: number;
       childId: string;
     }>,
@@ -115,6 +113,8 @@ export interface DeliveryClaimRepositoryPort {
       operationId: string;
       attemptId: string;
       claimFence: number;
+      claimOwner: string;
+      leaseUntil: string;
       workerGeneration: number;
       childId: string;
     }>,
@@ -125,6 +125,8 @@ export interface DeliveryClaimRepositoryPort {
       operationId: string;
       attemptId: string;
       claimFence: number;
+      claimOwner: string;
+      leaseUntil: string;
       workerGeneration: number;
       childId: string;
       outcome: Extract<DeliveryAttemptStatus, 'SENT' | 'AMBIGUOUS'>;
@@ -137,6 +139,8 @@ export interface DeliveryClaimRepositoryPort {
       operationId: string;
       attemptId: string;
       claimFence: number;
+      claimOwner: string;
+      leaseUntil: string;
       workerGeneration: number;
       childId: string;
       debitId: string;

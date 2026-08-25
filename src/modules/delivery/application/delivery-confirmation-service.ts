@@ -16,6 +16,8 @@ export function createDeliveryConfirmationService(dependencies: {
       operationId: string;
       attemptId: string;
       claimFence: number;
+      claimOwner: string;
+      leaseUntil: string;
       workerGeneration: number;
       childId: string;
     }>,

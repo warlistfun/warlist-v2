@@ -9,8 +9,8 @@ import { createDeliveryClaimService } from '../../src/modules/delivery/applicati
 import { createDeliverySettlementPort } from '../../src/modules/delivery/application/claim-gated-delivery-sender';
 import { createPostgresWorkerLifecycleStateRepository } from '../../src/modules/whatsapp/infrastructure/postgres-worker-lifecycle-state-repository';
 import { MutableTenantAuthorization } from '../support/business-repository-contract';
-import { createDisposablePostgres } from '../support/disposable-postgres';
-import { FixedClock, NoopLogger, NoopMetrics } from '../support/test-adapters';
+import { createDisposablePostgres, type DisposablePostgres } from '../support/disposable-postgres';
+import { NoopLogger, NoopMetrics } from '../support/test-adapters';
 
 const tenantId = '00000000-0000-4000-8000-000000000801';
 const otherTenantId = '00000000-0000-4000-8000-000000000898';
@@ -32,7 +32,6 @@ void test('claims a prepared delivery for the exact current UUID tenant worker',
   const claim = await claimService(fixture.repository, {
     ownerId: 'claim_owner_one',
     attemptId: attemptOneId,
-    now: '2030-08-22T07:00:00.000Z',
   }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' });
 
   assert.deepEqual(claim, {
@@ -41,7 +40,6 @@ void test('claims a prepared delivery for the exact current UUID tenant worker',
       status: 'CLAIMED',
       claimOwner: 'claim_owner_one',
       claimFence: 1,
-      leaseUntil: '2030-08-22T07:01:00.000Z',
       workerGeneration: 3,
       childId: 'child_example_3',
     },
@@ -63,12 +61,10 @@ void test('allows exactly one winner across independent PostgreSQL claim contend
     claimService(fixture.repository, {
       ownerId: 'claim_owner_one',
       attemptId: attemptOneId,
-      now: '2030-08-22T07:00:00.000Z',
     }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' }),
     claimService(second, {
       ownerId: 'claim_owner_two',
       attemptId: attemptTwoId,
-      now: '2030-08-22T07:00:00.000Z',
     }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' }),
   ]);
 
@@ -92,17 +88,148 @@ void test('allows exactly one winner across independent PostgreSQL claim contend
   await second.stop();
 });
 
+void test('uses database time for live claims, recovery, and one-winner reclaim', async (t) => {
+  const fixture = await createFixture(t);
+  const firstInput = {
+    tenantId,
+    operationId,
+    attemptId: attemptOneId,
+    claimOwner: 'claim_owner_database_time_one',
+    now: '2099-08-22T07:00:00.000Z',
+    leaseUntil: '2099-08-22T07:01:00.000Z',
+    workerGeneration: 3,
+    childId: 'child_example_3',
+  };
+  const first = await fixture.repository.claimDelivery(firstInput);
+  const futureSkewedInput = {
+    ...firstInput,
+    attemptId: attemptTwoId,
+    claimOwner: 'claim_owner_database_time_two',
+    now: '2199-08-22T07:00:00.000Z',
+    leaseUntil: '2199-08-22T07:01:00.000Z',
+  };
+
+  await assert.rejects(fixture.repository.claimDelivery(futureSkewedInput), {
+    code: 'DELIVERY_CLAIM_CONFLICT',
+  });
+  assert.equal(
+    (await fixture.repository.loadDelivery(tenantId, operationId))?.claimOwner,
+    first.operation.claimOwner,
+  );
+  assert.equal(await fixture.repository.loadDeliveryAttempt(tenantId, attemptTwoId), undefined);
+
+  const control = new Client(fixture.database.config);
+  await control.connect();
+  await control.query(
+    `UPDATE delivery_operations
+     SET claim_lease_until = date_trunc('milliseconds', clock_timestamp()) - interval '1 second'
+     WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, operationId],
+  );
+  await control.end();
+  const secondRepository = createRepository(fixture.database.config, fixture.authorization);
+  await secondRepository.start();
+  const contenders = [
+    {
+      ...futureSkewedInput,
+      now: '1900-01-01T00:00:00.000Z',
+      leaseUntil: '1900-01-01T00:01:00.000Z',
+    },
+    {
+      ...futureSkewedInput,
+      attemptId: '00000000-0000-4000-8000-000000000811',
+      claimOwner: 'claim_owner_database_time_three',
+      now: '1900-01-01T00:00:00.000Z',
+      leaseUntil: '1900-01-01T00:01:00.000Z',
+    },
+  ];
+  const reclaimed = await Promise.allSettled([
+    fixture.repository.claimDelivery(contenders[0]!),
+    secondRepository.claimDelivery(contenders[1]!),
+  ]);
+  assert.equal(reclaimed.filter((result) => result.status === 'fulfilled').length, 1);
+  assert.equal(reclaimed.filter((result) => result.status === 'rejected').length, 1);
+  await secondRepository.stop();
+
+  const recoveryOperationId = '00000000-0000-4000-8000-000000000812';
+  const recoveryAttemptId = '00000000-0000-4000-8000-000000000813';
+  await fixture.repository.prepareDelivery({
+    id: recoveryOperationId,
+    tenantId,
+    operationKey: 'automation:database_time_recovery',
+  });
+  const recoveryClaim = await fixture.repository.claimDelivery({
+    ...firstInput,
+    operationId: recoveryOperationId,
+    attemptId: recoveryAttemptId,
+    claimOwner: 'claim_owner_database_time_recovery',
+  });
+  const recoveryAuthority = {
+    operationId: recoveryOperationId,
+    attemptId: recoveryAttemptId,
+    claimFence: recoveryClaim.operation.claimFence,
+    claimOwner: recoveryClaim.operation.claimOwner!,
+    leaseUntil: recoveryClaim.operation.leaseUntil!,
+    workerGeneration: 3,
+    childId: 'child_example_3',
+  };
+  await fixture.repository.beginDelivery({ tenantId, ...recoveryAuthority });
+  await assert.rejects(
+    fixture.repository.claimDelivery({
+      ...futureSkewedInput,
+      operationId: recoveryOperationId,
+      attemptId: '00000000-0000-4000-8000-000000000814',
+    }),
+    { code: 'DELIVERY_CLAIM_CONFLICT' },
+  );
+  assert.equal(
+    (await fixture.repository.loadDelivery(tenantId, recoveryOperationId))?.status,
+    'SENDING',
+  );
+});
+
+void test('requires the exact live claim owner and lease before send admission', async (t) => {
+  const fixture = await createFixture(t);
+  const claim = await claimService(fixture.repository, {
+    ownerId: 'claim_owner_authority',
+    attemptId: attemptOneId,
+  }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' });
+  const authority = {
+    operationId,
+    attemptId: attemptOneId,
+    claimFence: claim.operation.claimFence,
+    claimOwner: claim.operation.claimOwner!,
+    leaseUntil: claim.operation.leaseUntil!,
+    workerGeneration: 3,
+    childId: 'child_example_3',
+  };
+
+  for (const stale of [
+    { claimOwner: 'claim_owner_stale' },
+    { leaseUntil: new Date(Date.parse(authority.leaseUntil) + 1_000).toISOString() },
+  ]) {
+    await assert.rejects(fixture.repository.beginDelivery({ tenantId, ...authority, ...stale }), {
+      code: 'DELIVERY_CLAIM_CONFLICT',
+    });
+  }
+  assert.equal((await fixture.repository.loadDelivery(tenantId, operationId))?.status, 'CLAIMED');
+  await expireLease(fixture.database.config, operationId);
+  await assert.rejects(fixture.repository.beginDelivery({ tenantId, ...authority }), {
+    code: 'DELIVERY_CLAIM_CONFLICT',
+  });
+  assert.equal((await fixture.repository.loadDelivery(tenantId, operationId))?.status, 'CLAIMED');
+});
+
 void test('reclaims an expired lease with a higher fence and a new attempt', async (t) => {
   const fixture = await createFixture(t);
   const first = await claimService(fixture.repository, {
     ownerId: 'claim_owner_one',
     attemptId: attemptOneId,
-    now: '2030-08-22T07:00:00.000Z',
   }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' });
+  await expireLease(fixture.database.config, operationId);
   const second = await claimService(fixture.repository, {
     ownerId: 'claim_owner_two',
     attemptId: attemptTwoId,
-    now: '2030-08-22T07:01:00.000Z',
   }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' });
 
   assert.equal(first.operation.claimFence, 1);
@@ -126,7 +253,6 @@ void test('preserves a pre-existing attempt while fencing the claim attempt sepa
   const claim = await claimService(fixture.repository, {
     ownerId: 'claim_owner_one',
     attemptId: attemptOneId,
-    now: '2030-08-22T07:00:00.000Z',
   }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' });
 
   assert.equal(claim.operation.claimFence, 1);
@@ -144,26 +270,23 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
   const claim = await claimService(fixture.repository, {
     ownerId: 'claim_owner_one',
     attemptId: attemptOneId,
-    now: '2030-08-22T07:00:00.000Z',
   }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' });
 
-  const begun = await fixture.repository.beginDelivery({
-    tenantId,
+  const authority = {
     operationId,
     attemptId: attemptOneId,
     claimFence: claim.operation.claimFence,
+    claimOwner: claim.operation.claimOwner!,
+    leaseUntil: claim.operation.leaseUntil!,
     workerGeneration: 3,
     childId: 'child_example_3',
-  });
+  };
+  const begun = await fixture.repository.beginDelivery({ tenantId, ...authority });
   assert.equal(begun.operation.status, 'SENDING');
 
   const settled = await fixture.repository.settleDelivery({
     tenantId,
-    operationId,
-    attemptId: attemptOneId,
-    claimFence: claim.operation.claimFence,
-    workerGeneration: 3,
-    childId: 'child_example_3',
+    ...authority,
     outcome: 'SENT',
     providerMessageId: 'provider_message_example_1',
   });
@@ -180,21 +303,35 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
   const crashClaim = await claimService(fixture.repository, {
     ownerId: 'claim_owner_crash',
     attemptId: '00000000-0000-4000-8000-000000000809',
-    now: '2030-08-22T07:02:00.000Z',
   }).claim({ operationId: crashOperationId, workerGeneration: 3, childId: 'child_example_3' });
-  await fixture.repository.beginDelivery({
-    tenantId,
+  const crashAuthority = {
     operationId: crashOperationId,
     attemptId: crashClaim.attempt.id,
     claimFence: crashClaim.operation.claimFence,
+    claimOwner: crashClaim.operation.claimOwner!,
+    leaseUntil: crashClaim.operation.leaseUntil!,
     workerGeneration: 3,
     childId: 'child_example_3',
-  });
+  };
+  await fixture.repository.beginDelivery({ tenantId, ...crashAuthority });
+  await expireLease(fixture.database.config, crashOperationId);
+  await assert.rejects(
+    fixture.repository.settleDelivery({
+      tenantId,
+      ...crashAuthority,
+      outcome: 'AMBIGUOUS',
+      providerMessageId: null,
+    }),
+    { code: 'DELIVERY_CLAIM_CONFLICT' },
+  );
+  assert.equal(
+    (await fixture.repository.loadDelivery(tenantId, crashOperationId))?.status,
+    'SENDING',
+  );
   await assert.rejects(
     claimService(fixture.repository, {
       ownerId: 'claim_owner_recovery',
       attemptId: '00000000-0000-4000-8000-000000000810',
-      now: '2030-08-22T07:04:00.000Z',
     }).claim({ operationId: crashOperationId, workerGeneration: 3, childId: 'child_example_3' }),
     { code: 'DELIVERY_CLAIM_CONFLICT' },
   );
@@ -212,6 +349,8 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
       operationId,
       attemptId: attemptOneId,
       claimFence: claim.operation.claimFence + 1,
+      claimOwner: claim.operation.claimOwner!,
+      leaseUntil: claim.operation.leaseUntil!,
       workerGeneration: 3,
       childId: 'child_example_3',
       outcome: 'AMBIGUOUS',
@@ -229,7 +368,6 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
   const nextClaim = await claimService(fixture.repository, {
     ownerId: 'claim_owner_two',
     attemptId: nextAttemptId,
-    now: '2030-08-22T07:02:00.000Z',
   }).claim({ operationId: nextOperationId, workerGeneration: 3, childId: 'child_example_3' });
   await fixture.workerRepository.compareAndSave(
     { ...currentWorker, state: 'STOPPED', childId: null, revision: 2 },
@@ -240,6 +378,8 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
       operationId: nextOperationId,
       attemptId: nextAttemptId,
       claimFence: nextClaim.operation.claimFence,
+      claimOwner: nextClaim.operation.claimOwner!,
+      leaseUntil: nextClaim.operation.leaseUntil!,
       workerGeneration: 3,
       childId: 'child_example_3',
       outcome: 'AMBIGUOUS',
@@ -254,12 +394,10 @@ void test('denies stale, quarantined, and unauthorized worker claimants without 
     claimService(fixture.repository, {
       ownerId: 'claim_owner_stale',
       attemptId: attemptOneId,
-      now: '2030-08-22T07:00:00.000Z',
     }).claim({ operationId, workerGeneration: 2, childId: 'child_example_3' }),
     claimService(fixture.repository, {
       ownerId: 'claim_owner_wrong_child',
       attemptId: attemptTwoId,
-      now: '2030-08-22T07:00:00.000Z',
     }).claim({ operationId, workerGeneration: 3, childId: 'child_example_stale' }),
   ];
   for (const claim of claims) {
@@ -274,7 +412,6 @@ void test('denies stale, quarantined, and unauthorized worker claimants without 
     claimService(fixture.repository, {
       ownerId: 'claim_owner_stopped',
       attemptId: attemptOneId,
-      now: '2030-08-22T07:00:00.000Z',
     }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' }),
     { code: 'DELIVERY_CLAIM_CONFLICT' },
   );
@@ -294,7 +431,6 @@ void test('denies stale, quarantined, and unauthorized worker claimants without 
     claimService(fixture.repository, {
       ownerId: 'claim_owner_quarantined',
       attemptId: attemptOneId,
-      now: '2030-08-22T07:00:00.000Z',
     }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' }),
     { code: 'DELIVERY_CLAIM_CONFLICT' },
   );
@@ -317,7 +453,6 @@ void test('denies stale, quarantined, and unauthorized worker claimants without 
       repository: fixture.repository,
       trustedTenant: { tenantId: otherTenantId },
       ownerId: 'claim_owner_other',
-      clock: new FixedClock(new Date('2030-08-22T07:00:00.000Z')),
       idGenerator: { generate: () => attemptTwoId },
     }).claim({ operationId, workerGeneration: 3, childId: 'child_example_other' }),
     { code: 'DELIVERY_CLAIM_CONFLICT' },
@@ -327,7 +462,6 @@ void test('denies stale, quarantined, and unauthorized worker claimants without 
       repository: fixture.repository,
       trustedTenant: { tenantId: deniedTenantId },
       ownerId: 'claim_owner_denied',
-      clock: new FixedClock(new Date('2030-08-22T07:00:00.000Z')),
       idGenerator: { generate: () => attemptTwoId },
     }).claim({ operationId, workerGeneration: 3, childId: 'child_example_3' }),
     { code: 'TENANT_ACCESS_DENIED' },
@@ -376,13 +510,30 @@ function createRepository(
 
 function claimService(
   repository: ReturnType<typeof createPostgresBusinessRepository>,
-  input: Readonly<{ ownerId: string; attemptId: string; now: string }>,
+  input: Readonly<{ ownerId: string; attemptId: string }>,
 ) {
   return createDeliveryClaimService({
     repository,
     trustedTenant: { tenantId },
     ownerId: input.ownerId,
-    clock: new FixedClock(new Date(input.now)),
     idGenerator: { generate: () => input.attemptId },
   });
+}
+
+async function expireLease(
+  config: DisposablePostgres['config'],
+  targetOperationId: string,
+): Promise<void> {
+  const client = new Client(config);
+  await client.connect();
+  try {
+    await client.query(
+      `UPDATE delivery_operations
+       SET claim_lease_until = date_trunc('milliseconds', clock_timestamp()) - interval '1 second'
+       WHERE tenant_id = $1 AND id = $2`,
+      [tenantId, targetOperationId],
+    );
+  } finally {
+    await client.end();
+  }
 }

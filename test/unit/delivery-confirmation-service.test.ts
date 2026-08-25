@@ -25,6 +25,16 @@ void test('confirms a sent delivery once and debits at most once for its WIB dat
     idGenerator: { generate: () => '00000000-0000-4000-8000-000000000a04' },
   });
 
+  for (const stale of [
+    { claimOwner: 'claim_owner_confirmation_stale' },
+    { leaseUntil: new Date(Date.parse(authority.leaseUntil) + 1_000).toISOString() },
+  ]) {
+    await assert.rejects(confirmation.confirm({ ...authority, ...stale }), {
+      code: 'DELIVERY_CLAIM_CONFLICT',
+    });
+  }
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
+
   const first = await confirmation.confirm(authority);
   const replay = await confirmation.confirm(authority);
 
@@ -98,7 +108,7 @@ async function createFixture(t: test.TestContext) {
     },
     null,
   );
-  return { repository, workerRepository };
+  return { database, repository, workerRepository };
 }
 
 async function prepareSentDelivery(
@@ -114,32 +124,23 @@ async function prepareSentDelivery(
     repository: fixture.repository,
     trustedTenant: { tenantId },
     ownerId: 'claim_owner_confirmation',
-    clock: new FixedClock(new Date('2030-01-01T16:00:00.000Z')),
     idGenerator: { generate: () => input.attemptId },
   }).claim({ operationId: input.operationId, workerGeneration: 1, childId: 'child_example_1' });
-  await fixture.repository.beginDelivery({
-    tenantId,
+  const authority = {
     operationId: input.operationId,
     attemptId: input.attemptId,
     claimFence: claim.operation.claimFence,
-    workerGeneration: 1,
-    childId: 'child_example_1',
-  });
-  await fixture.repository.settleDelivery({
-    tenantId,
-    operationId: input.operationId,
-    attemptId: input.attemptId,
-    claimFence: claim.operation.claimFence,
-    workerGeneration: 1,
-    childId: 'child_example_1',
-    outcome: 'SENT',
-    providerMessageId: 'provider_message_confirmation',
-  });
-  return {
-    operationId: input.operationId,
-    attemptId: input.attemptId,
-    claimFence: claim.operation.claimFence,
+    claimOwner: claim.operation.claimOwner!,
+    leaseUntil: claim.operation.leaseUntil!,
     workerGeneration: 1,
     childId: 'child_example_1',
   };
+  await fixture.repository.beginDelivery({ tenantId, ...authority });
+  await fixture.repository.settleDelivery({
+    tenantId,
+    ...authority,
+    outcome: 'SENT',
+    providerMessageId: 'provider_message_confirmation',
+  });
+  return authority;
 }

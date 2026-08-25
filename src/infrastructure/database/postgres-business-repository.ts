@@ -415,30 +415,40 @@ export function createPostgresBusinessRepository(dependencies: {
       authorize(input.tenantId);
       if (!isDeliveryClaimInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       const result = await query(
-        `WITH recovered AS (
-           UPDATE delivery_operations
-           SET status = 'AMBIGUOUS', revision = revision + 1, updated_at = now()
-           WHERE tenant_id = $1 AND id = $2 AND status = 'SENDING'
-             AND claim_lease_until <= $5::timestamptz
-         ), current_worker AS (
+        `WITH current_worker AS MATERIALIZED (
            SELECT tenant_id
            FROM tenant_worker_ownerships
            WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
-             AND generation = $7 AND child_id = $8
+             AND generation = $5 AND child_id = $6
            FOR SHARE
+         ), locked_operation AS MATERIALIZED (
+           SELECT operation.id, operation.tenant_id, operation.status, operation.claim_lease_until
+           FROM delivery_operations AS operation
+           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
+           WHERE operation.tenant_id = $1 AND operation.id = $2
+             AND operation.status IN ('PREPARED', 'CLAIMED', 'SENDING')
+           FOR UPDATE OF operation
+         ), claim_clock AS MATERIALIZED (
+           SELECT date_trunc('milliseconds', clock_timestamp()) AS now FROM locked_operation
+         ), recovered AS (
+           UPDATE delivery_operations AS operation
+           SET status = 'AMBIGUOUS', revision = operation.revision + 1, updated_at = claim_clock.now
+           FROM locked_operation AS locked, claim_clock
+           WHERE operation.tenant_id = locked.tenant_id AND operation.id = locked.id
+             AND locked.status = 'SENDING' AND locked.claim_lease_until <= claim_clock.now
+           RETURNING operation.id
          ), claimed AS (
            UPDATE delivery_operations AS operation
            SET status = 'CLAIMED', claim_owner = $4,
                claim_fence = operation.claim_fence + 1,
-               claim_lease_until = $6::timestamptz,
-               worker_generation = $7, worker_child_id = $8,
-               revision = operation.revision + 1, updated_at = now()
-           FROM current_worker
-           WHERE operation.tenant_id = current_worker.tenant_id
-             AND operation.tenant_id = $1 AND operation.id = $2
-             AND (operation.status = 'PREPARED'
-               OR (operation.status = 'CLAIMED'
-                 AND operation.claim_lease_until <= $5::timestamptz))
+               claim_lease_until = claim_clock.now + interval '60 seconds',
+               worker_generation = $5, worker_child_id = $6,
+               revision = operation.revision + 1, updated_at = claim_clock.now
+           FROM locked_operation AS locked, claim_clock
+           WHERE operation.tenant_id = locked.tenant_id AND operation.id = locked.id
+             AND (locked.status = 'PREPARED'
+               OR (locked.status = 'CLAIMED' AND locked.claim_lease_until <= claim_clock.now))
+             AND NOT EXISTS (SELECT 1 FROM recovered)
            RETURNING operation.*
          ), created_attempt AS (
            INSERT INTO delivery_attempts
@@ -470,8 +480,6 @@ export function createPostgresBusinessRepository(dependencies: {
           input.operationId,
           input.attemptId,
           input.claimOwner,
-          input.now,
-          input.leaseUntil,
           input.workerGeneration,
           input.childId,
         ],
@@ -490,22 +498,34 @@ export function createPostgresBusinessRepository(dependencies: {
       }
       const result = await query(
         `WITH current_worker AS MATERIALIZED (
-          SELECT tenant_id
-          FROM tenant_worker_ownerships
-          WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
-            AND generation = $5 AND child_id = $6
-          FOR SHARE
-        ), begun_operation AS (
-          UPDATE delivery_operations AS operation
-          SET status = 'SENDING', revision = operation.revision + 1, updated_at = now()
-          FROM delivery_attempts AS attempt, current_worker AS worker
-          WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'CLAIMED'
-            AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
-            AND worker.tenant_id = operation.tenant_id
-            AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
-            AND attempt.id = $3 AND attempt.status = 'PREPARED' AND attempt.claim_fence = operation.claim_fence
-          RETURNING operation.*
-        )
+           SELECT tenant_id
+           FROM tenant_worker_ownerships
+           WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
+             AND generation = $7 AND child_id = $8
+           FOR SHARE
+         ), locked_claim AS MATERIALIZED (
+           SELECT operation.id, operation.tenant_id, operation.claim_lease_until
+           FROM delivery_operations AS operation
+           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
+           JOIN delivery_attempts AS attempt
+             ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+           WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'CLAIMED'
+             AND operation.claim_fence = $4 AND operation.claim_owner = $5
+             AND operation.claim_lease_until = $6::timestamptz
+             AND operation.worker_generation = $7 AND operation.worker_child_id = $8
+             AND attempt.id = $3 AND attempt.status = 'PREPARED'
+             AND attempt.claim_fence = operation.claim_fence
+           FOR UPDATE OF operation
+         ), authority_clock AS MATERIALIZED (
+           SELECT date_trunc('milliseconds', clock_timestamp()) AS now FROM locked_claim
+         ), begun_operation AS (
+           UPDATE delivery_operations AS operation
+           SET status = 'SENDING', revision = operation.revision + 1, updated_at = authority_clock.now
+           FROM locked_claim, authority_clock
+           WHERE operation.tenant_id = locked_claim.tenant_id AND operation.id = locked_claim.id
+             AND locked_claim.claim_lease_until > authority_clock.now
+           RETURNING operation.*
+         )
          SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
                 operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
                 operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
@@ -522,6 +542,8 @@ export function createPostgresBusinessRepository(dependencies: {
           input.operationId,
           input.attemptId,
           input.claimFence,
+          input.claimOwner,
+          input.leaseUntil,
           input.workerGeneration,
           input.childId,
         ],
@@ -533,26 +555,44 @@ export function createPostgresBusinessRepository(dependencies: {
       authorize(input.tenantId);
       if (!isDeliverySettlementInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       const result = await query(
-        `WITH settled_operation AS (
-          UPDATE delivery_operations AS operation
-          SET status = $7, revision = operation.revision + 1, updated_at = now()
-          FROM delivery_attempts AS attempt, tenant_worker_ownerships AS worker
-          WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'SENDING'
-            AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
-            AND worker.tenant_id = operation.tenant_id
-            AND worker.state = 'RUNNING' AND worker.quarantined = false
-            AND worker.generation = $5 AND worker.child_id = $6
-            AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
-            AND attempt.id = $3 AND attempt.status = 'PREPARED' AND attempt.claim_fence = operation.claim_fence
-          RETURNING operation.*
-        ), settled_attempt AS (
-          UPDATE delivery_attempts AS attempt
-          SET status = $7, provider_message_id = $8, revision = attempt.revision + 1, updated_at = now()
-          FROM settled_operation AS operation
-          WHERE attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
-            AND attempt.id = $3 AND attempt.status = 'PREPARED' AND attempt.claim_fence = operation.claim_fence
-          RETURNING attempt.*
-        )
+        `WITH current_worker AS MATERIALIZED (
+           SELECT tenant_id
+           FROM tenant_worker_ownerships
+           WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
+             AND generation = $7 AND child_id = $8
+           FOR SHARE
+         ), locked_claim AS MATERIALIZED (
+           SELECT operation.id, operation.tenant_id, operation.claim_lease_until
+           FROM delivery_operations AS operation
+           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
+           JOIN delivery_attempts AS attempt
+             ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+           WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'SENDING'
+             AND operation.claim_fence = $4 AND operation.claim_owner = $5
+             AND operation.claim_lease_until = $6::timestamptz
+             AND operation.worker_generation = $7 AND operation.worker_child_id = $8
+             AND attempt.id = $3 AND attempt.status = 'PREPARED'
+             AND attempt.claim_fence = operation.claim_fence
+           FOR UPDATE OF operation
+         ), authority_clock AS MATERIALIZED (
+           SELECT date_trunc('milliseconds', clock_timestamp()) AS now FROM locked_claim
+         ), settled_operation AS (
+           UPDATE delivery_operations AS operation
+           SET status = $9, revision = operation.revision + 1, updated_at = authority_clock.now
+           FROM locked_claim, authority_clock
+           WHERE operation.tenant_id = locked_claim.tenant_id AND operation.id = locked_claim.id
+             AND locked_claim.claim_lease_until > authority_clock.now
+           RETURNING operation.*
+         ), settled_attempt AS (
+           UPDATE delivery_attempts AS attempt
+           SET status = $9, provider_message_id = $10,
+               revision = attempt.revision + 1, updated_at = authority_clock.now
+           FROM settled_operation AS operation, authority_clock
+           WHERE attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+             AND attempt.id = $3 AND attempt.status = 'PREPARED'
+             AND attempt.claim_fence = operation.claim_fence
+           RETURNING attempt.*
+         )
          SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
                 operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
                 operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
@@ -568,6 +608,8 @@ export function createPostgresBusinessRepository(dependencies: {
           input.operationId,
           input.attemptId,
           input.claimFence,
+          input.claimOwner,
+          input.leaseUntil,
           input.workerGeneration,
           input.childId,
           input.outcome,
@@ -586,44 +628,56 @@ export function createPostgresBusinessRepository(dependencies: {
            SELECT tenant_id
            FROM tenant_worker_ownerships
            WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
-             AND generation = $5 AND child_id = $6
+             AND generation = $7 AND child_id = $8
            FOR SHARE
+         ), locked_confirmation AS MATERIALIZED (
+           SELECT operation.*
+           FROM delivery_operations AS operation
+           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
+           JOIN delivery_attempts AS attempt
+             ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+           WHERE operation.tenant_id = $1 AND operation.id = $2
+             AND operation.status IN ('SENT', 'CONFIRMED')
+             AND operation.claim_fence = $4 AND operation.claim_owner = $5
+             AND operation.claim_lease_until = $6::timestamptz
+             AND operation.worker_generation = $7 AND operation.worker_child_id = $8
+             AND attempt.id = $3 AND attempt.status = 'SENT'
+             AND attempt.claim_fence = operation.claim_fence
+           FOR UPDATE OF operation
+         ), authority_clock AS MATERIALIZED (
+           SELECT date_trunc('milliseconds', clock_timestamp()) AS now FROM locked_confirmation
          ), transitioned AS (
            UPDATE delivery_operations AS operation
-           SET status = 'CONFIRMED', confirmation_business_key = $8,
-               confirmation_correlation_id = $9, revision = operation.revision + 1, updated_at = now()
-           FROM delivery_attempts AS attempt, current_worker AS worker
-           WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'SENT'
-             AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
-             AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
-             AND attempt.id = $3 AND attempt.status = 'SENT' AND attempt.claim_fence = operation.claim_fence
-             AND worker.tenant_id = operation.tenant_id
+           SET status = 'CONFIRMED', confirmation_business_key = $10,
+               confirmation_correlation_id = $11, revision = operation.revision + 1,
+               updated_at = authority_clock.now
+           FROM locked_confirmation AS locked, authority_clock
+           WHERE operation.tenant_id = locked.tenant_id AND operation.id = locked.id
+             AND locked.status = 'SENT' AND locked.claim_lease_until > authority_clock.now
              AND NOT EXISTS (SELECT 1 FROM entitlement_ledger
-               WHERE tenant_id = operation.tenant_id AND business_key = $8
+               WHERE tenant_id = operation.tenant_id AND business_key = $10
                  AND (entry_type <> 'DEBIT_CONFIRMED_DELIVERY' OR units <> -1))
            RETURNING operation.*
          ), debited AS (
            INSERT INTO entitlement_ledger (id, tenant_id, entry_type, units, business_key, correlation_id)
-           SELECT $7, tenant_id, 'DEBIT_CONFIRMED_DELIVERY', -1, $8, $9 FROM transitioned
+           SELECT $9, tenant_id, 'DEBIT_CONFIRMED_DELIVERY', -1, $10, $11 FROM transitioned
            ON CONFLICT (tenant_id, business_key) DO NOTHING
            RETURNING id, tenant_id, entry_type, units, business_key, correlation_id, created_at
          ), canonical AS (
            SELECT * FROM transitioned
            UNION ALL
            SELECT operation.* FROM delivery_operations AS operation
-           JOIN delivery_attempts AS attempt ON attempt.tenant_id = operation.tenant_id
-             AND attempt.operation_id = operation.id
-           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
-           WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'CONFIRMED'
-             AND operation.claim_fence = $4 AND operation.worker_generation = $5 AND operation.worker_child_id = $6
-             AND operation.confirmation_business_key = $8 AND operation.confirmation_correlation_id = $9
-             AND attempt.id = $3 AND attempt.status = 'SENT' AND attempt.claim_fence = operation.claim_fence
+           JOIN locked_confirmation AS locked
+             ON locked.tenant_id = operation.tenant_id AND locked.id = operation.id
+           WHERE operation.status = 'CONFIRMED'
+             AND operation.confirmation_business_key = $10
+             AND operation.confirmation_correlation_id = $11
              AND NOT EXISTS (SELECT 1 FROM transitioned)
          ), ledger_result AS (
            SELECT * FROM debited
            UNION ALL
            SELECT ledger.* FROM entitlement_ledger AS ledger
-           WHERE ledger.tenant_id = $1 AND ledger.business_key = $8
+           WHERE ledger.tenant_id = $1 AND ledger.business_key = $10
              AND ledger.entry_type = 'DEBIT_CONFIRMED_DELIVERY' AND ledger.units = -1
              AND NOT EXISTS (SELECT 1 FROM debited)
          )
@@ -644,6 +698,8 @@ export function createPostgresBusinessRepository(dependencies: {
           input.operationId,
           input.attemptId,
           input.claimFence,
+          input.claimOwner,
+          input.leaseUntil,
           input.workerGeneration,
           input.childId,
           input.debitId,
@@ -1374,6 +1430,8 @@ function isDeliveryConfirmationInput(value: unknown): boolean {
     isUuid(value.operationId) &&
     isUuid(value.attemptId) &&
     isPositiveInteger(value.claimFence) &&
+    isIdentifier(value.claimOwner, false) &&
+    timestamp(value.leaseUntil) !== undefined &&
     isPositiveInteger(value.workerGeneration) &&
     isIdentifier(value.childId, false) &&
     isUuid(value.debitId) &&
@@ -1389,6 +1447,8 @@ function isDeliverySettlementInput(value: unknown): boolean {
     isUuid(value.operationId) &&
     isUuid(value.attemptId) &&
     isPositiveInteger(value.claimFence) &&
+    isIdentifier(value.claimOwner, false) &&
+    timestamp(value.leaseUntil) !== undefined &&
     isPositiveInteger(value.workerGeneration) &&
     isIdentifier(value.childId, false) &&
     (value.outcome === 'SENT' || value.outcome === 'AMBIGUOUS') &&
@@ -1403,9 +1463,6 @@ function isDeliveryClaimInput(value: unknown): boolean {
     isUuid(value.operationId) &&
     isUuid(value.attemptId) &&
     isIdentifier(value.claimOwner, false) &&
-    timestamp(value.now) !== undefined &&
-    timestamp(value.leaseUntil) !== undefined &&
-    Date.parse(value.leaseUntil as string) > Date.parse(value.now as string) &&
     isPositiveInteger(value.workerGeneration) &&
     isIdentifier(value.childId, false)
   );
