@@ -77,6 +77,47 @@ void test('confirms a second sent delivery on the same WIB date without another 
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
 });
 
+void test('rejects an expired initial confirmation without debit or state drift', async (t) => {
+  const fixture = await createFixture(t);
+  const expiredAuthority = await prepareSentDelivery(fixture);
+  const confirmation = createDeliveryConfirmationService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    clock: new FixedClock(new Date('2030-01-02T17:00:00.000Z')),
+    idGenerator: { generate: () => '00000000-0000-4000-8000-000000000a08' },
+  });
+  const expiredLease = await expireLease(fixture, expiredAuthority.operationId);
+
+  await assert.rejects(confirmation.confirm({ ...expiredAuthority, leaseUntil: expiredLease }), {
+    code: 'DELIVERY_CLAIM_CONFLICT',
+  });
+  assert.equal((await fixture.repository.loadDelivery(tenantId, operationId))?.status, 'SENT');
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
+});
+
+void test('replays a durable confirmation with the exact expired persisted lease', async (t) => {
+  const fixture = await createFixture(t);
+  const replayAuthority = await prepareSentDelivery(fixture, {
+    operationId: '00000000-0000-4000-8000-000000000a09',
+    attemptId: '00000000-0000-4000-8000-000000000a10',
+    operationKey: 'automation:message_confirmation_expired_replay',
+  });
+  const replayConfirmation = createDeliveryConfirmationService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    clock: new FixedClock(new Date('2030-01-02T17:00:00.000Z')),
+    idGenerator: { generate: () => '00000000-0000-4000-8000-000000000a11' },
+  });
+  const first = await replayConfirmation.confirm(replayAuthority);
+  const replayLease = await expireLease(fixture, replayAuthority.operationId);
+  const replay = await replayConfirmation.confirm({ ...replayAuthority, leaseUntil: replayLease });
+
+  assert.equal(replay.operation.status, 'CONFIRMED');
+  assert.deepEqual(replay.debit, first.debit);
+  assert.equal(replay.businessDate, first.businessDate);
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
+});
+
 async function createFixture(t: test.TestContext) {
   const database = await createDisposablePostgres(t);
   const authorization = new MutableTenantAuthorization();
@@ -143,4 +184,31 @@ async function prepareSentDelivery(
     providerMessageId: 'provider_message_confirmation',
   });
   return authority;
+}
+
+async function expireLease(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  targetOperationId: string,
+): Promise<string> {
+  const client = new Client(fixture.database.config);
+  await client.connect();
+  try {
+    const updated = await client.query<{ claim_lease_until: Date }>(
+      `UPDATE delivery_operations
+       SET claim_lease_until = date_trunc('milliseconds', clock_timestamp())
+       WHERE tenant_id = $1 AND id = $2
+       RETURNING claim_lease_until`,
+      [tenantId, targetOperationId],
+    );
+    const leaseUntil = updated.rows[0]?.claim_lease_until.toISOString();
+    assert.ok(leaseUntil);
+    const clock = await client.query<{ expired: boolean }>(
+      'SELECT clock_timestamp() >= $1::timestamptz AS expired',
+      [leaseUntil],
+    );
+    assert.equal(clock.rows[0]?.expired, true);
+    return leaseUntil;
+  } finally {
+    await client.end();
+  }
 }
