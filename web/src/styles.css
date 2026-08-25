@@ -1,0 +1,219 @@
+@font-face {
+  font-family: 'Archivo';
+  font-style: normal;
+  font-weight: 100 900;
+  font-display: swap;
+  src: url('/fonts/Archivo-Latin-Variable.woff2') format('woff2');
+}
+
+:root {
+  color: #111111;
+  background: #fff9e8;
+  font-family: 'Archivo', Arial, sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  --ink: #111111;
+  --paper: #fff9e8;
+  --surface: #ffffff;
+  --primary: #f4c400;
+  --danger: #b42318;
+  --muted: #5b5b5b;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  min-block-size: 100dvh;
+  margin: 0;
+  background: var(--paper);
+}
+
+button,
+a {
+  font: inherit;
+}
+
+.skip-link {
+  position: fixed;
+  inset-block-start: 0.75rem;
+  inset-inline-start: 0.75rem;
+  z-index: 1;
+  min-block-size: 2.75rem;
+  padding: 0.75rem 1rem;
+  color: var(--ink);
+  background: var(--primary);
+  border: 2px solid var(--ink);
+  transform: translateY(-200%);
+}
+
+.skip-link:focus-visible {
+  transform: translateY(0);
+}
+
+:focus-visible {
+  outline: 3px solid var(--ink);
+  outline-offset: 4px;
+}
+
+.page-shell {
+  display: grid;
+  align-content: start;
+  min-block-size: 100dvh;
+  inline-size: min(100%, 72rem);
+  margin-inline: auto;
+  padding: 1rem;
+}
+
+.site-header {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.5rem 1rem;
+  padding-block: 0.5rem 1.5rem;
+}
+
+.wordmark {
+  display: inline-block;
+  padding: 0.35rem 0.55rem;
+  font-size: 1.125rem;
+  font-weight: 800;
+  letter-spacing: -0.02em;
+  background: var(--primary);
+  border: 2px solid var(--ink);
+  box-shadow: 3px 3px 0 var(--ink);
+}
+
+.slice-label,
+.eyebrow {
+  font-size: 0.875rem;
+  font-weight: 700;
+}
+
+.slice-label {
+  color: var(--muted);
+}
+
+main {
+  min-inline-size: 0;
+}
+
+.intro {
+  position: relative;
+  max-inline-size: 58rem;
+  padding: clamp(1.5rem, 5vw, 4rem);
+  overflow-wrap: break-word;
+  background: var(--surface);
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.intro::before {
+  position: absolute;
+  inset-block: 0;
+  inset-inline-start: 0;
+  inline-size: 0.5rem;
+  content: '';
+  background: var(--primary);
+  border-inline-end: 2px solid var(--ink);
+}
+
+.eyebrow {
+  inline-size: fit-content;
+  margin: 0 0 1rem;
+  padding: 0.35rem 0.5rem;
+  color: var(--ink);
+  background: var(--primary);
+  border: 2px solid var(--ink);
+}
+
+h1 {
+  max-inline-size: 100%;
+  margin: 0;
+  font-size: clamp(2.5rem, 11vw, 5.5rem);
+  font-weight: 800;
+  line-height: 1.05;
+  letter-spacing: -0.03em;
+  overflow-wrap: normal;
+  word-break: normal;
+}
+
+.lede {
+  max-inline-size: 58ch;
+  margin: 1.5rem 0 0;
+  font-size: clamp(1rem, 2vw, 1.25rem);
+  line-height: 1.5;
+}
+
+.primary-link {
+  display: inline-flex;
+  align-items: center;
+  min-block-size: 2.75rem;
+  margin-block-start: 1.5rem;
+  padding: 0.75rem 1rem;
+  color: var(--ink);
+  font-weight: 700;
+  text-decoration-thickness: 2px;
+  text-underline-offset: 0.2em;
+  background: var(--primary);
+  border: 2px solid var(--ink);
+  border-radius: 4px;
+  box-shadow: 4px 4px 0 var(--ink);
+}
+
+.primary-link:active {
+  box-shadow: 2px 2px 0 var(--ink);
+  transform: translate(2px, 2px);
+}
+
+.error-surface::before {
+  background: var(--danger);
+}
+
+.diagnostic {
+  margin-block-start: 2rem;
+  color: var(--muted);
+  font-size: 0.875rem;
+}
+
+.diagnostic summary {
+  min-block-size: 2.75rem;
+  inline-size: fit-content;
+  cursor: pointer;
+  font-weight: 700;
+  line-height: 2.75rem;
+}
+
+.diagnostic pre {
+  max-inline-size: 100%;
+  padding: 1rem;
+  overflow: auto;
+  color: var(--ink);
+  white-space: pre-wrap;
+  background: var(--paper);
+  border: 2px solid var(--ink);
+}
+
+@media (min-width: 48rem) {
+  .page-shell {
+    padding: 2rem;
+  }
+
+  .site-header {
+    padding-block-end: 3rem;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    scroll-behavior: auto !important;
+    transition-duration: 0.01ms !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+  }
+}
