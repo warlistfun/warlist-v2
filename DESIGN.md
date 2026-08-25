@@ -51,8 +51,6 @@ typography:
     lineHeight: 1.25
 rounded:
   none: 0px
-  sm: 4px
-  md: 6px
 spacing:
   xs: 4px
   sm: 8px
@@ -68,31 +66,31 @@ components:
   surface:
     backgroundColor: "{colors.surface}"
     textColor: "{colors.ink}"
-    rounded: "{rounded.sm}"
+    rounded: "{rounded.none}"
     padding: "{spacing.md}"
   button-primary:
     backgroundColor: "{colors.primary}"
     textColor: "{colors.ink}"
     typography: "{typography.control}"
-    rounded: "{rounded.sm}"
+    rounded: "{rounded.none}"
     padding: 12px
   button-primary-pressed:
     backgroundColor: "{colors.ink}"
     textColor: "{colors.paper}"
     typography: "{typography.control}"
-    rounded: "{rounded.sm}"
+    rounded: "{rounded.none}"
     padding: 12px
   status-success:
     backgroundColor: "{colors.success}"
     textColor: "{colors.surface}"
     typography: "{typography.label}"
-    rounded: "{rounded.sm}"
+    rounded: "{rounded.none}"
     padding: 8px
   status-danger:
     backgroundColor: "{colors.danger}"
     textColor: "{colors.surface}"
     typography: "{typography.label}"
-    rounded: "{rounded.sm}"
+    rounded: "{rounded.none}"
     padding: 8px
   helper-text:
     backgroundColor: "{colors.paper}"
@@ -173,12 +171,10 @@ Depth is expressed with hard geometry, not blur.
 
 ## Shapes
 
-WARLIST uses compact geometry.
+WARLIST uses square geometry so the hard, direct neobrutalist silhouette stays consistent across public and app surfaces.
 
-- `sm` is the default radius for buttons, inputs, cards, and dialogs.
-- `md` is reserved for a larger container that needs softer grouping.
-- `none` is valid for separators and deliberately raw content blocks.
-- Pill shapes are reserved for content whose form requires a capsule, such as a short status badge. They are not the default for every control.
+- `none` is the only radius token for buttons, inputs, cards, dialogs, and content blocks.
+- Rounded and pill shapes are not used in the current product surface.
 - Borders remain visually consistent across mobile and desktop.
 
 ## Components
@@ -198,7 +194,7 @@ Every data-bearing component must define useful loading, empty, and error behavi
 
 - **Do** use yellow for the primary action and a limited number of focal highlights.
 - **Do** keep green and red semantic so users learn their meaning.
-- **Do** use solid fills, bold borders, compact radii, and purposeful hard shadows.
+- **Do** use solid fills, bold borders, square corners, and purposeful hard shadows.
 - **Do** state why a major color, layout, type, spacing, card, icon, or motion decision exists.
 - **Do** build mobile as an intentional reflowed layout, not a squeezed desktop page.
 - **Do** use real content or clearly marked placeholders.
