@@ -47,7 +47,6 @@ void test('adversarial matrix allows one synthetic sender call and never replays
           repository: index === 0 ? fixture.repository : fixture.secondRepository,
           trustedTenant: { tenantId },
           ownerId: `claim_owner_matrix_${index + 1}`,
-          clock: new FixedClock(new Date('2030-08-22T07:00:00.000Z')),
           idGenerator: { generate: () => attemptId },
         }).claim(input),
       begin: createDeliveryBeginPort({
@@ -86,7 +85,6 @@ void test('adversarial matrix allows one synthetic sender call and never replays
         repository: fixture.repository,
         trustedTenant: { tenantId },
         ownerId: 'claim_owner_matrix_crash',
-        clock: new FixedClock(new Date('2030-08-22T07:02:00.000Z')),
         idGenerator: { generate: () => '00000000-0000-4000-8000-000000000b06' },
       }).claim(input),
     begin: createDeliveryBeginPort({ repository: fixture.repository, trustedTenant: { tenantId } }),
@@ -115,7 +113,6 @@ void test('adversarial matrix allows one synthetic sender call and never replays
       repository: fixture.repository,
       trustedTenant: { tenantId },
       ownerId: 'claim_owner_matrix_replay',
-      clock: new FixedClock(new Date('2030-08-22T07:04:00.000Z')),
       idGenerator: { generate: () => '00000000-0000-4000-8000-000000000b07' },
     }).claim({
       operationId: ambiguousOperationId,
@@ -135,7 +132,6 @@ void test('adversarial matrix allows one synthetic sender call and never replays
     repository: fixture.repository,
     trustedTenant: { tenantId },
     ownerId: 'claim_owner_matrix_stale',
-    clock: new FixedClock(new Date('2030-08-22T07:05:00.000Z')),
     idGenerator: { generate: () => '00000000-0000-4000-8000-000000000b12' },
   });
   for (const stale of [
@@ -162,7 +158,6 @@ void test('adversarial matrix allows one synthetic sender call and never replays
     repository: fixture.repository,
     trustedTenant: { tenantId },
     ownerId: 'claim_owner_matrix_stale_send',
-    clock: new FixedClock(new Date('2030-08-22T07:06:00.000Z')),
     idGenerator: { generate: () => staleAttemptId },
   }).claim({
     operationId: staleOperationId,
@@ -173,6 +168,8 @@ void test('adversarial matrix allows one synthetic sender call and never replays
     operationId: staleOperationId,
     attemptId: staleAttemptId,
     claimFence: staleAuthority.operation.claimFence,
+    claimOwner: staleAuthority.operation.claimOwner!,
+    leaseUntil: staleAuthority.operation.leaseUntil!,
     workerGeneration: worker.generation,
     childId: worker.childId,
   };
@@ -180,6 +177,8 @@ void test('adversarial matrix allows one synthetic sender call and never replays
     { childId: 'child_example_matrix_stale' },
     { workerGeneration: worker.generation + 1 },
     { claimFence: staleSend.claimFence + 1 },
+    { claimOwner: 'claim_owner_matrix_stale' },
+    { leaseUntil: new Date(Date.parse(staleSend.leaseUntil) + 1_000).toISOString() },
   ]) {
     await assert.rejects(fixture.repository.beginDelivery({ tenantId, ...staleSend, ...stale }), {
       code: 'DELIVERY_CLAIM_CONFLICT',
@@ -190,6 +189,8 @@ void test('adversarial matrix allows one synthetic sender call and never replays
     { childId: 'child_example_matrix_stale' },
     { workerGeneration: worker.generation + 1 },
     { claimFence: staleSend.claimFence + 1 },
+    { claimOwner: 'claim_owner_matrix_stale' },
+    { leaseUntil: new Date(Date.parse(staleSend.leaseUntil) + 1_000).toISOString() },
   ]) {
     await assert.rejects(
       fixture.repository.settleDelivery({
@@ -217,7 +218,6 @@ void test('ownership loss wins before blocked send admission and prevents sender
     repository: fixture.repository,
     trustedTenant: { tenantId },
     ownerId: 'claim_owner_ownership_loss_send',
-    clock: new FixedClock(new Date('2030-08-22T09:00:00.000Z')),
     idGenerator: { generate: () => attemptId },
   }).claim({ operationId, workerGeneration: worker.generation, childId: worker.childId });
 
@@ -237,7 +237,7 @@ void test('ownership loss wins before blocked send admission and prevents sender
   const { admission } = await blockAdmissionBehindOwnershipLoss(
     fixture,
     operationId,
-    "SET status = 'SENDING'",
+    'locked_claim AS MATERIALIZED',
     () =>
       sender.send({
         operationId,
@@ -268,13 +268,14 @@ void test('ownership loss wins before blocked confirmation and prevents debit', 
     repository: fixture.repository,
     trustedTenant: { tenantId },
     ownerId: 'claim_owner_ownership_loss_confirmation',
-    clock: new FixedClock(new Date('2030-08-22T09:01:00.000Z')),
     idGenerator: { generate: () => attemptId },
   }).claim({ operationId, workerGeneration: worker.generation, childId: worker.childId });
   const authority = {
     operationId,
     attemptId,
     claimFence: claim.operation.claimFence,
+    claimOwner: claim.operation.claimOwner!,
+    leaseUntil: claim.operation.leaseUntil!,
     workerGeneration: worker.generation,
     childId: worker.childId,
   };
@@ -294,7 +295,7 @@ void test('ownership loss wins before blocked confirmation and prevents debit', 
   const { admission } = await blockAdmissionBehindOwnershipLoss(
     fixture,
     operationId,
-    "SET status = 'CONFIRMED'",
+    'locked_confirmation AS MATERIALIZED',
     () => confirmation.confirm(authority),
   );
 
@@ -316,13 +317,14 @@ void test('adversarial matrix fences stale authority and makes confirmation repl
     repository: fixture.repository,
     trustedTenant: { tenantId },
     ownerId: 'claim_owner_matrix_confirm',
-    clock: new FixedClock(new Date('2030-08-22T08:00:00.000Z')),
     idGenerator: { generate: () => attemptId },
   }).claim({ operationId, workerGeneration: worker.generation, childId: worker.childId });
   const authority = {
     operationId,
     attemptId,
     claimFence: claim.operation.claimFence,
+    claimOwner: claim.operation.claimOwner!,
+    leaseUntil: claim.operation.leaseUntil!,
     workerGeneration: worker.generation,
     childId: worker.childId,
   };
@@ -346,6 +348,11 @@ void test('adversarial matrix fences stale authority and makes confirmation repl
 
   for (const stale of [
     { ...authority, claimFence: authority.claimFence + 1 },
+    { ...authority, claimOwner: 'claim_owner_matrix_stale' },
+    {
+      ...authority,
+      leaseUntil: new Date(Date.parse(authority.leaseUntil) + 1_000).toISOString(),
+    },
     { ...authority, workerGeneration: authority.workerGeneration + 1 },
     { ...authority, childId: 'child_example_matrix_stale' },
   ]) {

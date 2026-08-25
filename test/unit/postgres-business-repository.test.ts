@@ -181,8 +181,6 @@ void test('pooled PostgreSQL rejects a claim row with mismatched operation and a
       operationId: '00000000-0000-4000-8000-000000000902',
       attemptId: '00000000-0000-4000-8000-000000000903',
       claimOwner: 'claim_owner_validation',
-      now: '2030-08-22T07:00:00.000Z',
-      leaseUntil: '2030-08-22T07:01:00.000Z',
       workerGeneration: 3,
       childId: 'child_example_3',
     }),

@@ -8,6 +8,8 @@ export type DeliveryClaimAuthority = Readonly<{
   operationId: string;
   attemptId: string;
   claimFence: number;
+  claimOwner: string;
+  leaseUntil: string;
   workerGeneration: number;
   childId: string;
 }>;
@@ -47,6 +49,8 @@ export function createDeliverySettlementPort(dependencies: {
         operationId: input.operationId,
         attemptId: input.attemptId,
         claimFence: input.claimFence,
+        claimOwner: input.claimOwner,
+        leaseUntil: input.leaseUntil,
         workerGeneration: input.workerGeneration,
         childId: input.childId,
         outcome: input.outcome,
@@ -67,12 +71,16 @@ export function createClaimGatedDeliverySender(dependencies: SenderDependencies)
         operationId: claim.operation.id,
         attemptId: claim.attempt.id,
         claimFence: claim.operation.claimFence,
+        claimOwner: claim.operation.claimOwner ?? '',
+        leaseUntil: claim.operation.leaseUntil ?? '',
         workerGeneration: claim.operation.workerGeneration ?? 0,
         childId: claim.operation.childId ?? '',
       };
       if (
         authority.operationId !== input.operationId ||
         authority.claimFence !== claim.attempt.claimFence ||
+        authority.claimOwner === '' ||
+        authority.leaseUntil === '' ||
         authority.workerGeneration !== input.workerGeneration ||
         authority.childId !== input.childId
       ) {
