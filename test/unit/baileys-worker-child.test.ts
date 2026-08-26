@@ -365,6 +365,9 @@ function projectDiagnostics(events: readonly WorkerDiagnosticEvent[]): string[][
   return events.map((event) => {
     if (event.kind === 'CONNECTION') return [event.kind, event.state];
     if (event.kind === 'COMMAND') return [event.kind, event.commandType, event.outcome];
+    if (event.kind === 'INBOUND') {
+      return [event.kind, event.transportCode, event.decisionCode ?? 'none'];
+    }
     return [event.kind, event.state];
   });
 }

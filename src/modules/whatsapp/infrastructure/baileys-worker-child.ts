@@ -1,7 +1,10 @@
+import { createHash } from 'node:crypto';
+
 import type {
   ChildMessage,
   ParentMessage,
   WorkerConnectionState,
+  WorkerInboundTransportCode,
 } from '../../../interfaces/worker-ipc/contract';
 import { decodeParentMessage } from '../../../interfaces/worker-ipc/contract';
 import type { CancelScheduledTask, ScheduleTaskPort } from '../application/worker-runtime-service';
@@ -10,7 +13,10 @@ import { createLocalWhatsAppCredentialDirectory } from './local-whatsapp-credent
 
 export interface BaileysSocketPort {
   readonly ev: {
-    on(event: 'creds.update' | 'connection.update', listener: (update?: unknown) => void): void;
+    on(
+      event: 'creds.update' | 'connection.update' | 'messages.upsert',
+      listener: (update?: unknown) => void,
+    ): void;
     removeAllListeners(): void;
   };
   end(): void;
@@ -34,6 +40,7 @@ interface Dependencies {
   readonly scheduler: ScheduleTaskPort;
   readonly reconnectDelayMs: number;
   readonly send: (message: ChildMessage) => void;
+  readonly now?: () => number;
 }
 
 export interface BaileysWorkerChild {
@@ -47,6 +54,7 @@ interface ActiveWorker {
   epoch: number;
   socket: BaileysSocketPort | undefined;
   cancelReconnect: CancelScheduledTask | undefined;
+  openedAt: number | undefined;
   stopped: boolean;
 }
 
@@ -55,6 +63,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     throw new Error('reconnectDelayMs must be a positive integer');
   }
 
+  const now = dependencies.now ?? Date.now;
   let active: ActiveWorker | undefined;
   let transition = Promise.resolve();
 
@@ -68,6 +77,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     const epoch = ++worker.epoch;
     worker.cancelReconnect?.();
     worker.cancelReconnect = undefined;
+    worker.openedAt = undefined;
     disposeSocket(worker);
     emitConnection(worker, 'CONNECTING');
 
@@ -93,6 +103,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       if (update.connection === 'open') {
         worker.cancelReconnect?.();
         worker.cancelReconnect = undefined;
+        worker.openedAt = now();
         emitConnection(worker, 'OPEN');
         return;
       }
@@ -116,6 +127,10 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
         },
       );
     });
+    created.socket.ev.on('messages.upsert', (input) => {
+      if (active !== worker || worker.stopped || worker.epoch !== epoch) return;
+      handleInboundUpsert(worker, input, now());
+    });
   }
 
   async function handleCommand(message: ParentMessage): Promise<void> {
@@ -132,6 +147,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
           epoch: 0,
           socket: undefined,
           cancelReconnect: undefined,
+          openedAt: undefined,
           stopped: false,
         };
         active = worker;
@@ -182,6 +198,108 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       childId: worker.start.childId,
       type: 'CONNECTION_UPDATE',
       payload: { state },
+    });
+  }
+
+  function handleInboundUpsert(worker: ActiveWorker, input: unknown, receivedAt: number): void {
+    try {
+      const type = ownValue(input, 'type');
+      if (type !== 'notify') {
+        emitInbound(worker, type === 'append' ? 'HISTORY_REPLAY' : 'INVALID_MESSAGE', null);
+        return;
+      }
+      if (ownValue(input, 'requestId') !== undefined) {
+        emitInbound(worker, 'HISTORY_REPLAY', null);
+        return;
+      }
+      const messages = ownValue(input, 'messages');
+      if (!isDenseBoundedArray(messages)) {
+        emitInbound(worker, 'INVALID_MESSAGE', null);
+        return;
+      }
+      for (let index = 0; index < messages.length; index += 1) {
+        handleInboundMessage(worker, arrayValue(messages, index), receivedAt);
+      }
+    } catch {
+      emitInbound(worker, 'INVALID_MESSAGE', null);
+    }
+  }
+
+  function handleInboundMessage(worker: ActiveWorker, input: unknown, receivedAt: number): void {
+    const key = ownValue(input, 'key');
+    const rawMessageId = safeProviderIdentifier(ownValue(key, 'id'));
+    const messageId =
+      rawMessageId === undefined ? null : safeHash(worker.start.tenantId, 'message', rawMessageId);
+    if (messageId === null) {
+      emitInbound(worker, 'INVALID_MESSAGE', null);
+      return;
+    }
+
+    const timestamp = providerTimestampMs(ownValue(input, 'messageTimestamp'));
+    if (timestamp === undefined) {
+      emitInbound(worker, 'INVALID_MESSAGE', messageId);
+      return;
+    }
+    if (receivedAt - timestamp > 2 * 60 * 1_000) {
+      emitInbound(worker, 'STALE', messageId);
+      return;
+    }
+    if (worker.openedAt === undefined || timestamp < worker.openedAt - 5_000) {
+      emitInbound(worker, 'PRE_CONNECT', messageId);
+      return;
+    }
+    if (ownValue(key, 'fromMe') === true) {
+      emitInbound(worker, 'FROM_ME', messageId);
+      return;
+    }
+
+    const remoteJid = safeJid(ownValue(key, 'remoteJid'), '@g.us');
+    const participant =
+      safeJid(ownValue(key, 'participant'), '@s.whatsapp.net') ??
+      safeJid(ownValue(key, 'participant'), '@lid');
+    if (remoteJid === undefined || participant === undefined || ownValue(key, 'fromMe') !== false) {
+      emitInbound(worker, 'INVALID_MESSAGE', messageId);
+      return;
+    }
+
+    const content = ownValue(input, 'message');
+    const conversation = safeText(ownValue(content, 'conversation'));
+    const extended = ownValue(content, 'extendedTextMessage');
+    const text = conversation ?? safeText(ownValue(extended, 'text'));
+    if (text === undefined) {
+      emitInbound(worker, 'NO_TEXT', messageId);
+      return;
+    }
+    const contextInfo = conversation === undefined ? ownValue(extended, 'contextInfo') : undefined;
+    if (ownValue(contextInfo, 'quotedMessage') !== undefined) {
+      emitInbound(worker, 'QUOTED', messageId);
+      return;
+    }
+
+    dependencies.send({
+      ...messageIdentity(worker.start),
+      type: 'INBOUND_EVENT',
+      payload: {
+        transportCode: 'FORWARDED',
+        messageId,
+        message: {
+          groupId: safeHash(worker.start.tenantId, 'group', remoteJid),
+          senderId: safeHash(worker.start.tenantId, 'sender', participant),
+          text,
+        },
+      },
+    });
+  }
+
+  function emitInbound(
+    worker: ActiveWorker,
+    transportCode: Exclude<WorkerInboundTransportCode, 'FORWARDED'>,
+    messageId: string | null,
+  ): void {
+    dependencies.send({
+      ...messageIdentity(worker.start),
+      type: 'INBOUND_EVENT',
+      payload: { transportCode, messageId },
     });
   }
 
@@ -288,6 +406,94 @@ function ownValue(input: unknown, key: string): unknown {
   return descriptor && 'value' in descriptor ? descriptor.value : undefined;
 }
 
+function arrayValue(input: readonly unknown[], index: number): unknown {
+  const descriptor = Object.getOwnPropertyDescriptor(input, String(index));
+  return descriptor && 'value' in descriptor ? descriptor.value : undefined;
+}
+
+function isDenseBoundedArray(input: unknown): input is readonly unknown[] {
+  if (!Array.isArray(input) || input.length < 1 || input.length > 100) return false;
+  const keys = Reflect.ownKeys(input);
+  if (keys.length !== input.length + 1 || !keys.includes('length')) return false;
+  for (let index = 0; index < input.length; index += 1) {
+    const descriptor = Object.getOwnPropertyDescriptor(input, String(index));
+    if (descriptor?.enumerable !== true || !Object.hasOwn(descriptor, 'value')) return false;
+  }
+  return true;
+}
+
+function safeProviderIdentifier(input: unknown): string | undefined {
+  if (
+    typeof input !== 'string' ||
+    input.length < 1 ||
+    input.length > 256 ||
+    input !== input.trim() ||
+    /[\u0000-\u001f\u007f-\u009f\u2028\u2029]/u.test(input)
+  ) {
+    return undefined;
+  }
+  return input;
+}
+
+function safeJid(input: unknown, suffix: '@g.us' | '@s.whatsapp.net' | '@lid'): string | undefined {
+  const value = safeProviderIdentifier(input);
+  if (!value || !value.endsWith(suffix)) return undefined;
+  const local = value.slice(0, -suffix.length);
+  return /^[a-z0-9_:-]+$/i.test(local) ? value : undefined;
+}
+
+function providerTimestampMs(input: unknown): number | undefined {
+  let value: number | undefined;
+  if (typeof input === 'number' && Number.isSafeInteger(input) && input > 0) {
+    value = input;
+  } else if (typeof input === 'bigint' && input > 0n && input <= BigInt(Number.MAX_SAFE_INTEGER)) {
+    value = Number(input);
+  } else {
+    const low = ownValue(input, 'low');
+    const high = ownValue(input, 'high');
+    const unsigned = ownValue(input, 'unsigned');
+    if (
+      typeof low !== 'number' ||
+      !Number.isInteger(low) ||
+      low < -2_147_483_648 ||
+      low > 2_147_483_647 ||
+      typeof high !== 'number' ||
+      !Number.isInteger(high) ||
+      high < -2_147_483_648 ||
+      high > 2_147_483_647 ||
+      typeof unsigned !== 'boolean'
+    ) {
+      return undefined;
+    }
+    const bits = (BigInt(high >>> 0) << 32n) | BigInt(low >>> 0);
+    const decoded = unsigned ? bits : BigInt.asIntN(64, bits);
+    if (decoded <= 0n || decoded > BigInt(Number.MAX_SAFE_INTEGER)) return undefined;
+    value = Number(decoded);
+  }
+  const milliseconds = value > 1e12 ? value : value * 1_000;
+  return Number.isSafeInteger(milliseconds) ? milliseconds : undefined;
+}
+
+function safeText(input: unknown): string | undefined {
+  if (
+    typeof input !== 'string' ||
+    input.length > 4_096 ||
+    /[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f-\u009f]/u.test(input)
+  ) {
+    return undefined;
+  }
+  const normalized = input
+    .replace(/\r\n?/g, '\n')
+    .replace(/[\u2028\u2029]/gu, '\n')
+    .normalize('NFC')
+    .trim();
+  return normalized.length > 0 && normalized.length <= 4_096 ? normalized : undefined;
+}
+
+function safeHash(tenantId: string, kind: 'message' | 'group' | 'sender', input: string): string {
+  return `${kind}:${createHash('sha256').update(tenantId).update('\0').update(kind).update('\0').update(input).digest('hex')}`;
+}
+
 const concreteSocketFactory: BaileysSocketFactoryPort = {
   async create(directory) {
     const baileys = await import('@whiskeysockets/baileys');
@@ -309,6 +515,7 @@ const concreteSocketFactory: BaileysSocketFactoryPort = {
           removeAllListeners(): void {
             socket.ev.removeAllListeners('creds.update');
             socket.ev.removeAllListeners('connection.update');
+            socket.ev.removeAllListeners('messages.upsert');
           },
         },
         end(): void {

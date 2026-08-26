@@ -1,6 +1,6 @@
 # WARLIST V2 Operational Migration Roadmap
 
-> **Status:** `OM-01 VERIFIED`; Operational Migration remains incomplete. This roadmap is a planning/status board governed by [`operational-migration-master.md`](operational-migration-master.md). Each later slice requires a new explicit owner decision and one bounded GitHub Issue with at most five acceptance criteria.
+> **Status:** `OM-01 VERIFIED`; `OM-02 VERIFIED`; Operational Migration remains incomplete. This roadmap is a planning/status board governed by [`operational-migration-master.md`](operational-migration-master.md). Each later slice requires a new explicit owner decision and one bounded GitHub Issue with at most five acceptance criteria.
 
 ## Status legend
 
@@ -18,9 +18,9 @@ Numerical order is the default dependency order. A later slice may start only wh
 ## Current decision point
 
 - Backend Foundation remains `PARTIALLY VERIFIED` and non-operational.
-- Issue #132 (`OM-01`) is a verified synthetic/local lifecycle slice; it does not close Operational Migration or Phase OM-A.
+- Issues #132 (`OM-01`) and #136 (`OM-02`) are verified synthetic/local slices; neither closes Operational Migration or Phase OM-A.
 - No WhatsApp provider, credential, hosted database, customer, deployment, or Production action is authorized.
-- No later Operational Migration slice is authorized.
+- No slice after OM-02 is authorized.
 
 ## Phase OM-A — Core WhatsApp/Baileys path
 
@@ -29,7 +29,7 @@ Numerical order is the default dependency order. A later slice may start only wh
 | Slice   | Outcome                                            | Key parity/safety boundary                                                                                                                                                                                                                                                                                              | Explicit exclusions                                                                                                                          | Status                                                   |
 | ------- | -------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------- | -------------------------------------------------------- |
 | `OM-01` | **Local Baileys connection lifecycle parity**      | Characterize legacy start, local auth save, open/close/logged-out state, and terminal stop; compose one concrete Baileys child through the existing runtime/IPC/diagnostics/local-directory seams; deterministic fake-socket proof first.                                                                               | No inbound automation, pairing UI, outbound send, pool, hosted DB, real account without separate approval.                                   | `VERIFIED` — Issue #132; local fake-socket evidence only |
-| `OM-02` | **Inbound event and transport-guard parity**       | Decode live-shaped `messages.upsert`; accept only characterized live events; preserve history/replay, `fromMe`, stale/pre-connect, quoted/no-text, identity, and safe-redaction behavior; enforce the full protected-fixture path policy for the affected debug path (`BF-08`); feed the existing normalizer/evaluator. | No external send, confirmation, product redesign, or duplicate evaluator.                                                                    | `NOT STARTED`                                            |
+| `OM-02` | **Inbound event and transport-guard parity**       | Decode live-shaped `messages.upsert`; accept only characterized live events; preserve history/replay, `fromMe`, stale/pre-connect, quoted/no-text, identity, and safe-redaction behavior; enforce the full protected-fixture path policy for the affected debug path (`BF-08`); feed the existing normalizer/evaluator. | No external send, confirmation, product redesign, or duplicate evaluator.                                                                    | `VERIFIED` — Issue #136; local synthetic evidence only   |
 | `OM-03` | **Pairing and local credential ownership parity**  | Preserve QR/pairing/reconnect/logout behavior needed by current onboarding while enforcing one owner, protected local auth state, safe errors, terminal reset/stop, and no credential leakage.                                                                                                                          | No customer credentials, Production auth copy, provider send, or credential storage in PostgreSQL/Supabase.                                  | `NOT STARTED`                                            |
 | `OM-04` | **Claim-gated Baileys send and provider evidence** | Continue `ACCEPTED` through existing delivery admission/claim; invoke one concrete Baileys send attempt; preserve provider identity and truthful `SENT`/`AMBIGUOUS` evidence across failure/crash; revalidate and close affected `BF-10` scope.                                                                         | No blind retry, bulk notification, billing change, or exactly-once claim. Real send requires disposable account/group and explicit approval. | `NOT STARTED`                                            |
 | `OM-05` | **Confirmation, entitlement, and recovery parity** | Preserve confirmation-listener timing, at-most-once daily debit, restart/replay behavior, and explicit ambiguous/manual-reconciliation state across the concrete worker path.                                                                                                                                           | No new entitlement product rules, payment-provider switch, or automatic ambiguous resend.                                                    | `NOT STARTED`                                            |
@@ -38,7 +38,7 @@ Numerical order is the default dependency order. A later slice may start only wh
 
 - One correlated path is traceable from worker start through inbound decision, send evidence, confirmation, and entitlement outcome.
 - Legacy normal-flow results are parity-tested; every difference is classified under the master contract.
-- Raw credentials, QR/pairing material, JIDs, messages, and provider payloads never leave the protected adapter boundary.
+- Raw credentials, QR/pairing material, JIDs, provider message IDs, and provider payloads never leave the protected adapter boundary; only the explicitly authorized bounded normalized text projection may cross IPC, and diagnostics contain no text.
 - A real provider/account path remains `PARTIALLY VERIFIED` until separately approved isolated acceptance evidence exists.
 
 ## Phase OM-B — Operational application parity

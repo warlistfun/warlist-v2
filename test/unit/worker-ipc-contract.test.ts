@@ -60,6 +60,76 @@ void test('decodes immutable IPC v1 connection updates with a safe state project
   assert.equal(Object.isFrozen(decoded.payload), true);
 });
 
+void test('decodes an immutable safe inbound projection without provider identifiers', () => {
+  const input = {
+    ...identity,
+    type: 'INBOUND_EVENT',
+    payload: {
+      transportCode: 'FORWARDED',
+      messageId: `message:${'a'.repeat(64)}`,
+      message: {
+        groupId: `group:${'b'.repeat(64)}`,
+        senderId: `sender:${'c'.repeat(64)}`,
+        text: 'list today',
+      },
+    },
+  } as const;
+
+  const decoded = decodeChildMessage(input);
+  assert.deepEqual(decoded, input);
+  assert.equal(Object.isFrozen(decoded), true);
+  assert.equal(Object.isFrozen(decoded.payload), true);
+  if (decoded.type !== 'INBOUND_EVENT' || decoded.payload.transportCode !== 'FORWARDED') {
+    throw new Error('expected forwarded inbound event');
+  }
+  assert.equal(Object.isFrozen(decoded.payload.message), true);
+});
+
+void test('rejects malformed inbound projections without echoing provider content', () => {
+  const sensitiveMarker = 'provider-content-must-not-leak';
+  for (const input of [
+    {
+      ...identity,
+      type: 'INBOUND_EVENT',
+      payload: {
+        transportCode: 'FORWARDED',
+        messageId: sensitiveMarker,
+        message: {
+          groupId: `group:${'b'.repeat(64)}`,
+          senderId: `sender:${'c'.repeat(64)}`,
+          text: 'list today',
+        },
+      },
+    },
+    {
+      ...identity,
+      type: 'INBOUND_EVENT',
+      payload: {
+        transportCode: 'FORWARDED',
+        messageId: `message:${'a'.repeat(64)}`,
+        message: {
+          groupId: sensitiveMarker,
+          senderId: `sender:${'c'.repeat(64)}`,
+          text: 'list today',
+          rawJid: sensitiveMarker,
+        },
+      },
+    },
+    {
+      ...identity,
+      type: 'INBOUND_EVENT',
+      payload: { transportCode: 'RAW_PROVIDER_CODE', messageId: null },
+    },
+  ]) {
+    assertProtocolError(
+      () => decodeChildMessage(input),
+      'IPC_INVALID_MESSAGE',
+      'Invalid worker IPC message',
+      sensitiveMarker,
+    );
+  }
+});
+
 void test('decodes immutable IPC v1 child acknowledgements and safe errors', () => {
   const acknowledgements = [
     {

@@ -73,7 +73,12 @@ export function createNodeWorkerCommandTransport(dependencies: {
         } catch {
           return;
         }
-        if (decoded.type === 'CONNECTION_UPDATE' && !sameIdentity(child.start, decoded)) return;
+        if (
+          (decoded.type === 'CONNECTION_UPDATE' || decoded.type === 'INBOUND_EVENT') &&
+          !sameIdentity(child.start, decoded)
+        ) {
+          return;
+        }
         handler?.(decoded);
         if (
           decoded.type === 'COMMAND_ACK' &&
@@ -190,12 +195,11 @@ function sameIdentity(parent: ParentMessage, child: ChildMessage): boolean {
   );
 }
 
-function matchesCommand(parent: ParentMessage, child: ChildMessage): boolean {
-  return (
-    child.type !== 'CONNECTION_UPDATE' &&
-    sameIdentity(parent, child) &&
-    parent.type === child.payload.commandType
-  );
+function matchesCommand(
+  parent: ParentMessage,
+  child: Extract<ChildMessage, { type: 'COMMAND_ACK' | 'COMMAND_ERROR' }>,
+): boolean {
+  return sameIdentity(parent, child) && parent.type === child.payload.commandType;
 }
 
 function commandError(message: ParentMessage): ChildMessage {

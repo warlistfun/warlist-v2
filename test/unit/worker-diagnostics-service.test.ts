@@ -37,6 +37,72 @@ void test('records immutable safe command lifecycle events with correlation iden
   assert.equal(Object.isFrozen(events[0] as object), true);
 });
 
+void test('records only the immutable inbound outcome projection', () => {
+  const events: unknown[] = [];
+  const diagnostics = createWorkerDiagnosticsService({
+    sink: {
+      record(event: unknown) {
+        events.push(event);
+      },
+    },
+  });
+
+  diagnostics.recordInbound?.({
+    transportCode: 'FORWARDED',
+    decisionCode: 'ACCEPTED',
+    messageId: `message:${'a'.repeat(64)}`,
+    correlationId: 'corr_example_1',
+    tenantId: 'tenant_example_1',
+    generation: 1,
+    childId: 'child_example_1',
+    rawMessage: 'must not escape',
+    rawJid: 'must not escape',
+  } as Parameters<NonNullable<typeof diagnostics.recordInbound>>[0]);
+
+  assert.deepEqual(events, [
+    {
+      kind: 'INBOUND',
+      transportCode: 'FORWARDED',
+      decisionCode: 'ACCEPTED',
+      messageId: `message:${'a'.repeat(64)}`,
+      correlationId: 'corr_example_1',
+      tenantId: 'tenant_example_1',
+      generation: 1,
+      childId: 'child_example_1',
+    },
+  ]);
+  assert.equal(Object.isFrozen(events[0] as object), true);
+});
+
+void test('drops malformed inbound diagnostics', () => {
+  const events: unknown[] = [];
+  const diagnostics = createWorkerDiagnosticsService({
+    sink: {
+      record(event: unknown) {
+        events.push(event);
+      },
+    },
+  });
+  const valid = {
+    transportCode: 'FORWARDED',
+    decisionCode: 'ACCEPTED',
+    messageId: `message:${'a'.repeat(64)}`,
+    correlationId: 'corr_example_1',
+    tenantId: 'tenant_example_1',
+    generation: 1,
+    childId: 'child_example_1',
+  } as const;
+  for (const event of [
+    { ...valid, transportCode: 'RAW_PROVIDER_CODE' },
+    { ...valid, decisionCode: 'RAW_DECISION' },
+    { ...valid, messageId: 'raw-message-id' },
+    { ...valid, tenantId: 'tenant\nunsafe' },
+  ]) {
+    diagnostics.recordInbound?.(event as typeof valid);
+  }
+  assert.deepEqual(events, []);
+});
+
 void test('drops malformed or unbounded command diagnostic values', () => {
   const events: unknown[] = [];
   const diagnostics = createWorkerDiagnosticsService({

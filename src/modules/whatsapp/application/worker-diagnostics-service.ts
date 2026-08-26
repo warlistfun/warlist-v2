@@ -1,4 +1,8 @@
-import type { WorkerConnectionState } from '../../../interfaces/worker-ipc/contract';
+import type { AutomationDecisionCode } from '../../automation/application/automation-evaluator';
+import type {
+  WorkerConnectionState,
+  WorkerInboundTransportCode,
+} from '../../../interfaces/worker-ipc/contract';
 
 export type WorkerCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'STOP_WORKER';
 
@@ -33,6 +37,19 @@ export type WorkerConnectionDiagnostic = Readonly<{
   childId: string;
 }>;
 
+export type WorkerInboundDecisionCode =
+  AutomationDecisionCode | 'DECISION_UNAVAILABLE' | 'DECISION_FAILED';
+
+export type WorkerInboundDiagnostic = Readonly<{
+  transportCode: WorkerInboundTransportCode;
+  decisionCode: WorkerInboundDecisionCode | null;
+  messageId: string | null;
+  correlationId: string;
+  tenantId: string;
+  generation: number;
+  childId: string;
+}>;
+
 export type WorkerDiagnosticEvent = Readonly<
   | (WorkerCommandDiagnostic & {
       kind: 'COMMAND';
@@ -42,6 +59,9 @@ export type WorkerDiagnosticEvent = Readonly<
     })
   | (WorkerConnectionDiagnostic & {
       kind: 'CONNECTION';
+    })
+  | (WorkerInboundDiagnostic & {
+      kind: 'INBOUND';
     })
 >;
 
@@ -53,6 +73,7 @@ export interface WorkerDiagnosticsService {
   recordCommand(event: WorkerCommandDiagnostic): void | PromiseLike<void>;
   recordOwnership(event: WorkerOwnershipDiagnostic): void | PromiseLike<void>;
   recordConnection?(event: WorkerConnectionDiagnostic): void | PromiseLike<void>;
+  recordInbound?(event: WorkerInboundDiagnostic): void | PromiseLike<void>;
 }
 
 export function createWorkerDiagnosticsService(dependencies: {
@@ -144,6 +165,45 @@ export function createWorkerDiagnosticsService(dependencies: {
         return;
       }
     },
+    recordInbound(event): void {
+      try {
+        const {
+          transportCode,
+          decisionCode,
+          messageId,
+          correlationId,
+          tenantId,
+          generation,
+          childId,
+        } = event;
+        if (
+          !isInboundTransportCode(transportCode) ||
+          !isInboundDecisionCode(decisionCode) ||
+          !isSafeMessageId(messageId) ||
+          !isIdentifier(correlationId) ||
+          !isIdentifier(tenantId) ||
+          !Number.isSafeInteger(generation) ||
+          generation < 1 ||
+          !isIdentifier(childId)
+        ) {
+          return;
+        }
+        emit(
+          Object.freeze({
+            kind: 'INBOUND',
+            transportCode,
+            decisionCode,
+            messageId,
+            correlationId,
+            tenantId,
+            generation,
+            childId,
+          }),
+        );
+      } catch {
+        return;
+      }
+    },
   };
 
   function emit(event: WorkerDiagnosticEvent): void {
@@ -183,6 +243,41 @@ function isConnectionState(value: unknown): value is WorkerConnectionState {
     value === 'CREDENTIALS_SAVE_FAILED' ||
     value === 'STOPPED'
   );
+}
+
+function isInboundTransportCode(value: unknown): value is WorkerInboundTransportCode {
+  return (
+    value === 'FORWARDED' ||
+    value === 'HISTORY_REPLAY' ||
+    value === 'FROM_ME' ||
+    value === 'STALE' ||
+    value === 'PRE_CONNECT' ||
+    value === 'QUOTED' ||
+    value === 'NO_TEXT' ||
+    value === 'INVALID_MESSAGE'
+  );
+}
+
+function isInboundDecisionCode(value: unknown): value is WorkerInboundDecisionCode | null {
+  return (
+    value === null ||
+    value === 'ACCEPTED' ||
+    value === 'BOT_DISABLED' ||
+    value === 'OPS_STATUS_INACTIVE' ||
+    value === 'OUTSIDE_SCHEDULE' ||
+    value === 'WRONG_GROUP' ||
+    value === 'SENDER_NOT_ADMIN' ||
+    value === 'KEYWORD_NOT_MATCHED' ||
+    value === 'NO_ENTITLEMENT' ||
+    value === 'DUPLICATE_MESSAGE' ||
+    value === 'DELIVERY_ALREADY_EXISTS' ||
+    value === 'DECISION_UNAVAILABLE' ||
+    value === 'DECISION_FAILED'
+  );
+}
+
+function isSafeMessageId(value: unknown): value is string | null {
+  return value === null || (typeof value === 'string' && /^message:[a-f0-9]{64}$/.test(value));
 }
 
 function isIdentifier(value: unknown): value is string {

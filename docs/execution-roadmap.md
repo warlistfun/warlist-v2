@@ -17,11 +17,11 @@ PR #100 is the frozen backend implementation baseline. Later separately authoriz
 
 **Boundary:** This is a frozen implementation baseline, not a claim that every former phase definition or Production/cutover requirement is technically complete. No additional implementation may be started without a new explicit owner decision for one bounded Issue.
 
-## 2. Operational Migration — OM-01 verified subset
+## 2. Operational Migration — OM-01 and OM-02 verified subsets
 
-**Status:** Issue #132, `OM-01 — Local Baileys connection lifecycle parity`, is a verified synthetic/local slice. Operational Migration remains incomplete and no later slice is authorized.
+**Status:** Issues #132 (`OM-01`) and #136 (`OM-02`) are verified synthetic/local slices. Operational Migration remains incomplete and no later slice is authorized.
 
-The owner-requested planning contract is [`operational-migration-master.md`](operational-migration-master.md), and its phase/slice status board is [`operational-migration-roadmap.md`](operational-migration-roadmap.md). They require legacy-flow parity by default, explicit classification for every behavior difference, minimum non-speculative implementation, durable slice checkpoints, and exactly one next-slice recommendation. OM-01 proves only the synthetic local lifecycle path; it does not authorize a later slice or any external effect.
+The owner-requested planning contract is [`operational-migration-master.md`](operational-migration-master.md), and its phase/slice status board is [`operational-migration-roadmap.md`](operational-migration-roadmap.md). They require legacy-flow parity by default, explicit classification for every behavior difference, minimum non-speculative implementation, durable slice checkpoints, and exactly one next-slice recommendation. OM-01 proves only the synthetic local lifecycle path; OM-02 adds only synthetic inbound guard/IPC/decision evidence. Neither slice authorizes an external effect.
 
 Potential work needed only if V2 is selected to replace legacy WARLIST operationally:
 
