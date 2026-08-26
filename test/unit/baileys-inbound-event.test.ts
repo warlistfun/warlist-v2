@@ -505,6 +505,10 @@ class FakeBaileysSocket {
     },
   };
 
+  requestPairingCode(): Promise<string> {
+    return Promise.resolve('unused');
+  }
+
   end(): void {}
 }
 

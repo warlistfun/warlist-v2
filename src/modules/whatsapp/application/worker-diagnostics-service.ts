@@ -2,9 +2,10 @@ import type { AutomationDecisionCode } from '../../automation/application/automa
 import type {
   WorkerConnectionState,
   WorkerInboundTransportCode,
+  WorkerPairingState,
 } from '../../../interfaces/worker-ipc/contract';
 
-export type WorkerCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'STOP_WORKER';
+export type WorkerCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'REQUEST_PAIRING' | 'STOP_WORKER';
 
 export type WorkerCommandOutcome =
   'ACKNOWLEDGED' | 'REJECTED' | 'TIMED_OUT' | 'UNAVAILABLE' | 'RUNTIME_STOPPED';
@@ -37,6 +38,14 @@ export type WorkerConnectionDiagnostic = Readonly<{
   childId: string;
 }>;
 
+export type WorkerPairingDiagnostic = Readonly<{
+  state: WorkerPairingState;
+  correlationId: string;
+  tenantId: string;
+  generation: number;
+  childId: string;
+}>;
+
 export type WorkerInboundDecisionCode =
   AutomationDecisionCode | 'DECISION_UNAVAILABLE' | 'DECISION_FAILED';
 
@@ -60,6 +69,9 @@ export type WorkerDiagnosticEvent = Readonly<
   | (WorkerConnectionDiagnostic & {
       kind: 'CONNECTION';
     })
+  | (WorkerPairingDiagnostic & {
+      kind: 'PAIRING';
+    })
   | (WorkerInboundDiagnostic & {
       kind: 'INBOUND';
     })
@@ -73,6 +85,7 @@ export interface WorkerDiagnosticsService {
   recordCommand(event: WorkerCommandDiagnostic): void | PromiseLike<void>;
   recordOwnership(event: WorkerOwnershipDiagnostic): void | PromiseLike<void>;
   recordConnection?(event: WorkerConnectionDiagnostic): void | PromiseLike<void>;
+  recordPairing?(event: WorkerPairingDiagnostic): void | PromiseLike<void>;
   recordInbound?(event: WorkerInboundDiagnostic): void | PromiseLike<void>;
 }
 
@@ -165,6 +178,33 @@ export function createWorkerDiagnosticsService(dependencies: {
         return;
       }
     },
+    recordPairing(event): void {
+      try {
+        const { state, correlationId, tenantId, generation, childId } = event;
+        if (
+          !isPairingState(state) ||
+          !isIdentifier(correlationId) ||
+          !isIdentifier(tenantId) ||
+          !Number.isSafeInteger(generation) ||
+          generation < 1 ||
+          !isIdentifier(childId)
+        ) {
+          return;
+        }
+        emit(
+          Object.freeze({
+            kind: 'PAIRING',
+            state,
+            correlationId,
+            tenantId,
+            generation,
+            childId,
+          }),
+        );
+      } catch {
+        return;
+      }
+    },
     recordInbound(event): void {
       try {
         const {
@@ -227,7 +267,12 @@ function isCommandOutcome(value: unknown): value is WorkerCommandOutcome {
 }
 
 function isCommandType(value: unknown): value is WorkerCommandType {
-  return value === 'START_WORKER' || value === 'APPLY_CONFIG' || value === 'STOP_WORKER';
+  return (
+    value === 'START_WORKER' ||
+    value === 'APPLY_CONFIG' ||
+    value === 'REQUEST_PAIRING' ||
+    value === 'STOP_WORKER'
+  );
 }
 
 function isOwnershipState(value: unknown): value is WorkerOwnershipState {
@@ -241,6 +286,17 @@ function isConnectionState(value: unknown): value is WorkerConnectionState {
     value === 'CLOSED_RETRYING' ||
     value === 'LOGGED_OUT' ||
     value === 'CREDENTIALS_SAVE_FAILED' ||
+    value === 'STOPPED'
+  );
+}
+
+function isPairingState(value: unknown): value is WorkerPairingState {
+  return (
+    value === 'REQUESTED' ||
+    value === 'CODE_READY' ||
+    value === 'OPEN' ||
+    value === 'CLOSED' ||
+    value === 'FAILED' ||
     value === 'STOPPED'
   );
 }
