@@ -55,14 +55,13 @@ The legacy `/home/marlo/warlist` checkout serves Production. Do not edit it, cha
 
 ## Verification
 
-Before commit and push, run:
+Before publication, obtain focused GREEN evidence for changed behavior and review the exact diff, secret/runtime-path findings, generated artifacts, Git history, and repository status. Once the diff is frozen, commit, push, and open/read back the PR immediately.
 
-```bash
-npm ci
-npm run check
-```
+Remote PR CI is the default canonical gate. Do not run `npm ci` plus `npm run check` locally merely to duplicate CI; run the local canonical gate before publication only when another repository rule explicitly requires it, or after publication when CI is unavailable or a concrete failure needs diagnosis.
 
-Also review the staged diff, secret/runtime-path findings, generated artifacts, Git history, and repository status. A passing HTTP response or process state is not business correctness. Report VERIFIED, PARTIALLY VERIFIED, FAILED, UNVERIFIED, or BLOCKED honestly.
+Independent review is required only for concrete auth, tenant-isolation, credential, payment/entitlement, schema/migration, concurrency/async-lifecycle, Production/release risk, or an explicit repository rule. Start one bounded reviewer after PR publication and concurrently with CI. A timeout leaves the PR published and blocks only merge; do not start a replacement reviewer in the same session. One surgical fix/re-review cycle is the ceiling.
+
+A passing HTTP response or process state is not business correctness. Report VERIFIED, PARTIALLY VERIFIED, FAILED, UNVERIFIED, or BLOCKED honestly.
 
 ## Production
 

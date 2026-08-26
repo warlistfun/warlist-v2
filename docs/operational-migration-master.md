@@ -130,7 +130,7 @@ Completed `OM-01` and `OM-02` retain their historical acceptance evidence. Every
 
 Keep each slice small enough to finish in one focused session:
 
-- **Target:** reach PR-ready state within 60 minutes of active engineering (inspection, implementation, tests, review, and publication preparation).
+- **Target:** reach a published PR within 60 minutes of active engineering (inspection, implementation, focused tests, final diff review, and publication).
 - **At 60 minutes:** stop optional research, refactoring, and hardening; reduce the slice to the smallest complete path that satisfies its frozen acceptance criteria.
 - **At 90 minutes:** stop active implementation, write the durable checkpoint, and hand off unfinished work as a recommended smaller bounded Issue. Do not open it without owner authorization or continue merely to avoid leaving work for the next session.
 - **Exception:** only a security, data-integrity, trust-boundary, or lifecycle-correctness blocker may justify the minimum extension needed to leave the current path safe; record the reason in the checkpoint. Cosmetic cleanup, speculative design, and extra evidence do not qualify.
@@ -142,8 +142,9 @@ Before implementation, freeze:
 - legacy symbols/tests and V2 seams in scope;
 - the parity matrix rows owned by the slice;
 - explicit exclusions and external-effect boundaries;
-- verification tier and exact commands;
-- whether one bounded independent review is justified by concurrency, security, financial, release, or lifecycle risk.
+- focused verification and remote CI expectations;
+- whether repository policy explicitly requires a local canonical gate before publication;
+- whether one bounded independent review is required by concrete auth, tenant-isolation, credential, payment/entitlement, schema/migration, concurrency/async-lifecycle, Production/release risk, or an explicit repository rule.
 
 Behavior changes use strict RED-GREEN-REFACTOR:
 
@@ -151,9 +152,11 @@ Behavior changes use strict RED-GREEN-REFACTOR:
 2. observe the intended failure, not a broken fixture;
 3. implement the minimum passing change;
 4. run focused affected tests;
-5. run the canonical gate once before publication, rerunning only after a relevant change;
-6. review the exact diff and protected-path boundary;
-7. publish only the authorized files and behavior.
+5. review the exact diff and protected-path boundary;
+6. freeze the diff, then commit, push, and open/read back the PR immediately;
+7. use remote PR CI as the default canonical gate and start any risk-required bounded review concurrently after publication.
+
+Do not run a local full canonical gate merely to duplicate CI. Run it before publication only when another repository rule explicitly requires it, or after publication when remote CI is unavailable or a concrete failure needs diagnosis. If required review times out, keep the PR published and block only merge; do not start a replacement reviewer in the same session. One surgical fix/re-review cycle is the ceiling.
 
 Do not pull a later roadmap slice into the current Issue. Record the dependency or finding, finish the smallest safe unit, and defer it.
 
@@ -187,9 +190,9 @@ Use a disposable account and isolated local credential root for approved WhatsAp
 A slice is complete only after:
 
 - every acceptance criterion is verified or honestly classified;
-- relevant focused and canonical gates pass;
+- relevant focused evidence and remote canonical CI pass, or unavailable CI is classified honestly under repository policy;
 - the slice's smallest safe reproduction/debug path is recorded and executable;
-- any required bounded review has no unresolved material finding;
+- any risk-required bounded review passed the exact current PR head SHA with no unresolved material finding;
 - PR scope/file list and CI are verified;
 - squash merge, Issue closure, live-main ref/tree parity, remote/local branch cleanup, and protected-path preservation are verified;
 - as-built docs are updated only where reality changed.
