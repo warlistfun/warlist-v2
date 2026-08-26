@@ -25,7 +25,7 @@ export interface BaileysSocketPort {
 }
 
 export interface BaileysSocketFactoryPort {
-  create(directory: string): Promise<{
+  create(credentials: LocalCredentialDirectoryHandle): Promise<{
     readonly socket: BaileysSocketPort;
     readonly saveCredentials: () => Promise<void>;
     readonly loggedOutStatusCode: number;
@@ -33,7 +33,11 @@ export interface BaileysSocketFactoryPort {
 }
 
 interface CredentialDirectoryPort {
-  prepare(tenantId: string): Promise<LocalCredentialDirectoryHandle>;
+  acquire(owner: {
+    readonly tenantId: string;
+    readonly generation: number;
+    readonly childId: string;
+  }): Promise<LocalCredentialDirectoryHandle>;
 }
 
 interface Dependencies {
@@ -58,7 +62,7 @@ interface ActivePairing {
 
 interface ActiveWorker {
   readonly start: Extract<ParentMessage, { type: 'START_WORKER' }>;
-  readonly directory: string;
+  readonly credentials: LocalCredentialDirectoryHandle;
   epoch: number;
   socket: BaileysSocketPort | undefined;
   cancelReconnect: CancelScheduledTask | undefined;
@@ -92,7 +96,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     disposeSocket(worker);
     emitConnection(worker, 'CONNECTING');
 
-    const created = await dependencies.socketFactory.create(worker.directory);
+    const created = await dependencies.socketFactory.create(worker.credentials);
     if (active !== worker || worker.stopped || worker.epoch !== epoch) {
       created.socket.ev.removeAllListeners();
       created.socket.end();
@@ -102,7 +106,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     worker.socket = created.socket;
     created.socket.ev.on('creds.update', () => {
       if (active !== worker || worker.stopped || worker.epoch !== epoch) return;
-      void created.saveCredentials().catch(() => {
+      void worker.credentials.use(created.saveCredentials).catch(() => {
         if (active === worker && !worker.stopped && worker.epoch === epoch) {
           emitConnection(worker, 'CREDENTIALS_SAVE_FAILED');
         }
@@ -155,10 +159,14 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
         return;
       }
       try {
-        const { directory } = await dependencies.credentialDirectory.prepare(message.tenantId);
+        const credentials = await dependencies.credentialDirectory.acquire({
+          tenantId: message.tenantId,
+          generation: message.generation,
+          childId: message.childId,
+        });
         const worker: ActiveWorker = {
           start: message,
-          directory,
+          credentials,
           epoch: 0,
           socket: undefined,
           cancelReconnect: undefined,
@@ -172,7 +180,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
         if (active !== worker || worker.stopped) throw new Error('worker start was superseded');
         sendAcknowledgement(message);
       } catch {
-        stopActive();
+        await stopActive();
         sendError(message, 'WA_RUNTIME_UNAVAILABLE');
       }
       return;
@@ -208,20 +216,25 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
 
     const worker = active;
     setPairingState(worker, 'STOPPED');
-    stopActive();
-    emitConnection(worker, 'STOPPED');
-    sendAcknowledgement(message);
+    try {
+      await stopActive();
+      emitConnection(worker, 'STOPPED');
+      sendAcknowledgement(message);
+    } catch {
+      sendError(message, 'WA_RUNTIME_UNAVAILABLE');
+    }
   }
 
-  function stopActive(): void {
+  async function stopActive(): Promise<void> {
     const worker = active;
     if (!worker) return;
-    active = undefined;
     worker.stopped = true;
     worker.epoch += 1;
     worker.cancelReconnect?.();
     worker.cancelReconnect = undefined;
     disposeSocket(worker);
+    await worker.credentials.release();
+    if (active === worker) active = undefined;
   }
 
   function emitConnection(worker: ActiveWorker, state: WorkerConnectionState): void {
@@ -444,10 +457,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       return enqueue(() => handleCommand(message));
     },
     stop(): Promise<void> {
-      return enqueue(() => {
-        stopActive();
-        return Promise.resolve();
-      });
+      return enqueue(stopActive);
     },
   };
 }
@@ -600,11 +610,22 @@ function safeHash(tenantId: string, kind: 'message' | 'group' | 'sender', input:
 }
 
 const concreteSocketFactory: BaileysSocketFactoryPort = {
-  async create(directory) {
+  async create(credentials) {
     const baileys = await import('@whiskeysockets/baileys');
-    const { state, saveCreds } = await baileys.useMultiFileAuthState(directory);
+    const { state, saveCreds } = await credentials.use((directory) =>
+      baileys.useMultiFileAuthState(directory),
+    );
+    const keys = state.keys;
+    const fencedKeys: typeof keys = {
+      get(type, ids) {
+        return credentials.use(() => keys.get(type, ids));
+      },
+      set(data) {
+        return credentials.use(() => keys.set(data));
+      },
+    };
     const socket = baileys.default({
-      auth: state,
+      auth: { creds: state.creds, keys: fencedKeys },
       markOnlineOnConnect: false,
       printQRInTerminal: false,
       syncFullHistory: false,

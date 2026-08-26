@@ -12,6 +12,11 @@ import {
 
 const tenantOne = '00000000-0000-4000-8000-000000000101';
 const tenantTwo = '00000000-0000-4000-8000-000000000102';
+const owner = (tenantId: string, generation = 1) => ({
+  tenantId,
+  generation,
+  childId: `child_example_${generation}`,
+});
 
 void test('creates isolated owner-only credential directories without credential payloads', async (t) => {
   const sandbox = await createSandbox(t);
@@ -20,28 +25,29 @@ void test('creates isolated owner-only credential directories without credential
 
   await assert.rejects(lstat(root), hasFileCode('ENOENT'));
 
-  const first = await directory.prepare(tenantOne);
-  const repeated = await directory.prepare(tenantOne);
-  const second = await directory.prepare(tenantTwo);
+  const first = await directory.acquire(owner(tenantOne));
+  const second = await directory.acquire(owner(tenantTwo));
 
-  assert.deepEqual(first, { directory: join(root, tenantOne) });
-  assert.deepEqual(repeated, first);
-  assert.deepEqual(second, { directory: join(root, tenantTwo) });
+  assert.equal(await first.use((path) => path), join(root, tenantOne));
+  assert.equal(await second.use((path) => path), join(root, tenantTwo));
   assert.equal(Object.isFrozen(first), true);
   const uid = process.getuid?.();
   assert.equal(typeof uid, 'number');
-  for (const path of [root, first.directory, second.directory]) {
+  for (const path of [root, join(root, tenantOne), join(root, tenantTwo)]) {
     const metadata = await lstat(path);
     assert.equal(metadata.isDirectory(), true);
     assert.equal(metadata.isSymbolicLink(), false);
     assert.equal(metadata.mode & 0o7777, 0o700);
     assert.equal(metadata.uid, uid);
   }
-  assert.deepEqual(await readdir(first.directory), []);
-  assert.deepEqual(await readdir(second.directory), []);
+  assert.deepEqual(await readdir(join(root, tenantOne)), []);
+  assert.deepEqual(await readdir(join(root, tenantTwo)), []);
+
+  await first.release();
+  await second.release();
 });
 
-void test('rejects invalid roots and tenant identities before filesystem mutation', async (t) => {
+void test('rejects invalid roots and owner identities before filesystem mutation', async (t) => {
   assert.throws(
     () => createLocalWhatsAppCredentialDirectory({ root: 'relative/credentials' }),
     hasDirectoryError('INVALID_CREDENTIAL_DIRECTORY_CONFIG'),
@@ -55,8 +61,16 @@ void test('rejects invalid roots and tenant identities before filesystem mutatio
   const root = join(sandbox, 'credentials');
   const directory = createLocalWhatsAppCredentialDirectory({ root });
   await assert.rejects(
-    directory.prepare('../tenant'),
+    directory.acquire({ tenantId: '../tenant', generation: 1, childId: 'child_example_invalid' }),
     hasDirectoryError('INVALID_CREDENTIAL_TENANT_ID'),
+  );
+  await assert.rejects(
+    directory.acquire({ tenantId: tenantOne, generation: 0, childId: 'child_example_invalid' }),
+    hasDirectoryError('INVALID_CREDENTIAL_OWNER'),
+  );
+  await assert.rejects(
+    directory.acquire('../tenant'),
+    hasDirectoryError('INVALID_CREDENTIAL_OWNER'),
   );
   await assert.rejects(lstat(root), hasFileCode('ENOENT'));
 });
@@ -68,7 +82,7 @@ void test('rejects insecure roots and symlink traversal with safe errors', async
   await chmod(insecureRoot, 0o755);
   const insecure = createLocalWhatsAppCredentialDirectory({ root: insecureRoot });
   await assert.rejects(
-    insecure.prepare(tenantOne),
+    insecure.acquire(owner(tenantOne)),
     hasDirectoryError('CREDENTIAL_DIRECTORY_UNSAFE'),
   );
 
@@ -76,7 +90,7 @@ void test('rejects insecure roots and symlink traversal with safe errors', async
   await writeFile(fileRoot, 'synthetic marker', { mode: 0o600 });
   const nonDirectory = createLocalWhatsAppCredentialDirectory({ root: fileRoot });
   await assert.rejects(
-    nonDirectory.prepare(tenantOne),
+    nonDirectory.acquire(owner(tenantOne)),
     hasDirectoryError('CREDENTIAL_DIRECTORY_UNSAFE'),
   );
 
@@ -88,17 +102,21 @@ void test('rejects insecure roots and symlink traversal with safe errors', async
     root: join(linkedParent, 'credentials'),
   });
   await assert.rejects(
-    traversing.prepare(tenantOne),
+    traversing.acquire(owner(tenantOne)),
     hasDirectoryError('CREDENTIAL_DIRECTORY_UNSAFE'),
   );
 
   const safeRoot = join(sandbox, 'safe');
   const safe = createLocalWhatsAppCredentialDirectory({ root: safeRoot });
-  await safe.prepare(tenantOne);
+  const safeHandle = await safe.acquire(owner(tenantOne));
+  await safeHandle.release();
   const outside = join(sandbox, 'outside');
   await mkdir(outside, { mode: 0o700 });
   await symlink(outside, join(safeRoot, tenantTwo), 'dir');
-  await assert.rejects(safe.prepare(tenantTwo), hasDirectoryError('CREDENTIAL_DIRECTORY_UNSAFE'));
+  await assert.rejects(
+    safe.acquire(owner(tenantTwo)),
+    hasDirectoryError('CREDENTIAL_DIRECTORY_UNSAFE'),
+  );
 });
 
 async function createSandbox(t: test.TestContext): Promise<string> {

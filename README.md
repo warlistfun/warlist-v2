@@ -2,7 +2,7 @@
 
 WARLIST 2.0 is a clean, backend-first migration of WARLIST. It currently contains a substantial but non-operational backend foundation and a public frontend foundation.
 
-**Status:** The [execution roadmap](docs/execution-roadmap.md) is the active work authority. Backend Foundation is `PARTIALLY VERIFIED` and non-operational after its [as-built audit](docs/backend-foundation-as-built-audit.md). The [Operational Migration master contract](docs/operational-migration-master.md) and [slice roadmap](docs/operational-migration-roadmap.md) govern verified synthetic/local OM-01 lifecycle, OM-02 inbound, and OM-03 safe-pairing slices; later slices and Enhancements remain unauthorized. No hosted Supabase runtime, application runtime composition, Production behavior, legacy/runtime/customer-data access, real credential/account use, deployment, cutover, WhatsApp/provider send, or public automation API has been configured or verified.
+**Status:** The [execution roadmap](docs/execution-roadmap.md) is the active work authority. Backend Foundation is `PARTIALLY VERIFIED` and non-operational after its [as-built audit](docs/backend-foundation-as-built-audit.md). The [Operational Migration master contract](docs/operational-migration-master.md) and [slice roadmap](docs/operational-migration-roadmap.md) govern verified synthetic/local OM-01 lifecycle, OM-02 inbound, OM-03 safe-pairing, and OM-04 local credential-ownership slices; later slices and Enhancements remain unauthorized. No hosted Supabase runtime, application runtime composition, Production behavior, legacy/runtime/customer-data access, real credential/account use, deployment, cutover, WhatsApp/provider send, or public automation API has been configured or verified.
 
 ## Requirements
 
