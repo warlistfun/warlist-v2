@@ -21,7 +21,7 @@ PR #100 is the frozen backend implementation baseline. Later separately authoriz
 
 **Status:** Issues #132 (`OM-01`) and #136 (`OM-02`) are verified synthetic/local slices. Operational Migration remains incomplete and no later slice is authorized.
 
-The owner-requested planning contract is [`operational-migration-master.md`](operational-migration-master.md), and its phase/slice status board is [`operational-migration-roadmap.md`](operational-migration-roadmap.md). They require legacy-flow parity by default, explicit classification for every behavior difference, minimum non-speculative implementation, durable slice checkpoints, and exactly one next-slice recommendation. OM-01 proves only the synthetic local lifecycle path; OM-02 adds only synthetic inbound guard/IPC/decision evidence. Neither slice authorizes an external effect.
+The owner-requested planning contract is [`operational-migration-master.md`](operational-migration-master.md), and its phase/slice status board is [`operational-migration-roadmap.md`](operational-migration-roadmap.md). They require legacy-flow parity by default, explicit classification for every behavior difference, minimum non-speculative implementation, at most two acceptance criteria for every new Issue from `OM-03`, durable slice checkpoints, and exactly one next-slice recommendation. The resliced roadmap now runs through `OM-44`, with 42 slices remaining (`OM-03`–`OM-44`); no later slice is authorized. OM-01 proves only the synthetic local lifecycle path; OM-02 adds only synthetic inbound guard/IPC/decision evidence. Neither slice authorizes an external effect.
 
 Potential work needed only if V2 is selected to replace legacy WARLIST operationally:
 
