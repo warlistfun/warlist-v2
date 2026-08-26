@@ -2,11 +2,11 @@
 
 > **Current execution authority:** This is the active roadmap for WARLIST V2. The older [phase roadmap](roadmap.md) and the durable backend master plan remain preserved historical planning/scope references; they do not authorize implementation beyond the owner-approved execution boundary below.
 
-## 1. Backend Foundation — frozen baseline
+## 1. Backend Foundation — frozen implementation baseline
 
-**Status:** Frozen at PR #100 for an as-built audit.
+**Status:** `PARTIALLY VERIFIED` and non-operational. PR #100 remains the frozen implementation baseline; separately authorized post-audit remediation evidence is recorded in the [as-built audit](backend-foundation-as-built-audit.md).
 
-This is the final owner-approved implementation baseline. It includes the landed work through PR #100:
+PR #100 is the frozen backend implementation baseline. Later separately authorized remediation and frontend slices are bounded overlays; they do not silently redefine or close the Backend Foundation. The baseline includes:
 
 - TypeScript modular-monolith composition, strict checks, synthetic-only CI, and repository boundaries.
 - Resource-free worker lifecycle, IPC validation, diagnostics, generation/child fencing, and synthetic orchestration.
@@ -15,11 +15,13 @@ This is the final owner-approved implementation baseline. It includes the landed
 - Delivery claim/fence/ambiguity handling, confirmation, entitlement ledger, and disposable PostgreSQL adversarial proofs.
 - Atomic tenant enrollment, strict authenticated-principal tenant derivation, and cross-tenant IDOR authorization proof.
 
-**Boundary:** This is a frozen execution baseline, not a claim that every former phase definition or Production/cutover requirement is technically complete. No additional implementation may be started before the as-built audit and a new explicit owner decision.
+**Boundary:** This is a frozen implementation baseline, not a claim that every former phase definition or Production/cutover requirement is technically complete. No additional implementation may be started without a new explicit owner decision for one bounded Issue.
 
-## 2. Operational Migration — not started
+## 2. Operational Migration — OM-01 verified subset
 
-**Status:** Not started; requires a new explicit owner decision after the as-built audit.
+**Status:** Issue #132, `OM-01 — Local Baileys connection lifecycle parity`, is a verified synthetic/local slice. Operational Migration remains incomplete and no later slice is authorized.
+
+The owner-requested planning contract is [`operational-migration-master.md`](operational-migration-master.md), and its phase/slice status board is [`operational-migration-roadmap.md`](operational-migration-roadmap.md). They require legacy-flow parity by default, explicit classification for every behavior difference, minimum non-speculative implementation, durable slice checkpoints, and exactly one next-slice recommendation. OM-01 proves only the synthetic local lifecycle path; it does not authorize a later slice or any external effect.
 
 Potential work needed only if V2 is selected to replace legacy WARLIST operationally:
 

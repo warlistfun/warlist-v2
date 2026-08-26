@@ -4,7 +4,7 @@
 
 **PARTIALLY VERIFIED.** The frozen baseline contains substantial TypeScript, worker-contract, portable PostgreSQL, automation, delivery/entitlement, and identity foundations backed by synthetic and disposable-PostgreSQL evidence. It is **not** an operationally composed backend and is not ready for hosted operation, legacy migration, provider traffic, deployment, cutover, or Production.
 
-Operational Migration and Enhancements remain unauthorized. This audit authorizes no remediation, runtime/provider/customer-data access, financial action, deployment, or Production change.
+This audit itself authorizes no remediation, runtime/provider/customer-data access, financial action, deployment, or Production change. The current execution roadmap separately records the verified synthetic/local OM-01 slice; no later Operational Migration slice or Enhancement is authorized.
 
 ## Scope, authority, and method
 
@@ -17,7 +17,7 @@ Operational Migration and Enhancements remain unauthorized. This audit authorize
 
 ## Current remediation overlay
 
-Issues #123 and #126 are the owner-authorized, bounded post-audit remediations recorded against live `origin/main`. They resolve BF-01 and BF-09 respectively at the injected/disposable-PostgreSQL boundary; the Backend Foundation remains non-operational, Operational Migration remains not started, and this overlay authorizes no later Issue.
+Issues #123 and #126 are the owner-authorized, bounded post-audit remediations recorded against live `origin/main`. They resolve BF-01 and BF-09 respectively at the injected/disposable-PostgreSQL boundary. Issue #132 adds one verified synthetic/local Baileys child lifecycle slice without composing an application runtime. The Backend Foundation remains non-operational, Operational Migration remains incomplete, and this overlay authorizes no later Issue.
 
 ## Superseded tracked assertions
 
@@ -71,8 +71,8 @@ Source finding IDs are grouped once by cross-phase cause; inherited repeats are 
 ## Explicit limits and gaps
 
 - **Implementation defects:** `BF-06`–`BF-08` and `BF-10`–`BF-13` must be resolved only through separately approved bounded Issues before their affected operational paths are composed. `BF-01`, `BF-02`, and `BF-09` are resolved only at the bounded synthetic/disposable boundaries described above.
-- **Evidence gaps:** hosted Supabase behavior, RLS/runtime roles, capacity, backup/restore, concrete process lifecycle, provider behavior, external delivery, legacy parity, deployment, rollback, and Production business correctness are unverified.
-- **Not implemented:** a runnable operational composition, active-tenant discovery, provider/Baileys adapter, legacy OPS/admin migration, notifier/onboarding parity, hosted database configuration, automatic ambiguous reconciliation, authentication provenance, sessions/token families, legacy-user migration tooling, and PIN/passkey ports.
+- **Evidence gaps:** hosted Supabase behavior, RLS/runtime roles, capacity, backup/restore, real account/provider behavior, external delivery, broader legacy parity, deployment, rollback, and Production business correctness are unverified. OM-01 proves only one synthetic/local child lifecycle with a fake socket.
+- **Not implemented:** a runnable operational composition, active-tenant discovery, real account/pairing or provider acceptance, legacy OPS/admin migration, notifier/onboarding parity, hosted database configuration, automatic ambiguous reconciliation, authentication provenance, sessions/token families, legacy-user migration tooling, and PIN/passkey ports.
 - **Accepted non-goals of the frozen foundation:** no live WhatsApp/provider send, customer fixture, hosted service, dev/staging environment, deployment workflow, cutover, or Production mutation.
 - **Deferred work is not audit closure:** billing/Pakasir stabilization, notification/PWA retirement, WhatsApp notification consent, Google projections, PIN/passkey rollout, Saweria, and Production migration remain outside this baseline and require new owner authorization.
 
