@@ -1,11 +1,14 @@
 import assert from 'node:assert/strict';
 import { execFileSync } from 'node:child_process';
-import { mkdtempSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join, resolve } from 'node:path';
 import test from 'node:test';
 
-import { runAutomationSimulation } from '../../src/debug-automation';
+import {
+  isProtectedAutomationFixturePath,
+  runAutomationSimulation,
+} from '../../src/debug-automation';
 
 void test('simulates normalized synthetic input through the existing evaluator', () => {
   assert.deepEqual(
@@ -115,11 +118,75 @@ void test('runs the CLI with one JSON fixture and prints only its decision', () 
   }
 });
 
-void test('rejects a protected fixture path before reading it', () => {
-  assert.throws(
-    () => execFileSync('npm', ['run', '--silent', 'debug:automation', '--', '.env.production']),
-    /Invalid automation simulator fixture/,
-  );
+void test('rejects every protected fixture family before reading it', () => {
+  const root = mkdtempSync(join(tmpdir(), 'warlist-automation-protected-'));
+  try {
+    const fixture = JSON.stringify({
+      message: {
+        groupId: 'group_example_one',
+        senderId: 'admin_example_one',
+        text: 'list today',
+      },
+      policy: {
+        enabled: true,
+        targetGroupId: 'group_example_one',
+        adminIds: ['admin_example_one'],
+        keyword: 'list',
+      },
+    });
+    const protectedPaths = [
+      'ops/fixture.json',
+      'auth/fixture.json',
+      'sessions/fixture.json',
+      'logs/fixture.json',
+      'data/fixture.json',
+      'baileys/fixture.json',
+      'qr/fixture.json',
+      'uploads/runtime/fixture.json',
+      'warlist-cache/fixture.json',
+      '.baileys-backup/fixture.json',
+      'backup/fixture.json',
+      'node_modules/fixture.json',
+      'nested/fixture.db.copy',
+      'nested/fixture.sqlite.backup',
+      'Nested/AUTH/fixture.json',
+      '.env.production',
+      '.gitmodules',
+    ];
+    for (const protectedPath of protectedPaths) {
+      assert.equal(
+        isProtectedAutomationFixturePath(join(root, protectedPath)),
+        true,
+        protectedPath,
+      );
+    }
+    assert.equal(isProtectedAutomationFixturePath(join(root, 'fixtures', 'safe.json')), false);
+
+    const protectedFixture = join(root, 'auth', 'fixture.json');
+    mkdirSync(join(protectedFixture, '..'), { recursive: true });
+    writeFileSync(protectedFixture, fixture);
+    assert.throws(
+      () => execFileSync('npm', ['run', '--silent', 'debug:automation', '--', protectedFixture]),
+      /Invalid automation simulator fixture/,
+    );
+
+    const disguisedProtectedFixture = join(root, 'fixtures', 'safe-looking.json');
+    mkdirSync(join(disguisedProtectedFixture, '..'), { recursive: true });
+    symlinkSync(protectedFixture, disguisedProtectedFixture);
+    assert.throws(
+      () =>
+        execFileSync('npm', [
+          'run',
+          '--silent',
+          'debug:automation',
+          '--',
+          disguisedProtectedFixture,
+        ]),
+      /Invalid automation simulator fixture/,
+    );
+  } finally {
+    rmSync(root, { recursive: true, force: true });
+  }
 });
 
 void test('rejects unsafe simulator fixtures without echoing input', () => {

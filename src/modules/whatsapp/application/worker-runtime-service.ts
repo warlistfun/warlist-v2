@@ -1,10 +1,12 @@
 import type { IdGeneratorPort, WorkerRuntimePort } from '../../../app/ports';
+import type { AutomationDecision } from '../../automation/application/automation-evaluator';
 import {
   IPC_PROTOCOL_VERSION,
   decodeChildMessage,
   type ChildMessage,
   type ParentCommandType,
   type ParentMessage,
+  type WorkerInboundMessage,
 } from '../../../interfaces/worker-ipc/contract';
 import type { WorkerDiagnosticsService } from './worker-diagnostics-service';
 
@@ -70,12 +72,23 @@ export class WorkerRuntimeError extends Error {
   }
 }
 
+export interface WorkerInboundDecisionPort {
+  decide(
+    input: Readonly<{
+      tenantId: string;
+      messageId: string;
+      message: WorkerInboundMessage;
+    }>,
+  ): AutomationDecision | PromiseLike<AutomationDecision>;
+}
+
 interface Dependencies {
   readonly transport: WorkerCommandTransportPort;
   readonly scheduler: ScheduleTaskPort;
   readonly idGenerator: IdGeneratorPort;
   readonly commandTimeoutMs: number;
   readonly diagnostics: WorkerDiagnosticsService;
+  readonly inbound?: WorkerInboundDecisionPort;
 }
 
 interface PendingCommand {
@@ -223,6 +236,10 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       recordConnectionDiagnostic(message);
       return;
     }
+    if (message.type === 'INBOUND_EVENT') {
+      handleInboundEvent(message);
+      return;
+    }
     const pending = pendingByRequest.get(message.requestId);
     if (!pending || !matches(pending.message, message)) return;
 
@@ -241,6 +258,53 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     );
   }
 
+  function handleInboundEvent(message: Extract<ChildMessage, { type: 'INBOUND_EVENT' }>): void {
+    const diagnostic = {
+      transportCode: message.payload.transportCode,
+      messageId: message.payload.messageId,
+      correlationId: message.correlationId,
+      tenantId: message.tenantId,
+      generation: message.generation,
+      childId: message.childId,
+    } as const;
+    if (message.payload.transportCode !== 'FORWARDED') {
+      recordInboundDiagnostic({ ...diagnostic, decisionCode: null });
+      return;
+    }
+    if (!dependencies.inbound) {
+      recordInboundDiagnostic({ ...diagnostic, decisionCode: 'DECISION_UNAVAILABLE' });
+      return;
+    }
+
+    const eventEpoch = lifecycleEpoch;
+    try {
+      void Promise.resolve(
+        dependencies.inbound.decide(
+          Object.freeze({
+            tenantId: message.tenantId,
+            messageId: message.payload.messageId,
+            message: message.payload.message,
+          }),
+        ),
+      ).then(
+        (decision) => {
+          if (running && eventEpoch === lifecycleEpoch) {
+            recordInboundDiagnostic({ ...diagnostic, decisionCode: decision.code });
+          }
+        },
+        () => {
+          if (running && eventEpoch === lifecycleEpoch) {
+            recordInboundDiagnostic({ ...diagnostic, decisionCode: 'DECISION_FAILED' });
+          }
+        },
+      );
+    } catch {
+      if (running && eventEpoch === lifecycleEpoch) {
+        recordInboundDiagnostic({ ...diagnostic, decisionCode: 'DECISION_FAILED' });
+      }
+    }
+  }
+
   function recordConnectionDiagnostic(
     message: Extract<ChildMessage, { type: 'CONNECTION_UPDATE' }>,
   ): void {
@@ -252,6 +316,17 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
         generation: message.generation,
         childId: message.childId,
       });
+      if (result) void Promise.resolve(result).catch(() => undefined);
+    } catch {
+      return;
+    }
+  }
+
+  function recordInboundDiagnostic(
+    event: Parameters<NonNullable<WorkerDiagnosticsService['recordInbound']>>[0],
+  ): void {
+    try {
+      const result = dependencies.diagnostics.recordInbound?.(event);
       if (result) void Promise.resolve(result).catch(() => undefined);
     } catch {
       return;
@@ -398,7 +473,7 @@ function createMessage(
 
 function matches(
   parent: ParentMessage,
-  child: Exclude<ChildMessage, { type: 'CONNECTION_UPDATE' }>,
+  child: Extract<ChildMessage, { type: 'COMMAND_ACK' | 'COMMAND_ERROR' }>,
 ): boolean {
   const identityMatches =
     parent.requestId === child.requestId &&

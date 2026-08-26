@@ -1,4 +1,4 @@
-import { readFileSync } from 'node:fs';
+import { readFileSync, realpathSync } from 'node:fs';
 import { resolve, sep } from 'node:path';
 
 import {
@@ -78,15 +78,48 @@ function exactFixture(input: unknown):
   }
 }
 
+const protectedFixtureSegments = new Set([
+  'ops',
+  'auth',
+  'sessions',
+  'logs',
+  'data',
+  'baileys',
+  'qr',
+  'warlist-cache',
+  '.baileys-backup',
+  'backup',
+  'node_modules',
+]);
+
+export function isProtectedAutomationFixturePath(input: string): boolean {
+  const segments = resolve(input)
+    .split(sep)
+    .map((segment) => segment.toLocaleLowerCase('en-US'));
+  const name = segments.at(-1) ?? '';
+  return (
+    name === '.gitmodules' ||
+    segments.some(
+      (segment) => protectedFixtureSegments.has(segment) || segment.startsWith('.env'),
+    ) ||
+    segments.some((segment, index) => segment === 'uploads' && segments[index + 1] === 'runtime') ||
+    /\.(?:db|sqlite)[^/]*$/i.test(name)
+  );
+}
+
 function runCli(args: readonly string[]): void {
   const [fixturePath] = args;
-  if (args.length !== 1 || !fixturePath) throw invalidFixture();
-  const path = resolve(fixturePath);
-  if (path.split(sep).some((segment) => segment === 'data' || segment.startsWith('.env'))) {
+  if (args.length !== 1 || !fixturePath || isProtectedAutomationFixturePath(fixturePath)) {
     throw invalidFixture();
   }
-  const fixture = JSON.parse(readFileSync(path, 'utf8')) as unknown;
-  process.stdout.write(`${JSON.stringify(runAutomationSimulation(fixture))}\n`);
+  try {
+    const path = realpathSync(resolve(fixturePath));
+    if (isProtectedAutomationFixturePath(path)) throw invalidFixture();
+    const fixture = JSON.parse(readFileSync(path, 'utf8')) as unknown;
+    process.stdout.write(`${JSON.stringify(runAutomationSimulation(fixture))}\n`);
+  } catch {
+    throw invalidFixture();
+  }
 }
 
 if (require.main === module) {

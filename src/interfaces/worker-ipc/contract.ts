@@ -5,6 +5,22 @@ export type ParentCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'STOP_WORKER';
 export type WorkerConnectionState =
   'CONNECTING' | 'OPEN' | 'CLOSED_RETRYING' | 'LOGGED_OUT' | 'CREDENTIALS_SAVE_FAILED' | 'STOPPED';
 
+export type WorkerInboundTransportCode =
+  | 'FORWARDED'
+  | 'HISTORY_REPLAY'
+  | 'FROM_ME'
+  | 'STALE'
+  | 'PRE_CONNECT'
+  | 'QUOTED'
+  | 'NO_TEXT'
+  | 'INVALID_MESSAGE';
+
+export type WorkerInboundMessage = Readonly<{
+  groupId: string;
+  senderId: string;
+  text: string;
+}>;
+
 interface MessageIdentity {
   readonly protocolVersion: typeof IPC_PROTOCOL_VERSION;
   readonly requestId: string;
@@ -73,6 +89,19 @@ export type ChildMessage =
       readonly payload: Readonly<{
         state: WorkerConnectionState;
       }>;
+    })
+  | (MessageIdentity & {
+      readonly type: 'INBOUND_EVENT';
+      readonly payload:
+        | Readonly<{
+            transportCode: 'FORWARDED';
+            messageId: string;
+            message: WorkerInboundMessage;
+          }>
+        | Readonly<{
+            transportCode: Exclude<WorkerInboundTransportCode, 'FORWARDED'>;
+            messageId: string | null;
+          }>;
     });
 
 export type IpcProtocolErrorCode =
@@ -148,6 +177,29 @@ export function decodeChildMessage(input: unknown): ChildMessage {
         ...message.identity,
         type: message.type,
         payload: freeze({ state }),
+      });
+    }
+    case 'INBOUND_EVENT': {
+      const transportCode = decodeInboundTransportCode(message.payload.transportCode);
+      const messageId = decodeNullableSafeMessageId(message.payload.messageId);
+      if (transportCode !== 'FORWARDED') {
+        requireExactKeys(message.payload, ['transportCode', 'messageId']);
+        return freeze({
+          ...message.identity,
+          type: message.type,
+          payload: freeze({ transportCode, messageId }),
+        });
+      }
+      requireExactKeys(message.payload, ['transportCode', 'messageId', 'message']);
+      if (messageId === null) throw invalidMessage();
+      return freeze({
+        ...message.identity,
+        type: message.type,
+        payload: freeze({
+          transportCode,
+          messageId,
+          message: decodeInboundMessage(message.payload.message),
+        }),
       });
     }
     default:
@@ -264,6 +316,48 @@ function decodeConnectionState(input: unknown): WorkerConnectionState {
     return input;
   }
   throw invalidMessage();
+}
+
+function decodeInboundTransportCode(input: unknown): WorkerInboundTransportCode {
+  if (
+    input === 'FORWARDED' ||
+    input === 'HISTORY_REPLAY' ||
+    input === 'FROM_ME' ||
+    input === 'STALE' ||
+    input === 'PRE_CONNECT' ||
+    input === 'QUOTED' ||
+    input === 'NO_TEXT' ||
+    input === 'INVALID_MESSAGE'
+  ) {
+    return input;
+  }
+  throw invalidMessage();
+}
+
+function decodeNullableSafeMessageId(input: unknown): string | null {
+  if (input === null) return null;
+  if (typeof input !== 'string' || !/^message:[a-f0-9]{64}$/.test(input)) throw invalidMessage();
+  return input;
+}
+
+function decodeInboundMessage(input: unknown): WorkerInboundMessage {
+  if (!isRecord(input)) throw invalidMessage();
+  requireExactKeys(input, ['groupId', 'senderId', 'text']);
+  if (
+    typeof input.groupId !== 'string' ||
+    !/^group:[a-f0-9]{64}$/.test(input.groupId) ||
+    typeof input.senderId !== 'string' ||
+    !/^sender:[a-f0-9]{64}$/.test(input.senderId) ||
+    typeof input.text !== 'string' ||
+    input.text.length < 1 ||
+    input.text.length > 4_096 ||
+    input.text !== input.text.trim() ||
+    input.text !== input.text.normalize('NFC') ||
+    /\r|[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u.test(input.text)
+  ) {
+    throw invalidMessage();
+  }
+  return freeze({ groupId: input.groupId, senderId: input.senderId, text: input.text });
 }
 
 function decodeIdentifier(input: unknown): string {
