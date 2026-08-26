@@ -124,6 +124,8 @@ Start with one concrete Baileys path and one child process where isolation is re
 
 Each session owns exactly one bounded GitHub Issue and one externally meaningful vertical behavior.
 
+Completed `OM-01` and `OM-02` retain their historical acceptance evidence. Every new implementation Issue from `OM-03` onward must freeze at most two independently testable acceptance criteria. Mandatory parity, safety, verification, publication, cleanup, checkpoint, recommendation, and handoff requirements remain global completion gates; they are not extra AC. Do not pad a one-AC outcome, and if an outcome cannot fit honestly inside two AC, split it into the next sequential Issue instead of packing hidden sub-AC into prose.
+
 ### Execution timebox
 
 Keep each slice small enough to finish in one focused session:
@@ -136,7 +138,7 @@ Keep each slice small enough to finish in one focused session:
 
 Before implementation, freeze:
 
-- one outcome and at most five acceptance criteria;
+- one outcome and at most two acceptance criteria;
 - legacy symbols/tests and V2 seams in scope;
 - the parity matrix rows owned by the slice;
 - explicit exclusions and external-effect boundaries;
