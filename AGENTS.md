@@ -6,10 +6,12 @@
 - Follow strict RED-GREEN-REFACTOR for behavior changes.
 - Prefer the smallest explicit implementation; do not pre-create empty architecture.
 - GitHub Issues, PRs, commits, tests, ADRs, and current-state docs are the change record.
+- Operational Migration slices must follow `docs/operational-migration-master.md` and the current status/dependency order in `docs/operational-migration-roadmap.md`; preserve legacy product flow unless a difference is classified and evidenced under that contract.
+- After a slice is fully closed, write and verify its durable checkpoint, recommend exactly one next slice with its prerequisites and exact `/new` prompt, then stop. A recommendation is not authorization to open or implement the next Issue.
 
 ### Execution-roadmap authority — mandatory for WARLIST V2
 
-- `docs/execution-roadmap.md` is the active execution authority. Its Backend Foundation is frozen at PR #100 pending as-built audit; do not start implementation unless a new explicit owner decision authorizes one bounded Issue.
+- `docs/execution-roadmap.md` is the active execution authority. Backend Foundation remains `PARTIALLY VERIFIED` and non-operational after the as-built audit; Operational Migration has one verified local OM-01 slice. Do not start another implementation slice unless a new explicit owner decision authorizes one bounded Issue.
 - The durable WARLIST V2 backend master plan and `docs/roadmap.md` are preserved historical planning/scope references. Consult them for traceability and gap analysis; they do not authorize work beyond the execution roadmap.
 - A merged Issue/PR or a verified bounded slice/foundation never proves a historical parent phase complete by itself. Do not create or claim historical phase closure without explicit reconciliation against the master plan.
 - No status wording authorizes Production, migration/cutover, provider, credential, customer-data, deployment, or financial actions.

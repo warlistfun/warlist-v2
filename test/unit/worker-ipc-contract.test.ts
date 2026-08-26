@@ -44,6 +44,22 @@ void test('decodes immutable IPC v1 parent commands', () => {
   }
 });
 
+void test('decodes immutable IPC v1 connection updates with a safe state projection', () => {
+  const decoded = decodeChildMessage({
+    ...identity,
+    type: 'CONNECTION_UPDATE',
+    payload: { state: 'OPEN' },
+  });
+
+  assert.deepEqual(decoded, {
+    ...identity,
+    type: 'CONNECTION_UPDATE',
+    payload: { state: 'OPEN' },
+  });
+  assert.equal(Object.isFrozen(decoded), true);
+  assert.equal(Object.isFrozen(decoded.payload), true);
+});
+
 void test('decodes immutable IPC v1 child acknowledgements and safe errors', () => {
   const acknowledgements = [
     {

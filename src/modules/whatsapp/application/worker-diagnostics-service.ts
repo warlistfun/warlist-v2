@@ -1,3 +1,5 @@
+import type { WorkerConnectionState } from '../../../interfaces/worker-ipc/contract';
+
 export type WorkerCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'STOP_WORKER';
 
 export type WorkerCommandOutcome =
@@ -14,15 +16,6 @@ export type WorkerCommandDiagnostic = Readonly<{
   childId: string;
 }>;
 
-export type WorkerDiagnosticEvent = Readonly<
-  | (WorkerCommandDiagnostic & {
-      kind: 'COMMAND';
-    })
-  | (WorkerOwnershipDiagnostic & {
-      kind: 'OWNERSHIP';
-    })
->;
-
 export type WorkerOwnershipDiagnostic = Readonly<{
   state: WorkerOwnershipState;
   quarantined: boolean;
@@ -32,6 +25,26 @@ export type WorkerOwnershipDiagnostic = Readonly<{
   childId: string;
 }>;
 
+export type WorkerConnectionDiagnostic = Readonly<{
+  state: WorkerConnectionState;
+  correlationId: string;
+  tenantId: string;
+  generation: number;
+  childId: string;
+}>;
+
+export type WorkerDiagnosticEvent = Readonly<
+  | (WorkerCommandDiagnostic & {
+      kind: 'COMMAND';
+    })
+  | (WorkerOwnershipDiagnostic & {
+      kind: 'OWNERSHIP';
+    })
+  | (WorkerConnectionDiagnostic & {
+      kind: 'CONNECTION';
+    })
+>;
+
 export interface WorkerDiagnosticsPort {
   record(event: WorkerDiagnosticEvent): void | PromiseLike<void>;
 }
@@ -39,6 +52,7 @@ export interface WorkerDiagnosticsPort {
 export interface WorkerDiagnosticsService {
   recordCommand(event: WorkerCommandDiagnostic): void | PromiseLike<void>;
   recordOwnership(event: WorkerOwnershipDiagnostic): void | PromiseLike<void>;
+  recordConnection?(event: WorkerConnectionDiagnostic): void | PromiseLike<void>;
 }
 
 export function createWorkerDiagnosticsService(dependencies: {
@@ -103,6 +117,33 @@ export function createWorkerDiagnosticsService(dependencies: {
         return;
       }
     },
+    recordConnection(event): void {
+      try {
+        const { state, correlationId, tenantId, generation, childId } = event;
+        if (
+          !isConnectionState(state) ||
+          !isIdentifier(correlationId) ||
+          !isIdentifier(tenantId) ||
+          !Number.isSafeInteger(generation) ||
+          generation < 1 ||
+          !isIdentifier(childId)
+        ) {
+          return;
+        }
+        emit(
+          Object.freeze({
+            kind: 'CONNECTION',
+            state,
+            correlationId,
+            tenantId,
+            generation,
+            childId,
+          }),
+        );
+      } catch {
+        return;
+      }
+    },
   };
 
   function emit(event: WorkerDiagnosticEvent): void {
@@ -131,6 +172,17 @@ function isCommandType(value: unknown): value is WorkerCommandType {
 
 function isOwnershipState(value: unknown): value is WorkerOwnershipState {
   return value === 'STARTING' || value === 'RUNNING' || value === 'STOPPING' || value === 'STOPPED';
+}
+
+function isConnectionState(value: unknown): value is WorkerConnectionState {
+  return (
+    value === 'CONNECTING' ||
+    value === 'OPEN' ||
+    value === 'CLOSED_RETRYING' ||
+    value === 'LOGGED_OUT' ||
+    value === 'CREDENTIALS_SAVE_FAILED' ||
+    value === 'STOPPED'
+  );
 }
 
 function isIdentifier(value: unknown): value is string {

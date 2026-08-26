@@ -1,8 +1,8 @@
 # WARLIST 2.0
 
-WARLIST 2.0 is a clean, backend-first migration of WARLIST. This repository contains the completed Phase 0–6 backend foundations.
+WARLIST 2.0 is a clean, backend-first migration of WARLIST. It currently contains a substantial but non-operational backend foundation and a public frontend foundation.
 
-**Status:** The [execution roadmap](docs/execution-roadmap.md) is the active work authority. Its Backend Foundation is frozen at PR #100 for an as-built audit; Operational Migration is not started and Enhancements are deferred. The historical [phase roadmap](docs/roadmap.md) and backend master plan remain preserved references. No hosted Supabase runtime, concrete child-process launch, Production behavior, legacy/runtime/customer-data access, credentials, deployment, cutover, WhatsApp/provider send, or public automation API has been configured or verified.
+**Status:** The [execution roadmap](docs/execution-roadmap.md) is the active work authority. Backend Foundation is `PARTIALLY VERIFIED` and non-operational after its [as-built audit](docs/backend-foundation-as-built-audit.md). The [Operational Migration master contract](docs/operational-migration-master.md) and [slice roadmap](docs/operational-migration-roadmap.md) govern one verified OM-01 local Baileys lifecycle slice; later slices and Enhancements remain unauthorized. No hosted Supabase runtime, application runtime composition, Production behavior, legacy/runtime/customer-data access, real credential/account use, deployment, cutover, WhatsApp/provider send, or public automation API has been configured or verified.
 
 ## Requirements
 

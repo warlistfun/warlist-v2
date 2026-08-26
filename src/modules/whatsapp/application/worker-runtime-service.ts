@@ -219,6 +219,10 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     } catch {
       return;
     }
+    if (message.type === 'CONNECTION_UPDATE') {
+      recordConnectionDiagnostic(message);
+      return;
+    }
     const pending = pendingByRequest.get(message.requestId);
     if (!pending || !matches(pending.message, message)) return;
 
@@ -235,6 +239,23 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       ),
       'REJECTED',
     );
+  }
+
+  function recordConnectionDiagnostic(
+    message: Extract<ChildMessage, { type: 'CONNECTION_UPDATE' }>,
+  ): void {
+    try {
+      const result = dependencies.diagnostics.recordConnection?.({
+        state: message.payload.state,
+        correlationId: message.correlationId,
+        tenantId: message.tenantId,
+        generation: message.generation,
+        childId: message.childId,
+      });
+      if (result) void Promise.resolve(result).catch(() => undefined);
+    } catch {
+      return;
+    }
   }
 
   function settle(
@@ -375,7 +396,10 @@ function createMessage(
   return { ...identity, type, payload: { configVersion } };
 }
 
-function matches(parent: ParentMessage, child: ChildMessage): boolean {
+function matches(
+  parent: ParentMessage,
+  child: Exclude<ChildMessage, { type: 'CONNECTION_UPDATE' }>,
+): boolean {
   const identityMatches =
     parent.requestId === child.requestId &&
     parent.correlationId === child.correlationId &&

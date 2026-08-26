@@ -2,6 +2,9 @@ export const IPC_PROTOCOL_VERSION = 1 as const;
 
 export type ParentCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'STOP_WORKER';
 
+export type WorkerConnectionState =
+  'CONNECTING' | 'OPEN' | 'CLOSED_RETRYING' | 'LOGGED_OUT' | 'CREDENTIALS_SAVE_FAILED' | 'STOPPED';
+
 interface MessageIdentity {
   readonly protocolVersion: typeof IPC_PROTOCOL_VERSION;
   readonly requestId: string;
@@ -17,7 +20,11 @@ interface VersionedConfigPayload {
 
 export type ParentMessage =
   | (MessageIdentity & {
-      readonly type: 'START_WORKER' | 'APPLY_CONFIG';
+      readonly type: 'START_WORKER';
+      readonly payload: VersionedConfigPayload;
+    })
+  | (MessageIdentity & {
+      readonly type: 'APPLY_CONFIG';
       readonly payload: VersionedConfigPayload;
     })
   | (MessageIdentity & {
@@ -59,6 +66,12 @@ export type ChildMessage =
       readonly payload: Readonly<{
         commandType: ParentCommandType;
         error: SafeIpcError;
+      }>;
+    })
+  | (MessageIdentity & {
+      readonly type: 'CONNECTION_UPDATE';
+      readonly payload: Readonly<{
+        state: WorkerConnectionState;
       }>;
     });
 
@@ -126,6 +139,15 @@ export function decodeChildMessage(input: unknown): ChildMessage {
         ...message.identity,
         type: message.type,
         payload: freeze({ commandType, error }),
+      });
+    }
+    case 'CONNECTION_UPDATE': {
+      requireExactKeys(message.payload, ['state']);
+      const state = decodeConnectionState(message.payload.state);
+      return freeze({
+        ...message.identity,
+        type: message.type,
+        payload: freeze({ state }),
       });
     }
     default:
@@ -227,6 +249,20 @@ function decodeSafeError(input: unknown): SafeIpcError {
 
 function decodeCommandType(input: unknown): ParentCommandType {
   if (input === 'START_WORKER' || input === 'APPLY_CONFIG' || input === 'STOP_WORKER') return input;
+  throw invalidMessage();
+}
+
+function decodeConnectionState(input: unknown): WorkerConnectionState {
+  if (
+    input === 'CONNECTING' ||
+    input === 'OPEN' ||
+    input === 'CLOSED_RETRYING' ||
+    input === 'LOGGED_OUT' ||
+    input === 'CREDENTIALS_SAVE_FAILED' ||
+    input === 'STOPPED'
+  ) {
+    return input;
+  }
   throw invalidMessage();
 }
 

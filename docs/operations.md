@@ -1,12 +1,13 @@
 # Operations (As Built)
 
-WARLIST 2.0 has no deployed runtime, service, environment, database, provider connection, or Production release process.
+WARLIST 2.0 has no deployed runtime, service, environment, hosted database, active provider connection, or Production release process. OM-01 adds one uncomposed local Baileys child/transport adapter and deterministic fake-socket proof only.
 
 The only operational procedures are local/CI reconstruction and verification:
 
 ```bash
 npm ci
 npm run check
+node --import tsx --test test/unit/baileys-worker-child.test.ts
 ```
 
 The legacy Production system is outside this repository's operational authority. No WARLIST 2.0 workflow may restart, deploy, call, or mutate it during the backend foundation.
