@@ -74,7 +74,9 @@ export function createNodeWorkerCommandTransport(dependencies: {
           return;
         }
         if (
-          (decoded.type === 'CONNECTION_UPDATE' || decoded.type === 'INBOUND_EVENT') &&
+          (decoded.type === 'CONNECTION_UPDATE' ||
+            decoded.type === 'PAIRING_UPDATE' ||
+            decoded.type === 'INBOUND_EVENT') &&
           !sameIdentity(child.start, decoded)
         ) {
           return;

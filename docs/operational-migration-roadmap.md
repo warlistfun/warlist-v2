@@ -1,14 +1,14 @@
 # WARLIST V2 Operational Migration Roadmap
 
-> **Status:** `OM-01 VERIFIED`; `OM-02 VERIFIED`; Operational Migration remains incomplete. This planning/status board is governed by [`operational-migration-master.md`](operational-migration-master.md). Every new implementation Issue from `OM-03` onward has at most two independently testable acceptance criteria and still requires a new explicit owner decision.
+> **Status:** `OM-01 VERIFIED`; `OM-02 VERIFIED`; `OM-03 VERIFIED`; Operational Migration remains incomplete. This planning/status board is governed by [`operational-migration-master.md`](operational-migration-master.md). Every new implementation Issue from `OM-03` onward has at most two independently testable acceptance criteria and still requires a new explicit owner decision.
 
 ## Two-AC reslice summary
 
-- Completed history stays unchanged: `OM-01` and `OM-02`.
-- New roadmap range: `OM-01`–`OM-44`.
-- Remaining work: 42 slices, `OM-03`–`OM-44`.
-- Phase ranges: OM-A `OM-01`–`OM-11` (9 remaining), OM-B `OM-12`–`OM-29` (18), OM-C `OM-30`–`OM-38` (9), OM-D `OM-39`–`OM-44` (6).
-- The 14 former unstarted slices each used an Issue ceiling of five AC. Preserving that ceiling as `2 + 2 + 1` yields `14 × 3 = 42` remaining Issues without padding a one-AC outcome or increasing scope.
+- Verified history: `OM-01`–`OM-03`.
+- Roadmap range: `OM-01`–`OM-44`.
+- Remaining work: 41 slices, `OM-04`–`OM-44`.
+- Phase ranges: OM-A `OM-01`–`OM-11` (8 remaining), OM-B `OM-12`–`OM-29` (18), OM-C `OM-30`–`OM-38` (9), OM-D `OM-39`–`OM-44` (6).
+- The 14 former unstarted slices each used an Issue ceiling of five AC. Preserving that ceiling as `2 + 2 + 1` originally yielded `14 × 3 = 42` post-`OM-02` Issues without padding a one-AC outcome or increasing scope.
 - This reslice changes only Issue size and numbering after `OM-02`; the established parity, safety, external-effect, verification, PR/CI/merge, cleanup, checkpoint, recommendation, prerequisite, exact `/new`, and stop flow remains unchanged.
 - Mandatory global gates are not extra AC, and hidden sub-AC are forbidden. If current evidence makes a planned outcome unnecessary, the roadmap must be corrected explicitly rather than padding its Issue.
 
@@ -45,13 +45,13 @@ A slice status never closes its phase automatically. Numerical order is the defa
 ## Current decision point
 
 - Backend Foundation remains `PARTIALLY VERIFIED` and non-operational.
-- Issues #132 (`OM-01`) and #136 (`OM-02`) are verified synthetic/local slices; neither closes Operational Migration or OM-A.
+- Issues #132 (`OM-01`), #136 (`OM-02`), and #140 (`OM-03`) are verified synthetic/local slices; none closes Operational Migration or OM-A.
 - No WhatsApp provider, credential, hosted database, customer, deployment, financial, or Production action is authorized.
-- No slice after `OM-02` is authorized. The next recommendation is `OM-03`, not permission to start it.
+- No slice after `OM-03` is authorized. The next recommendation is `OM-04`, not permission to start it.
 
 ## Phase OM-A — Core WhatsApp/Baileys path
 
-**Range:** `OM-01–OM-11`. **Remaining:** 9.
+**Range:** `OM-01–OM-11`. **Remaining:** 8.
 
 **Objective:** Reproduce the legacy WhatsApp automation path through the existing V2 seams, one observable behavior at a time, without changing product flow or performing a bulk worker rewrite.
 
@@ -71,11 +71,12 @@ A slice status never closes its phase automatically. Numerical order is the defa
 
 ### OM-03 — Pairing request and safe onboarding projection
 
-- **Source scope:** former OM-03.
-- **Status:** `NOT STARTED`.
+- **Source scope:** landed OM-03.
+- **Status:** `VERIFIED` — Issue #140; local fake-socket evidence only.
 - **Acceptance criteria (2/2):**
   1. A synthetic pairing request reaches the current Baileys child through the existing runtime/IPC identity fence and exposes only the bounded onboarding state required by the characterized legacy flow.
   2. Repeated request, open, close, and terminal-stop transitions are deterministic without QR/pairing material, credential payload, JID, or raw provider update in diagnostics.
+- **Evidence:** [`operational-migration/om-03-safe-pairing-projection.md`](operational-migration/om-03-safe-pairing-projection.md).
 - **Explicit exclusions:** No real account pairing, customer credential, provider send, hosted DB, or Production effect.
 
 ### OM-04 — Local credential ownership boundary

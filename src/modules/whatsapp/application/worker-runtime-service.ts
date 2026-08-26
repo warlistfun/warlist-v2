@@ -34,6 +34,10 @@ interface VersionedWorkerIdentity extends WorkerIdentity {
   readonly configVersion: number;
 }
 
+interface PairingWorkerIdentity extends WorkerIdentity {
+  readonly pairingTarget: string;
+}
+
 export interface WorkerCommandResult {
   readonly ok: true;
 }
@@ -103,6 +107,7 @@ interface PendingCommand {
 export interface WorkerRuntimeService extends WorkerRuntimePort {
   startWorker(input: VersionedWorkerIdentity): Promise<WorkerCommandResult>;
   applyConfig(input: VersionedWorkerIdentity): Promise<WorkerCommandResult>;
+  requestPairing(input: PairingWorkerIdentity): Promise<WorkerCommandResult>;
   stopWorker(input: WorkerIdentity): Promise<WorkerCommandResult>;
   invalidateWorker(input: WorkerIdentity): void;
   getDebugSnapshot(): WorkerRuntimeDebugSnapshot;
@@ -162,7 +167,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
   function command(
     type: ParentCommandType,
     input: WorkerIdentity,
-    configVersion?: number,
+    payload?: number | string,
   ): Promise<WorkerCommandResult> {
     if (!running) return Promise.reject(stoppedError());
     const key = JSON.stringify([
@@ -170,7 +175,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       type,
       input.generation,
       input.childId,
-      configVersion ?? 'none',
+      payload ?? 'none',
     ]);
     const duplicate = pendingByKey.get(key);
     if (duplicate) return duplicate.promise;
@@ -182,7 +187,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       reject = decline;
     });
     const requestId = dependencies.idGenerator.generate();
-    const message = createMessage(type, input, requestId, configVersion);
+    const message = createMessage(type, input, requestId, payload);
     const pending: PendingCommand = { message, key, promise, resolve, reject };
     pendingByKey.set(key, pending);
     const commandEpoch = lifecycleEpoch;
@@ -234,6 +239,10 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     }
     if (message.type === 'CONNECTION_UPDATE') {
       recordConnectionDiagnostic(message);
+      return;
+    }
+    if (message.type === 'PAIRING_UPDATE') {
+      recordPairingDiagnostic(message);
       return;
     }
     if (message.type === 'INBOUND_EVENT') {
@@ -310,6 +319,23 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
   ): void {
     try {
       const result = dependencies.diagnostics.recordConnection?.({
+        state: message.payload.state,
+        correlationId: message.correlationId,
+        tenantId: message.tenantId,
+        generation: message.generation,
+        childId: message.childId,
+      });
+      if (result) void Promise.resolve(result).catch(() => undefined);
+    } catch {
+      return;
+    }
+  }
+
+  function recordPairingDiagnostic(
+    message: Extract<ChildMessage, { type: 'PAIRING_UPDATE' }>,
+  ): void {
+    try {
+      const result = dependencies.diagnostics.recordPairing?.({
         state: message.payload.state,
         correlationId: message.correlationId,
         tenantId: message.tenantId,
@@ -420,6 +446,9 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     applyConfig(input): Promise<WorkerCommandResult> {
       return command('APPLY_CONFIG', input, input.configVersion);
     },
+    requestPairing(input): Promise<WorkerCommandResult> {
+      return command('REQUEST_PAIRING', input, input.pairingTarget);
+    },
     stopWorker(input): Promise<WorkerCommandResult> {
       return command('STOP_WORKER', input);
     },
@@ -456,7 +485,7 @@ function createMessage(
   type: ParentCommandType,
   input: WorkerIdentity,
   requestId: string,
-  configVersion?: number,
+  payload?: number | string,
 ): ParentMessage {
   const identity = {
     protocolVersion: IPC_PROTOCOL_VERSION,
@@ -467,8 +496,12 @@ function createMessage(
     childId: input.childId,
   } as const;
   if (type === 'STOP_WORKER') return { ...identity, type, payload: {} };
-  if (configVersion === undefined) throw new Error('configVersion is required');
-  return { ...identity, type, payload: { configVersion } };
+  if (type === 'REQUEST_PAIRING') {
+    if (typeof payload !== 'string') throw new Error('pairingTarget is required');
+    return { ...identity, type, payload: { pairingTarget: payload } };
+  }
+  if (typeof payload !== 'number') throw new Error('configVersion is required');
+  return { ...identity, type, payload: { configVersion: payload } };
 }
 
 function matches(
@@ -483,11 +516,11 @@ function matches(
     parent.childId === child.childId &&
     parent.type === child.payload.commandType;
   if (!identityMatches || child.type === 'COMMAND_ERROR') return identityMatches;
-  if (parent.type === 'STOP_WORKER') return child.payload.commandType === 'STOP_WORKER';
-  return (
-    child.payload.commandType !== 'STOP_WORKER' &&
-    parent.payload.configVersion === child.payload.configVersion
-  );
+  if (parent.type === 'REQUEST_PAIRING' || parent.type === 'STOP_WORKER') {
+    return child.payload.commandType === parent.type;
+  }
+  if (!('configVersion' in child.payload)) return false;
+  return parent.payload.configVersion === child.payload.configVersion;
 }
 
 function stoppedError(): WorkerRuntimeError {

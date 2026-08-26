@@ -299,6 +299,10 @@ class FakeBaileysSocket implements BaileysSocketPort {
     },
   };
 
+  requestPairingCode(): Promise<string> {
+    return Promise.resolve('unused');
+  }
+
   listenerCount(): number {
     return this.events
       .eventNames()

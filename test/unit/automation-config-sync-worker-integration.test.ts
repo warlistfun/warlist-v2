@@ -190,7 +190,7 @@ class ManualTransport implements WorkerCommandTransportPort {
   acknowledge(message: ParentMessage): void {
     assert.ok(this.handler);
     const payload =
-      message.type === 'STOP_WORKER'
+      message.type === 'REQUEST_PAIRING' || message.type === 'STOP_WORKER'
         ? { commandType: message.type }
         : { commandType: message.type, configVersion: message.payload.configVersion };
     const ack: ChildMessage = {

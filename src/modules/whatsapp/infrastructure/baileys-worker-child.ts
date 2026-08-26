@@ -5,6 +5,7 @@ import type {
   ParentMessage,
   WorkerConnectionState,
   WorkerInboundTransportCode,
+  WorkerPairingState,
 } from '../../../interfaces/worker-ipc/contract';
 import { decodeParentMessage } from '../../../interfaces/worker-ipc/contract';
 import type { CancelScheduledTask, ScheduleTaskPort } from '../application/worker-runtime-service';
@@ -19,6 +20,7 @@ export interface BaileysSocketPort {
     ): void;
     removeAllListeners(): void;
   };
+  requestPairingCode(target: string): Promise<string>;
   end(): void;
 }
 
@@ -48,6 +50,12 @@ export interface BaileysWorkerChild {
   stop(): Promise<void>;
 }
 
+interface ActivePairing {
+  readonly target: string;
+  state: WorkerPairingState;
+  codeRequested: boolean;
+}
+
 interface ActiveWorker {
   readonly start: Extract<ParentMessage, { type: 'START_WORKER' }>;
   readonly directory: string;
@@ -55,6 +63,8 @@ interface ActiveWorker {
   socket: BaileysSocketPort | undefined;
   cancelReconnect: CancelScheduledTask | undefined;
   openedAt: number | undefined;
+  pairing: ActivePairing | undefined;
+  pairingSignalReady: boolean;
   stopped: boolean;
 }
 
@@ -78,6 +88,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     worker.cancelReconnect?.();
     worker.cancelReconnect = undefined;
     worker.openedAt = undefined;
+    worker.pairingSignalReady = false;
     disposeSocket(worker);
     emitConnection(worker, 'CONNECTING');
 
@@ -99,16 +110,20 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     });
     created.socket.ev.on('connection.update', (input) => {
       if (active !== worker || worker.stopped || worker.epoch !== epoch) return;
+      if (hasPairingSignal(input)) worker.pairingSignalReady = true;
+      requestPairingCode(worker, created.socket, epoch);
       const update = decodeConnectionUpdate(input);
       if (update.connection === 'open') {
         worker.cancelReconnect?.();
         worker.cancelReconnect = undefined;
         worker.openedAt = now();
         emitConnection(worker, 'OPEN');
+        setPairingState(worker, 'OPEN');
         return;
       }
       if (update.connection !== 'close') return;
 
+      setPairingState(worker, 'CLOSED');
       disposeSocket(worker);
       if (update.statusCode === created.loggedOutStatusCode) {
         emitConnection(worker, 'LOGGED_OUT');
@@ -148,6 +163,8 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
           socket: undefined,
           cancelReconnect: undefined,
           openedAt: undefined,
+          pairing: undefined,
+          pairingSignalReady: false,
           stopped: false,
         };
         active = worker;
@@ -171,7 +188,26 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       return;
     }
 
+    if (message.type === 'REQUEST_PAIRING') {
+      if (active.pairing && active.pairing.target !== message.payload.pairingTarget) {
+        sendError(message, 'WORKER_COMMAND_REJECTED');
+        return;
+      }
+      if (!active.pairing) {
+        active.pairing = {
+          target: message.payload.pairingTarget,
+          state: 'REQUESTED',
+          codeRequested: false,
+        };
+        emitPairing(active, 'REQUESTED');
+      }
+      if (active.socket) requestPairingCode(active, active.socket, active.epoch);
+      sendAcknowledgement(message);
+      return;
+    }
+
     const worker = active;
+    setPairingState(worker, 'STOPPED');
     stopActive();
     emitConnection(worker, 'STOPPED');
     sendAcknowledgement(message);
@@ -303,10 +339,66 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     });
   }
 
+  function requestPairingCode(
+    worker: ActiveWorker,
+    socket: BaileysSocketPort,
+    epoch: number,
+  ): void {
+    const pairing = worker.pairing;
+    if (
+      !pairing ||
+      pairing.codeRequested ||
+      pairing.state !== 'REQUESTED' ||
+      !worker.pairingSignalReady
+    ) {
+      return;
+    }
+    pairing.codeRequested = true;
+    void socket
+      .requestPairingCode(pairing.target)
+      .then(() => {
+        if (
+          active !== worker ||
+          worker.stopped ||
+          worker.epoch !== epoch ||
+          pairing.state !== 'REQUESTED'
+        ) {
+          return;
+        }
+        setPairingState(worker, 'CODE_READY');
+      })
+      .catch(() => {
+        if (
+          active !== worker ||
+          worker.stopped ||
+          worker.epoch !== epoch ||
+          pairing.state !== 'REQUESTED'
+        ) {
+          return;
+        }
+        setPairingState(worker, 'FAILED');
+      });
+  }
+
+  function setPairingState(worker: ActiveWorker, state: WorkerPairingState): void {
+    const pairing = worker.pairing;
+    if (!pairing || pairing.state === state) return;
+    pairing.state = state;
+    emitPairing(worker, state);
+  }
+
+  function emitPairing(worker: ActiveWorker, state: WorkerPairingState): void {
+    dependencies.send({
+      ...messageIdentity(worker.start),
+      type: 'PAIRING_UPDATE',
+      payload: { state },
+    });
+  }
+
   function sendAcknowledgement(message: ParentMessage): void {
     const identity = messageIdentity(message);
     dependencies.send(
-      message.type === 'STOP_WORKER'
+      message.type === 'REQUEST_PAIRING' || message.type === 'STOP_WORKER'
         ? { ...identity, type: 'COMMAND_ACK', payload: { commandType: message.type } }
         : {
             ...identity,
@@ -398,6 +490,19 @@ function decodeConnectionUpdate(input: unknown): {
     ...(connection === 'open' || connection === 'close' ? { connection } : {}),
     ...(Number.isSafeInteger(statusCode) ? { statusCode: statusCode as number } : {}),
   };
+}
+
+function hasPairingSignal(input: unknown): boolean {
+  const descriptor =
+    typeof input === 'object' && input !== null && !Array.isArray(input)
+      ? Object.getOwnPropertyDescriptor(input, 'qr')
+      : undefined;
+  return (
+    descriptor !== undefined &&
+    'value' in descriptor &&
+    typeof descriptor.value === 'string' &&
+    descriptor.value.length > 0
+  );
 }
 
 function ownValue(input: unknown, key: string): unknown {
@@ -517,6 +622,9 @@ const concreteSocketFactory: BaileysSocketFactoryPort = {
             socket.ev.removeAllListeners('connection.update');
             socket.ev.removeAllListeners('messages.upsert');
           },
+        },
+        requestPairingCode(target): Promise<string> {
+          return socket.requestPairingCode(target);
         },
         end(): void {
           socket.end(undefined);

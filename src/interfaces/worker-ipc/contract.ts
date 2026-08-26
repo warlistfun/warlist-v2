@@ -1,9 +1,12 @@
 export const IPC_PROTOCOL_VERSION = 1 as const;
 
-export type ParentCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'STOP_WORKER';
+export type ParentCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'REQUEST_PAIRING' | 'STOP_WORKER';
 
 export type WorkerConnectionState =
   'CONNECTING' | 'OPEN' | 'CLOSED_RETRYING' | 'LOGGED_OUT' | 'CREDENTIALS_SAVE_FAILED' | 'STOPPED';
+
+export type WorkerPairingState =
+  'REQUESTED' | 'CODE_READY' | 'OPEN' | 'CLOSED' | 'FAILED' | 'STOPPED';
 
 export type WorkerInboundTransportCode =
   | 'FORWARDED'
@@ -34,6 +37,10 @@ interface VersionedConfigPayload {
   readonly configVersion: number;
 }
 
+export type PairingRequestPayload = Readonly<{
+  pairingTarget: string;
+}>;
+
 export type ParentMessage =
   | (MessageIdentity & {
       readonly type: 'START_WORKER';
@@ -42,6 +49,10 @@ export type ParentMessage =
   | (MessageIdentity & {
       readonly type: 'APPLY_CONFIG';
       readonly payload: VersionedConfigPayload;
+    })
+  | (MessageIdentity & {
+      readonly type: 'REQUEST_PAIRING';
+      readonly payload: PairingRequestPayload;
     })
   | (MessageIdentity & {
       readonly type: 'STOP_WORKER';
@@ -74,8 +85,14 @@ export type ChildMessage =
             configVersion: number;
           }>
         | Readonly<{
-            commandType: 'STOP_WORKER';
+            commandType: 'REQUEST_PAIRING' | 'STOP_WORKER';
           }>;
+    })
+  | (MessageIdentity & {
+      readonly type: 'PAIRING_UPDATE';
+      readonly payload: Readonly<{
+        state: WorkerPairingState;
+      }>;
     })
   | (MessageIdentity & {
       readonly type: 'COMMAND_ERROR';
@@ -130,6 +147,12 @@ export function decodeParentMessage(input: unknown): ParentMessage {
         type: message.type,
         payload: decodeVersionedConfig(message.payload),
       });
+    case 'REQUEST_PAIRING':
+      return freeze({
+        ...message.identity,
+        type: message.type,
+        payload: decodePairingRequest(message.payload),
+      });
     case 'STOP_WORKER':
       requireExactKeys(message.payload, []);
       return freeze({ ...message.identity, type: message.type, payload: freeze({}) });
@@ -144,7 +167,7 @@ export function decodeChildMessage(input: unknown): ChildMessage {
   switch (message.type) {
     case 'COMMAND_ACK': {
       const commandType = decodeCommandType(message.payload.commandType);
-      if (commandType === 'STOP_WORKER') {
+      if (commandType === 'REQUEST_PAIRING' || commandType === 'STOP_WORKER') {
         requireExactKeys(message.payload, ['commandType']);
         return freeze({
           ...message.identity,
@@ -158,6 +181,15 @@ export function decodeChildMessage(input: unknown): ChildMessage {
         ...message.identity,
         type: message.type,
         payload: freeze({ commandType, configVersion }),
+      });
+    }
+    case 'PAIRING_UPDATE': {
+      requireExactKeys(message.payload, ['state']);
+      const state = decodePairingState(message.payload.state);
+      return freeze({
+        ...message.identity,
+        type: message.type,
+        payload: freeze({ state }),
       });
     }
     case 'COMMAND_ERROR': {
@@ -261,6 +293,13 @@ function decodeVersionedConfig(input: Record<string, unknown>): VersionedConfigP
   return freeze({ configVersion: decodePositiveInteger(input.configVersion) });
 }
 
+function decodePairingRequest(input: Record<string, unknown>): PairingRequestPayload {
+  requireExactKeys(input, ['pairingTarget']);
+  const pairingTarget = decodeIdentifier(input.pairingTarget);
+  if (!/^synthetic_[a-z0-9_:-]+$/i.test(pairingTarget)) throw invalidMessage();
+  return freeze({ pairingTarget });
+}
+
 const safeErrors = {
   WA_RUNTIME_UNAVAILABLE: {
     message: 'Worker runtime is unavailable',
@@ -300,7 +339,28 @@ function decodeSafeError(input: unknown): SafeIpcError {
 }
 
 function decodeCommandType(input: unknown): ParentCommandType {
-  if (input === 'START_WORKER' || input === 'APPLY_CONFIG' || input === 'STOP_WORKER') return input;
+  if (
+    input === 'START_WORKER' ||
+    input === 'APPLY_CONFIG' ||
+    input === 'REQUEST_PAIRING' ||
+    input === 'STOP_WORKER'
+  ) {
+    return input;
+  }
+  throw invalidMessage();
+}
+
+function decodePairingState(input: unknown): WorkerPairingState {
+  if (
+    input === 'REQUESTED' ||
+    input === 'CODE_READY' ||
+    input === 'OPEN' ||
+    input === 'CLOSED' ||
+    input === 'FAILED' ||
+    input === 'STOPPED'
+  ) {
+    return input;
+  }
   throw invalidMessage();
 }
 
