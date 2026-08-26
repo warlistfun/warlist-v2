@@ -49,7 +49,7 @@ void test('runs start, credential save, retry, and terminal stop through one con
 
   const first = fixture.sockets.created[0]!;
   first.events.emit('creds.update');
-  await flush();
+  await fixture.sockets.firstSave;
   assert.equal(fixture.sockets.saved, 1);
 
   first.events.emit('connection.update', { connection: 'open' });
@@ -60,6 +60,7 @@ void test('runs start, credential save, retry, and terminal stop through one con
   assert.equal(first.ended, 1);
   assert.equal(first.listenerCount(), 0);
   fixture.reconnectScheduler.runNext();
+  await fixture.sockets.secondSocket;
   await flush();
 
   assert.equal(fixture.sockets.created.length, 2);
@@ -110,6 +111,7 @@ void test('keeps credential failures and logged-out provider payloads behind saf
 
   const socket = fixture.sockets.created[0]!;
   socket.events.emit('creds.update', { rawCredential: sensitiveMarker });
+  await fixture.sockets.firstSave;
   await flush();
   socket.events.emit('connection.update', {
     connection: 'close',
@@ -171,6 +173,88 @@ void test('runtime shutdown disposes an open socket exactly once', async (t) => 
     ['COMMAND', 'START_WORKER', 'ACKNOWLEDGED'],
     ['CONNECTION', 'OPEN'],
   ]);
+});
+
+void test('fences factory-owned credential callbacks after stop', async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'warlist-v2-om-04-callback-'));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const socketFactory = new CredentialAccessSocketFactory();
+  const child = createBaileysWorkerChild({
+    credentialDirectory: createLocalWhatsAppCredentialDirectory({
+      root: join(sandbox, 'credentials'),
+    }),
+    socketFactory,
+    scheduler: new ManualScheduler(),
+    reconnectDelayMs: 2_000,
+    send() {},
+  });
+  await child.handle({
+    protocolVersion: 1,
+    requestId: 'req_example_om_04_callback',
+    correlationId: worker.correlationId,
+    tenantId,
+    generation: worker.generation,
+    childId: worker.childId,
+    type: 'START_WORKER',
+    payload: { configVersion: worker.configVersion },
+  });
+
+  assert.equal(await socketFactory.accessCredentials(), 1);
+  await child.stop();
+  await assert.rejects(
+    socketFactory.accessCredentials(),
+    (error: unknown) =>
+      error instanceof Error &&
+      'code' in error &&
+      error.code === 'CREDENTIAL_DIRECTORY_OWNERSHIP_LOST',
+  );
+});
+
+void test('child stop waits for credential ownership release', async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'warlist-v2-om-04-stop-'));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  let releaseOwnership!: () => void;
+  let releaseStarted = false;
+  let stopSettled = false;
+  const child = createBaileysWorkerChild({
+    credentialDirectory: {
+      acquire: () =>
+        Promise.resolve({
+          use: async <T>(operation: (directory: string) => T | PromiseLike<T>) =>
+            operation(join(sandbox, 'credentials', tenantId)),
+          release: () =>
+            new Promise<void>((resolve) => {
+              releaseStarted = true;
+              releaseOwnership = resolve;
+            }),
+        }),
+    },
+    socketFactory: new FakeBaileysSocketFactory(),
+    scheduler: new ManualScheduler(),
+    reconnectDelayMs: 2_000,
+    send() {},
+  });
+  await child.handle({
+    protocolVersion: 1,
+    requestId: 'req_example_om_04_stop',
+    correlationId: worker.correlationId,
+    tenantId,
+    generation: worker.generation,
+    childId: worker.childId,
+    type: 'START_WORKER',
+    payload: { configVersion: worker.configVersion },
+  });
+
+  const stopping = child.stop().then(() => {
+    stopSettled = true;
+  });
+  await flush();
+  assert.equal(releaseStarted, true);
+  assert.equal(stopSettled, false);
+
+  releaseOwnership();
+  await stopping;
+  assert.equal(stopSettled, true);
 });
 
 async function createFixture(t: test.TestContext) {
@@ -260,25 +344,57 @@ class ManualScheduler implements ScheduleTaskPort {
   }
 }
 
+class CredentialAccessSocketFactory implements BaileysSocketFactoryPort {
+  private access: (() => Promise<number>) | undefined;
+
+  create(credentials: Parameters<BaileysSocketFactoryPort['create']>[0]) {
+    return credentials.use((directory) => {
+      this.access = () => credentials.use(() => Promise.resolve(directory.length > 0 ? 1 : 0));
+      return {
+        socket: new FakeBaileysSocket(),
+        loggedOutStatusCode: 401,
+        saveCredentials: () => Promise.resolve(),
+      };
+    });
+  }
+
+  accessCredentials(): Promise<number> {
+    assert.ok(this.access);
+    return this.access();
+  }
+}
+
 class FakeBaileysSocketFactory implements BaileysSocketFactoryPort {
+  private resolveFirstSave!: () => void;
+  private resolveSecondSocket!: () => void;
   readonly created: FakeBaileysSocket[] = [];
   readonly directories: string[] = [];
+  readonly firstSave = new Promise<void>((resolve) => {
+    this.resolveFirstSave = resolve;
+  });
+  readonly secondSocket = new Promise<void>((resolve) => {
+    this.resolveSecondSocket = resolve;
+  });
   nextSaveFailure: Error | undefined;
   saved = 0;
 
-  create(directory: string) {
-    const socket = new FakeBaileysSocket();
-    this.created.push(socket);
-    this.directories.push(directory);
-    return Promise.resolve({
-      socket,
-      loggedOutStatusCode: 401,
-      saveCredentials: () => {
-        this.saved += 1;
-        const error = this.nextSaveFailure;
-        this.nextSaveFailure = undefined;
-        return error ? Promise.reject(error) : Promise.resolve();
-      },
+  create(credentials: Parameters<BaileysSocketFactoryPort['create']>[0]) {
+    return credentials.use((directory) => {
+      const socket = new FakeBaileysSocket();
+      this.created.push(socket);
+      this.directories.push(directory);
+      if (this.created.length === 2) this.resolveSecondSocket();
+      return {
+        socket,
+        loggedOutStatusCode: 401,
+        saveCredentials: () => {
+          this.saved += 1;
+          this.resolveFirstSave();
+          const error = this.nextSaveFailure;
+          this.nextSaveFailure = undefined;
+          return error ? Promise.reject(error) : Promise.resolve();
+        },
+      };
     });
   }
 }

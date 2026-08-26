@@ -1,13 +1,13 @@
 # WARLIST V2 Operational Migration Roadmap
 
-> **Status:** `OM-01 VERIFIED`; `OM-02 VERIFIED`; `OM-03 VERIFIED`; Operational Migration remains incomplete. This planning/status board is governed by [`operational-migration-master.md`](operational-migration-master.md). Every new implementation Issue from `OM-03` onward has at most two independently testable acceptance criteria and still requires a new explicit owner decision.
+> **Status:** `OM-01 VERIFIED`; `OM-02 VERIFIED`; `OM-03 VERIFIED`; `OM-04 VERIFIED`; Operational Migration remains incomplete. This planning/status board is governed by [`operational-migration-master.md`](operational-migration-master.md). Every new implementation Issue from `OM-03` onward has at most two independently testable acceptance criteria and still requires a new explicit owner decision.
 
 ## Two-AC reslice summary
 
-- Verified history: `OM-01`–`OM-03`.
+- Verified history: `OM-01`–`OM-04`.
 - Roadmap range: `OM-01`–`OM-44`.
-- Remaining work: 41 slices, `OM-04`–`OM-44`.
-- Phase ranges: OM-A `OM-01`–`OM-11` (8 remaining), OM-B `OM-12`–`OM-29` (18), OM-C `OM-30`–`OM-38` (9), OM-D `OM-39`–`OM-44` (6).
+- Remaining work: 40 slices, `OM-05`–`OM-44`.
+- Phase ranges: OM-A `OM-01`–`OM-11` (7 remaining), OM-B `OM-12`–`OM-29` (18), OM-C `OM-30`–`OM-38` (9), OM-D `OM-39`–`OM-44` (6).
 - The 14 former unstarted slices each used an Issue ceiling of five AC. Preserving that ceiling as `2 + 2 + 1` originally yielded `14 × 3 = 42` post-`OM-02` Issues without padding a one-AC outcome or increasing scope.
 - This reslice changes only Issue size and numbering after `OM-02`; the established parity, safety, external-effect, verification, PR/CI/merge, cleanup, checkpoint, recommendation, prerequisite, exact `/new`, and stop flow remains unchanged.
 - Mandatory global gates are not extra AC, and hidden sub-AC are forbidden. If current evidence makes a planned outcome unnecessary, the roadmap must be corrected explicitly rather than padding its Issue.
@@ -45,13 +45,13 @@ A slice status never closes its phase automatically. Numerical order is the defa
 ## Current decision point
 
 - Backend Foundation remains `PARTIALLY VERIFIED` and non-operational.
-- Issues #132 (`OM-01`), #136 (`OM-02`), and #140 (`OM-03`) are verified synthetic/local slices; none closes Operational Migration or OM-A.
+- Issues #132 (`OM-01`), #136 (`OM-02`), #140 (`OM-03`), and #142 (`OM-04`) are verified synthetic/local slices; none closes Operational Migration or OM-A.
 - No WhatsApp provider, credential, hosted database, customer, deployment, financial, or Production action is authorized.
-- No slice after `OM-03` is authorized. The next recommendation is `OM-04`, not permission to start it.
+- No slice after `OM-04` is authorized. The next recommendation is `OM-05`, not permission to start it.
 
 ## Phase OM-A — Core WhatsApp/Baileys path
 
-**Range:** `OM-01–OM-11`. **Remaining:** 8.
+**Range:** `OM-01–OM-11`. **Remaining:** 7.
 
 **Objective:** Reproduce the legacy WhatsApp automation path through the existing V2 seams, one observable behavior at a time, without changing product flow or performing a bulk worker rewrite.
 
@@ -82,10 +82,11 @@ A slice status never closes its phase automatically. Numerical order is the defa
 ### OM-04 — Local credential ownership boundary
 
 - **Source scope:** former OM-03.
-- **Status:** `NOT STARTED`.
+- **Status:** `VERIFIED` — Issue #142; local synthetic-filesystem/fake-socket evidence only.
 - **Acceptance criteria (2/2):**
   1. Exactly one current tenant/generation owner may use its tenant-scoped local credential root; concurrent, foreign, and stale owners fail closed.
   2. Path hardening and owner-only permissions prevent root escape or credential payload leakage across IPC, diagnostics, and repository boundaries.
+- **Evidence:** [`operational-migration/om-04-local-credential-ownership.md`](operational-migration/om-04-local-credential-ownership.md).
 - **Explicit exclusions:** No Production auth copy, PostgreSQL/Supabase credential storage, customer credential, or unapproved filesystem cleanup.
 
 ### OM-05 — Reconnect, logout, and explicit reset parity

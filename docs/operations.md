@@ -1,8 +1,10 @@
 # Operations (As Built)
 
-WARLIST 2.0 has no deployed runtime, service, environment, hosted database, active provider connection, or Production release process. OM-01 adds one uncomposed local Baileys child/transport adapter; OM-02 extends its synthetic inbound guard/IPC/decision proof; OM-03 adds only the synthetic pairing-request and bounded onboarding-state proof through those existing seams. None of these slices establishes real provider/account behavior.
+WARLIST 2.0 has no deployed runtime, service, environment, hosted database, active provider connection, or Production release process. OM-01 adds one uncomposed local Baileys child/transport adapter; OM-02 extends its synthetic inbound guard/IPC/decision proof; OM-03 adds only the synthetic pairing-request and bounded onboarding-state proof; OM-04 adds only exact local credential ownership, path/permission checks, and terminal release through those existing seams. None of these slices establishes real credential/provider/account behavior.
 
 The OM-03 pairing proof is local-only: a `synthetic_…` target reaches the existing child, the child discards the provider return value, and diagnostics expose only `REQUESTED`, `CODE_READY`, `OPEN`, `CLOSED`, `FAILED`, or `STOPPED` with bounded worker identity. QR/pairing material, credentials, JIDs, and raw provider updates never enter the projection.
+
+The OM-04 ownership proof is also local-only: temporary synthetic roots use `0700` directories and a `0600` empty per-tenant lock; one tenant/generation/child capability gates socket creation, lazy key-store access, and credential-save callbacks until awaited release. It does not read, copy, reset, delete, back up, or expose credential payloads. Explicit reset/logout deletion remains unimplemented.
 
 The only operational procedures are local/CI reconstruction and verification:
 
@@ -12,6 +14,7 @@ npm run check
 node --import tsx --test test/unit/baileys-worker-child.test.ts
 node --import tsx --test test/unit/baileys-inbound-event.test.ts
 node --import tsx --test test/unit/baileys-pairing-request.test.ts
+node --import tsx --test test/unit/local-whatsapp-credential-ownership.test.ts
 ```
 
 The legacy Production system is outside this repository's operational authority. No WARLIST 2.0 workflow may restart, deploy, call, or mutate it during the backend foundation.
