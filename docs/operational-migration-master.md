@@ -124,6 +124,16 @@ Start with one concrete Baileys path and one child process where isolation is re
 
 Each session owns exactly one bounded GitHub Issue and one externally meaningful vertical behavior.
 
+### Execution timebox
+
+Keep each slice small enough to finish in one focused session:
+
+- **Target:** reach PR-ready state within 60 minutes of active engineering (inspection, implementation, tests, review, and publication preparation).
+- **At 60 minutes:** stop optional research, refactoring, and hardening; reduce the slice to the smallest complete path that satisfies its frozen acceptance criteria.
+- **At 90 minutes:** stop active implementation, write the durable checkpoint, and hand off unfinished work as a recommended smaller bounded Issue. Do not open it without owner authorization or continue merely to avoid leaving work for the next session.
+- **Exception:** only a security, data-integrity, trust-boundary, or lifecycle-correctness blocker may justify the minimum extension needed to leave the current path safe; record the reason in the checkpoint. Cosmetic cleanup, speculative design, and extra evidence do not qualify.
+- Passive CI/review/network waiting is not active engineering time, but it does not authorize starting another slice or expanding scope.
+
 Before implementation, freeze:
 
 - one outcome and at most five acceptance criteria;

@@ -3,6 +3,7 @@
 ## Scope
 
 - Work on one bounded GitHub Issue/slice at a time.
+- Operational Migration slices target PR-ready within 60 minutes of active engineering; at 90 minutes, stop, checkpoint, and recommend the remainder as a smaller owner-authorized Issue. Only security, data-integrity, trust-boundary, or lifecycle-correctness blockers justify the minimum necessary extension.
 - Follow strict RED-GREEN-REFACTOR for behavior changes.
 - Prefer the smallest explicit implementation; do not pre-create empty architecture.
 - GitHub Issues, PRs, commits, tests, ADRs, and current-state docs are the change record.
