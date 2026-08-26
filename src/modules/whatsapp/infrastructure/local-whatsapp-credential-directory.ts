@@ -65,14 +65,15 @@ export function createLocalWhatsAppCredentialDirectory(dependencies: { readonly 
       await ensureProtectedDirectory(directory, uid);
       const lockPath = join(root, `.${owner.tenantId}.owner.lock`);
       const lock = await acquireLock(lockPath);
+      let lockIdentity: Readonly<{ dev: number; ino: number }>;
       try {
-        await assertProtectedLock(lock, uid);
+        lockIdentity = await assertProtectedLock(lock, uid);
       } catch (error) {
         await lock.close().catch(() => undefined);
         await unlink(lockPath).catch(() => undefined);
         throw error;
       }
-      return createHandle({ directory, lockPath, lock, root, uid });
+      return createHandle({ directory, lockPath, lock, lockIdentity, root, uid });
     },
   };
 }
@@ -81,9 +82,11 @@ function createHandle(input: {
   readonly directory: string;
   readonly lockPath: string;
   readonly lock: FileHandle;
+  readonly lockIdentity: Readonly<{ dev: number; ino: number }>;
   readonly root: string;
   readonly uid: number;
 }): LocalCredentialDirectoryHandle {
+  let lockClosed = false;
   let released = false;
   let transition = Promise.resolve();
 
@@ -97,22 +100,34 @@ function createHandle(input: {
   }
 
   async function assertOwned(): Promise<void> {
-    if (released) ownershipLost();
+    if (released || lockClosed) ownershipLost();
     await assertProtectedDirectory(input.root, input.uid);
     await assertProtectedDirectory(input.directory, input.uid);
     const held = await input.lock.stat().catch(() => ownershipLost());
-    const current = await safeLstat(input.lockPath).catch(() => ownershipLost());
     if (
       !held.isFile() ||
+      held.dev !== input.lockIdentity.dev ||
+      held.ino !== input.lockIdentity.ino ||
+      held.uid !== input.uid ||
+      (held.mode & 0o7777) !== 0o600 ||
+      held.size !== 0
+    ) {
+      ownershipLost();
+    }
+    await assertOwnedPath();
+  }
+
+  async function assertOwnedPath(): Promise<void> {
+    await assertProtectedDirectory(input.root, input.uid);
+    await assertProtectedDirectory(input.directory, input.uid);
+    const current = await safeLstat(input.lockPath).catch(() => ownershipLost());
+    if (
       !current.isFile() ||
       current.isSymbolicLink() ||
-      held.dev !== current.dev ||
-      held.ino !== current.ino ||
-      held.uid !== input.uid ||
+      current.dev !== input.lockIdentity.dev ||
+      current.ino !== input.lockIdentity.ino ||
       current.uid !== input.uid ||
-      (held.mode & 0o7777) !== 0o600 ||
       (current.mode & 0o7777) !== 0o600 ||
-      held.size !== 0 ||
       current.size !== 0
     ) {
       ownershipLost();
@@ -129,9 +144,17 @@ function createHandle(input: {
     release(): Promise<void> {
       return enqueue(async () => {
         if (released) return;
-        await assertOwned();
+        if (!lockClosed) {
+          await assertOwned();
+          try {
+            await input.lock.close();
+            lockClosed = true;
+          } catch {
+            unavailable();
+          }
+        }
+        await assertOwnedPath();
         try {
-          await input.lock.close();
           await unlink(input.lockPath);
           released = true;
         } catch {
@@ -157,7 +180,10 @@ async function acquireLock(path: string): Promise<FileHandle> {
   }
 }
 
-async function assertProtectedLock(lock: FileHandle, uid: number): Promise<void> {
+async function assertProtectedLock(
+  lock: FileHandle,
+  uid: number,
+): Promise<Readonly<{ dev: number; ino: number }>> {
   const metadata = await lock.stat().catch(() => unavailable());
   if (
     !metadata.isFile() ||
@@ -167,6 +193,7 @@ async function assertProtectedLock(lock: FileHandle, uid: number): Promise<void>
   ) {
     unsafe();
   }
+  return { dev: metadata.dev, ino: metadata.ino };
 }
 
 function parseRoot(value: unknown): string {

@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import { lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -8,6 +9,10 @@ import {
   createLocalWhatsAppCredentialDirectory,
   LocalCredentialDirectoryError,
 } from '../../src/modules/whatsapp/infrastructure/local-whatsapp-credential-directory';
+
+const mutableFsPromises = createRequire(__filename)('node:fs/promises') as {
+  unlink: typeof import('node:fs/promises').unlink;
+};
 
 const tenantId = '00000000-0000-4000-8000-000000000142';
 const firstOwner = { tenantId, generation: 1, childId: 'child_example_142_a' } as const;
@@ -68,6 +73,41 @@ void test('does not recreate a credential path that disappears during active own
 
   await mkdir(directory, { mode: 0o700 });
   await handle.release();
+});
+
+void test('retries release after one transient lock unlink failure', async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'warlist-v2-om-04-'));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const root = join(sandbox, 'credentials');
+  const credentials = createLocalWhatsAppCredentialDirectory({ root });
+  const handle = await credentials.acquire(firstOwner);
+  const lockPath = join(root, `.${tenantId}.owner.lock`);
+  const unlink = mutableFsPromises.unlink;
+  let attempts = 0;
+  mutableFsPromises.unlink = async (path, ...options) => {
+    if (path === lockPath && attempts++ === 0) {
+      const error = new Error('synthetic unlink failure') as NodeJS.ErrnoException;
+      error.code = 'EACCES';
+      throw error;
+    }
+    return unlink(path, ...options);
+  };
+  try {
+    await assert.rejects(
+      handle.release(),
+      (error: unknown) =>
+        error instanceof LocalCredentialDirectoryError &&
+        error.code === 'CREDENTIAL_DIRECTORY_UNAVAILABLE',
+    );
+    await assert.rejects(credentials.acquire(nextOwner), ownedError);
+    await handle.release();
+  } finally {
+    mutableFsPromises.unlink = unlink;
+  }
+
+  const next = await credentials.acquire(nextOwner);
+  assert.equal(await next.use((directory) => directory), join(root, tenantId));
+  await next.release();
 });
 
 function ownedError(error: unknown): boolean {
