@@ -801,6 +801,83 @@ export function createPostgresBusinessRepository(dependencies: {
       if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
       return parseSingle(result, parseDeliveryConfirmation);
     },
+    async recoverAmbiguousDelivery(input): Promise<DeliveryClaimRecord> {
+      authorize(input.tenantId);
+      if (!isDeliverySettlementInput({ ...input, outcome: 'AMBIGUOUS', providerMessageId: null }))
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      const result = await query(
+        `WITH current_worker AS MATERIALIZED (
+           SELECT tenant_id FROM tenant_worker_ownerships
+           WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
+             AND generation = $7 AND child_id = $8 FOR SHARE
+         ), locked AS MATERIALIZED (
+           SELECT operation.* FROM delivery_operations AS operation
+           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
+           JOIN delivery_attempts AS attempt
+             ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+           WHERE operation.tenant_id = $1 AND operation.id = $2
+             AND operation.status IN ('AMBIGUOUS', 'SENT')
+             AND operation.claim_fence = $4 AND operation.claim_owner = $5
+             AND operation.claim_lease_until = $6::timestamptz
+             AND operation.worker_generation = $7 AND operation.worker_child_id = $8
+             AND attempt.id = $3 AND attempt.status = operation.status
+ AND attempt.claim_fence = operation.claim_fence
+ AND operation.claim_lease_until > clock_timestamp()
+ FOR UPDATE OF operation
+         ), recovered AS (
+           UPDATE delivery_operations AS operation
+           SET status = 'SENT', revision = operation.revision + 1, updated_at = clock_timestamp()
+           FROM locked
+           WHERE operation.tenant_id = locked.tenant_id AND operation.id = locked.id
+             AND locked.status = 'AMBIGUOUS'
+           RETURNING operation.*
+         ), recovered_attempt AS (
+           UPDATE delivery_attempts AS attempt
+           SET status = 'SENT', revision = attempt.revision + 1, updated_at = recovered.updated_at
+           FROM recovered
+           WHERE attempt.tenant_id = recovered.tenant_id AND attempt.operation_id = recovered.id
+             AND attempt.id = $3 AND attempt.claim_fence = recovered.claim_fence
+             AND attempt.status = 'AMBIGUOUS'
+           RETURNING attempt.*
+         )
+         SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
+                operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
+                operation.schema_version AS operation_schema_version, operation.revision AS operation_revision,
+                operation.created_at AS operation_created_at, operation.updated_at AS operation_updated_at,
+                changed.id AS attempt_id, changed.attempt_number, changed.status AS attempt_status,
+                changed.claim_fence AS attempt_claim_fence, changed.provider_message_id,
+                changed.schema_version AS attempt_schema_version, changed.revision AS attempt_revision,
+                changed.created_at AS attempt_created_at, changed.updated_at AS attempt_updated_at
+                FROM recovered AS operation
+                JOIN recovered_attempt AS changed ON changed.tenant_id = operation.tenant_id
+                AND changed.operation_id = operation.id AND changed.claim_fence = operation.claim_fence
+         UNION ALL
+         SELECT operation.id, operation.tenant_id, operation.operation_key, operation.status,
+                operation.claim_owner, operation.claim_fence, operation.claim_lease_until,
+                operation.worker_generation, operation.worker_child_id,
+                operation.schema_version, operation.revision, operation.created_at, operation.updated_at,
+                attempt.id, attempt.attempt_number, attempt.status, attempt.claim_fence,
+                attempt.provider_message_id, attempt.schema_version, attempt.revision,
+                attempt.created_at, attempt.updated_at
+         FROM locked AS operation
+         JOIN delivery_attempts AS attempt ON attempt.tenant_id = operation.tenant_id
+           AND attempt.operation_id = operation.id AND attempt.claim_fence = operation.claim_fence
+         WHERE operation.status = 'SENT' AND NOT EXISTS (SELECT 1 FROM recovered)`,
+        [
+          input.tenantId,
+          input.operationId,
+          input.attemptId,
+          input.claimFence,
+          input.claimOwner,
+          input.leaseUntil,
+          input.workerGeneration,
+          input.childId,
+        ],
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
+      return parseSingle(result, parseDeliveryClaim);
+    },
     async appendEntitlementLedgerEntry(input): Promise<EntitlementLedgerEntry> {
       authorize(input.tenantId);
       if (!isEntitlementLedgerInput(input)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
