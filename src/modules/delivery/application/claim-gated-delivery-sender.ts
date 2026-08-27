@@ -37,6 +37,19 @@ export type CorrelatedDeliverySend = Readonly<{
   text: string;
 }>;
 
+export type DeliveryProviderIdentity = Readonly<{ providerMessageId: string }>;
+
+export type DeliverySentCompletion = Readonly<{
+  outcome: 'SENT';
+  tenantId: string;
+  operationId: string;
+  attemptId: string;
+  claimFence: number;
+  workerGeneration: number;
+  childId: string;
+  providerMessageId: string;
+}>;
+
 type DeliveryOutcome = 'SENT' | 'AMBIGUOUS';
 
 type DeliverySettlement = DeliveryClaimAuthority &
@@ -47,9 +60,11 @@ type SenderDependencies = Readonly<{
     input: Readonly<{ operationId: string; workerGeneration: number; childId: string }>,
   ) => Promise<DeliveryClaimRecord>;
   begin: (authority: DeliveryClaimAuthority) => Promise<void>;
-  sender: (authority: DeliveryClaimAuthority) => Promise<Readonly<{ providerMessageId: string }>>;
-  settle: (input: DeliverySettlement) => Promise<void>;
+  sender: (authority: DeliveryClaimAuthority) => Promise<DeliveryProviderIdentity>;
+  settle: (input: DeliverySettlement) => Promise<unknown>;
 }>;
+
+type DeliverySettlementPort = (input: DeliverySettlement) => Promise<DeliveryClaimRecord>;
 
 export function createDeliveryBeginPort(dependencies: {
   readonly repository: DeliveryClaimRepositoryPort;
@@ -64,32 +79,31 @@ export function createDeliveryBeginPort(dependencies: {
 export function createDeliverySettlementPort(dependencies: {
   readonly repository: DeliveryClaimRepositoryPort;
   readonly trustedTenant: Readonly<{ tenantId: string }>;
-}): SenderDependencies['settle'] {
+}): DeliverySettlementPort {
   return (input) =>
-    dependencies.repository
-      .settleDelivery({
-        tenantId: dependencies.trustedTenant.tenantId,
-        operationId: input.operationId,
-        attemptId: input.attemptId,
-        claimFence: input.claimFence,
-        claimOwner: input.claimOwner,
-        leaseUntil: input.leaseUntil,
-        workerGeneration: input.workerGeneration,
-        childId: input.childId,
-        outcome: input.outcome,
-        providerMessageId: input.providerMessageId ?? null,
-      })
-      .then(() => undefined);
+    dependencies.repository.settleDelivery({
+      tenantId: dependencies.trustedTenant.tenantId,
+      operationId: input.operationId,
+      attemptId: input.attemptId,
+      claimFence: input.claimFence,
+      claimOwner: input.claimOwner,
+      leaseUntil: input.leaseUntil,
+      workerGeneration: input.workerGeneration,
+      childId: input.childId,
+      outcome: input.outcome,
+      providerMessageId: input.providerMessageId ?? null,
+    });
 }
 
 export function createAcceptedClaimGatedDeliverySender(dependencies: {
   readonly trustedTenant: Readonly<{ tenantId: string }>;
   readonly claim: SenderDependencies['claim'];
   readonly begin: SenderDependencies['begin'];
-  readonly sender: (input: CorrelatedDeliverySend) => Promise<void>;
-}): Readonly<{ send(input: AcceptedDeliverySend): Promise<void> }> {
+  readonly sender: (input: CorrelatedDeliverySend) => Promise<DeliveryProviderIdentity>;
+  readonly settle: DeliverySettlementPort;
+}): Readonly<{ send(input: AcceptedDeliverySend): Promise<DeliverySentCompletion> }> {
   return Object.freeze({
-    async send(input): Promise<void> {
+    async send(input): Promise<DeliverySentCompletion> {
       if (!isAcceptedDeliverySend(input, dependencies.trustedTenant.tenantId)) {
         throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       }
@@ -103,6 +117,22 @@ export function createAcceptedClaimGatedDeliverySender(dependencies: {
         workerGeneration: claim.operation.workerGeneration ?? 0,
         childId: claim.operation.childId ?? '',
       };
+      if (claim.operation.status === 'SENT' && claim.attempt.status === 'SENT') {
+        if (
+          authority.operationId !== input.operationId ||
+          authority.workerGeneration !== input.workerGeneration ||
+          authority.childId !== input.childId ||
+          claim.attempt.providerMessageId === null
+        ) {
+          throw new RepositoryError('DATABASE_ROW_INVALID');
+        }
+        return sentCompletion(
+          claim,
+          dependencies.trustedTenant.tenantId,
+          authority,
+          claim.attempt.providerMessageId,
+        );
+      }
       if (
         claim.operation.tenantId !== dependencies.trustedTenant.tenantId ||
         claim.attempt.tenantId !== dependencies.trustedTenant.tenantId ||
@@ -120,7 +150,7 @@ export function createAcceptedClaimGatedDeliverySender(dependencies: {
         throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
       }
       await dependencies.begin(authority);
-      await dependencies.sender(
+      const sent = await dependencies.sender(
         Object.freeze({
           correlationId: input.correlationId,
           tenantId: input.tenantId,
@@ -133,7 +163,57 @@ export function createAcceptedClaimGatedDeliverySender(dependencies: {
           text: input.text,
         }),
       );
+      if (!isIdentifier(sent.providerMessageId)) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const settled = await dependencies.settle({
+        ...authority,
+        outcome: 'SENT',
+        providerMessageId: sent.providerMessageId,
+      });
+      return sentCompletion(
+        settled,
+        dependencies.trustedTenant.tenantId,
+        authority,
+        sent.providerMessageId,
+      );
     },
+  });
+}
+
+function sentCompletion(
+  settled: DeliveryClaimRecord,
+  tenantId: string,
+  authority: DeliveryClaimAuthority,
+  providerMessageId: string,
+): DeliverySentCompletion {
+  if (
+    settled.operation.tenantId !== tenantId ||
+    settled.attempt.tenantId !== tenantId ||
+    settled.operation.id !== authority.operationId ||
+    settled.attempt.operationId !== authority.operationId ||
+    settled.attempt.id !== authority.attemptId ||
+    settled.operation.status !== 'SENT' ||
+    settled.attempt.status !== 'SENT' ||
+    settled.operation.claimFence !== authority.claimFence ||
+    settled.attempt.claimFence !== authority.claimFence ||
+    settled.operation.claimOwner !== authority.claimOwner ||
+    settled.operation.leaseUntil !== authority.leaseUntil ||
+    settled.operation.workerGeneration !== authority.workerGeneration ||
+    settled.operation.childId !== authority.childId ||
+    settled.attempt.providerMessageId !== providerMessageId
+  ) {
+    throw new RepositoryError('DATABASE_ROW_INVALID');
+  }
+  return Object.freeze({
+    outcome: 'SENT',
+    tenantId,
+    operationId: authority.operationId,
+    attemptId: authority.attemptId,
+    claimFence: authority.claimFence,
+    workerGeneration: authority.workerGeneration,
+    childId: authority.childId,
+    providerMessageId,
   });
 }
 

@@ -8,7 +8,10 @@ import type {
   WorkerPairingState,
 } from '../../../interfaces/worker-ipc/contract';
 import { decodeParentMessage } from '../../../interfaces/worker-ipc/contract';
-import type { CorrelatedDeliverySend } from '../../delivery/application/claim-gated-delivery-sender';
+import type {
+  CorrelatedDeliverySend,
+  DeliveryProviderIdentity,
+} from '../../delivery/application/claim-gated-delivery-sender';
 import type { CancelScheduledTask, ScheduleTaskPort } from '../application/worker-runtime-service';
 import type { LocalCredentialDirectoryHandle } from './local-whatsapp-credential-directory';
 import { createLocalWhatsAppCredentialDirectory } from './local-whatsapp-credential-directory';
@@ -53,7 +56,7 @@ interface Dependencies {
 
 export interface BaileysWorkerChild {
   handle(message: unknown): Promise<void>;
-  sendDelivery(input: CorrelatedDeliverySend): Promise<void>;
+  sendDelivery(input: CorrelatedDeliverySend): Promise<DeliveryProviderIdentity>;
   stop(): Promise<void>;
 }
 
@@ -85,9 +88,12 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
   let active: ActiveWorker | undefined;
   let transition = Promise.resolve();
 
-  function enqueue(operation: () => Promise<void>): Promise<void> {
+  function enqueue<T>(operation: () => Promise<T>): Promise<T> {
     const result = transition.then(operation, operation);
-    transition = result.catch(() => undefined);
+    transition = result.then(
+      () => undefined,
+      () => undefined,
+    );
     return result;
   }
 
@@ -475,7 +481,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       }
       return enqueue(() => handleCommand(message));
     },
-    sendDelivery(input): Promise<void> {
+    sendDelivery(input): Promise<DeliveryProviderIdentity> {
       return enqueue(async () => {
         const worker = active;
         if (
@@ -490,7 +496,12 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
         }
         const socket = worker.socket;
         if (!socket?.sendMessage) throw new Error('Delivery sender unavailable');
-        await socket.sendMessage(input.target, { text: input.text });
+        const providerResult = await socket.sendMessage(input.target, { text: input.text });
+        const providerMessageId = ownValue(ownValue(providerResult, 'key'), 'id');
+        if (!isIdentifier(providerMessageId)) {
+          throw new Error('Delivery sender returned invalid provider identity');
+        }
+        return Object.freeze({ providerMessageId });
       });
     },
     stop(): Promise<void> {

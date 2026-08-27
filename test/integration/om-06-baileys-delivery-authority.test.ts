@@ -10,6 +10,7 @@ import { createDeliveryClaimService } from '../../src/modules/delivery/applicati
 import {
   createAcceptedClaimGatedDeliverySender,
   createDeliveryBeginPort,
+  createDeliverySettlementPort,
   type CorrelatedDeliverySend,
 } from '../../src/modules/delivery/application/claim-gated-delivery-sender';
 import {
@@ -108,6 +109,10 @@ void test('stale attempt or fence authority invokes no Baileys sender', async (t
         repository: fixture.repository,
         trustedTenant: { tenantId },
       }),
+      settle: createDeliverySettlementPort({
+        repository: fixture.repository,
+        trustedTenant: { tenantId },
+      }),
       sender: (delivery) => fixture.child.sendDelivery(delivery),
     });
     await assert.rejects(sender.send(input));
@@ -195,6 +200,7 @@ async function createFixture(t: test.TestContext): Promise<Fixture> {
       trustedTenant: { tenantId },
       claim: claim.claim,
       begin: createDeliveryBeginPort({ repository, trustedTenant: { tenantId } }),
+      settle: createDeliverySettlementPort({ repository, trustedTenant: { tenantId } }),
       sender: (delivery: CorrelatedDeliverySend) => {
         sentInputs.push(delivery);
         return child.sendDelivery(delivery);
