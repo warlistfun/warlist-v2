@@ -422,11 +422,11 @@ export function createPostgresBusinessRepository(dependencies: {
              AND generation = $5 AND child_id = $6
            FOR SHARE
          ), locked_operation AS MATERIALIZED (
-           SELECT operation.id, operation.tenant_id, operation.status, operation.claim_lease_until
+           SELECT operation.*
            FROM delivery_operations AS operation
            JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
            WHERE operation.tenant_id = $1 AND operation.id = $2
-             AND operation.status IN ('PREPARED', 'CLAIMED', 'SENDING')
+             AND operation.status IN ('PREPARED', 'CLAIMED', 'SENDING', 'SENT')
            FOR UPDATE OF operation
          ), claim_clock AS MATERIALIZED (
            SELECT date_trunc('milliseconds', clock_timestamp()) AS now FROM locked_operation
@@ -470,11 +470,33 @@ export function createPostgresBusinessRepository(dependencies: {
                 created_attempt.id AS attempt_id, created_attempt.attempt_number,
                 created_attempt.status AS attempt_status,
                 created_attempt.claim_fence AS attempt_claim_fence,
+                created_attempt.provider_message_id,
                 created_attempt.schema_version AS attempt_schema_version,
                 created_attempt.revision AS attempt_revision,
                 created_attempt.created_at AS attempt_created_at,
                 created_attempt.updated_at AS attempt_updated_at
-         FROM claimed JOIN created_attempt ON created_attempt.operation_id = claimed.id`,
+         FROM claimed JOIN created_attempt ON created_attempt.operation_id = claimed.id
+         UNION ALL
+         SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
+                operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
+                operation.schema_version AS operation_schema_version,
+                operation.revision AS operation_revision,
+                operation.created_at AS operation_created_at,
+                operation.updated_at AS operation_updated_at,
+                attempt.id AS attempt_id, attempt.attempt_number,
+                attempt.status AS attempt_status,
+                attempt.claim_fence AS attempt_claim_fence,
+                attempt.provider_message_id,
+                attempt.schema_version AS attempt_schema_version,
+                attempt.revision AS attempt_revision,
+                attempt.created_at AS attempt_created_at,
+                attempt.updated_at AS attempt_updated_at
+         FROM locked_operation AS operation
+         JOIN delivery_attempts AS attempt
+           ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+          AND attempt.claim_fence = operation.claim_fence
+         WHERE operation.status = 'SENT' AND attempt.status = 'SENT'`,
         [
           input.tenantId,
           input.operationId,
