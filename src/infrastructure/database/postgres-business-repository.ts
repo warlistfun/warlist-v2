@@ -821,8 +821,9 @@ export function createPostgresBusinessRepository(dependencies: {
              AND operation.claim_lease_until = $6::timestamptz
              AND operation.worker_generation = $7 AND operation.worker_child_id = $8
              AND attempt.id = $3 AND attempt.status = operation.status
-             AND attempt.claim_fence = operation.claim_fence
-           FOR UPDATE OF operation
+ AND attempt.claim_fence = operation.claim_fence
+ AND operation.claim_lease_until > clock_timestamp()
+ FOR UPDATE OF operation
          ), recovered AS (
            UPDATE delivery_operations AS operation
            SET status = 'SENT', revision = operation.revision + 1, updated_at = clock_timestamp()
