@@ -328,16 +328,16 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
     (await fixture.repository.loadDelivery(tenantId, crashOperationId))?.status,
     'SENDING',
   );
-  await assert.rejects(
-    claimService(fixture.repository, {
-      ownerId: 'claim_owner_recovery',
-      attemptId: '00000000-0000-4000-8000-000000000810',
-    }).claim({ operationId: crashOperationId, workerGeneration: 3, childId: 'child_example_3' }),
-    { code: 'DELIVERY_CLAIM_CONFLICT' },
-  );
+  const recovered = await claimService(fixture.repository, {
+    ownerId: 'claim_owner_recovery',
+    attemptId: '00000000-0000-4000-8000-000000000810',
+  }).claim({ operationId: crashOperationId, workerGeneration: 3, childId: 'child_example_3' });
+  assert.equal(recovered.operation.status, 'AMBIGUOUS');
+  assert.equal(recovered.attempt.status, 'AMBIGUOUS');
+  assert.equal(recovered.attempt.id, crashAuthority.attemptId);
   assert.equal(
-    (await fixture.repository.loadDelivery(tenantId, crashOperationId))?.status,
-    'AMBIGUOUS',
+    await fixture.repository.loadDeliveryAttempt(tenantId, '00000000-0000-4000-8000-000000000810'),
+    undefined,
   );
 
   const settle = createDeliverySettlementPort({

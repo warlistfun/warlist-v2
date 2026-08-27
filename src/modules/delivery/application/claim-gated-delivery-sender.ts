@@ -50,6 +50,26 @@ export type DeliverySentCompletion = Readonly<{
   providerMessageId: string;
 }>;
 
+export type DeliveryAmbiguousCompletion = Readonly<{
+  outcome: 'AMBIGUOUS';
+  manualReconciliationRequired: true;
+  tenantId: string;
+  operationId: string;
+  attemptId: string;
+  claimFence: number;
+  claimOwner: string;
+  leaseUntil: string;
+  workerGeneration: number;
+  childId: string;
+  providerMessageId: string | null;
+}>;
+
+type DeliveryCompletion = DeliverySentCompletion | DeliveryAmbiguousCompletion;
+
+type DeliverySendScheduler = Readonly<{
+  schedule(delayMs: number, task: () => void): () => void;
+}>;
+
 type DeliveryOutcome = 'SENT' | 'AMBIGUOUS';
 
 type DeliverySettlement = DeliveryClaimAuthority &
@@ -101,9 +121,16 @@ export function createAcceptedClaimGatedDeliverySender(dependencies: {
   readonly begin: SenderDependencies['begin'];
   readonly sender: (input: CorrelatedDeliverySend) => Promise<DeliveryProviderIdentity>;
   readonly settle: DeliverySettlementPort;
-}): Readonly<{ send(input: AcceptedDeliverySend): Promise<DeliverySentCompletion> }> {
+  readonly sendTimeoutMs?: number;
+  readonly scheduler?: DeliverySendScheduler;
+}): Readonly<{ send(input: AcceptedDeliverySend): Promise<DeliveryCompletion> }> {
+  const sendTimeoutMs = dependencies.sendTimeoutMs ?? 30_000;
+  if (!Number.isSafeInteger(sendTimeoutMs) || sendTimeoutMs < 1) {
+    throw new Error('sendTimeoutMs must be a positive integer');
+  }
+  const scheduler = dependencies.scheduler ?? deliverySendScheduler;
   return Object.freeze({
-    async send(input): Promise<DeliverySentCompletion> {
+    async send(input): Promise<DeliveryCompletion> {
       if (!isAcceptedDeliverySend(input, dependencies.trustedTenant.tenantId)) {
         throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       }
@@ -133,6 +160,24 @@ export function createAcceptedClaimGatedDeliverySender(dependencies: {
           claim.attempt.providerMessageId,
         );
       }
+      if (claim.operation.status === 'AMBIGUOUS' && claim.attempt.status === 'AMBIGUOUS') {
+        if (
+          authority.operationId !== input.operationId ||
+          authority.claimFence !== claim.attempt.claimFence ||
+          authority.claimOwner === '' ||
+          authority.leaseUntil === '' ||
+          authority.workerGeneration < 1 ||
+          authority.childId === ''
+        ) {
+          throw new RepositoryError('DATABASE_ROW_INVALID');
+        }
+        return ambiguousCompletion(
+          claim,
+          dependencies.trustedTenant.tenantId,
+          authority,
+          claim.attempt.providerMessageId,
+        );
+      }
       if (
         claim.operation.tenantId !== dependencies.trustedTenant.tenantId ||
         claim.attempt.tenantId !== dependencies.trustedTenant.tenantId ||
@@ -150,36 +195,131 @@ export function createAcceptedClaimGatedDeliverySender(dependencies: {
         throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
       }
       await dependencies.begin(authority);
-      const sent = await dependencies.sender(
-        Object.freeze({
-          correlationId: input.correlationId,
-          tenantId: input.tenantId,
-          operationId: authority.operationId,
-          attemptId: authority.attemptId,
-          claimFence: authority.claimFence,
-          workerGeneration: authority.workerGeneration,
-          childId: authority.childId,
-          target: input.target,
-          text: input.text,
-        }),
-      );
-      if (!isIdentifier(sent.providerMessageId)) {
-        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      let providerMessageId: string | null = null;
+      try {
+        const sent = await sendWithTimeout(
+          dependencies.sender(
+            Object.freeze({
+              correlationId: input.correlationId,
+              tenantId: input.tenantId,
+              operationId: authority.operationId,
+              attemptId: authority.attemptId,
+              claimFence: authority.claimFence,
+              workerGeneration: authority.workerGeneration,
+              childId: authority.childId,
+              target: input.target,
+              text: input.text,
+            }),
+          ),
+          sendTimeoutMs,
+          scheduler,
+        );
+        if (!isIdentifier(sent.providerMessageId)) {
+          throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+        }
+        providerMessageId = sent.providerMessageId;
+        const settled = await dependencies.settle({
+          ...authority,
+          outcome: 'SENT',
+          providerMessageId,
+        });
+        return sentCompletion(
+          settled,
+          dependencies.trustedTenant.tenantId,
+          authority,
+          providerMessageId,
+        );
+      } catch {
+        const settled = await dependencies.settle({
+          ...authority,
+          outcome: 'AMBIGUOUS',
+          ...(providerMessageId === null ? {} : { providerMessageId }),
+        });
+        return ambiguousCompletion(
+          settled,
+          dependencies.trustedTenant.tenantId,
+          authority,
+          providerMessageId,
+        );
       }
-      const settled = await dependencies.settle({
-        ...authority,
-        outcome: 'SENT',
-        providerMessageId: sent.providerMessageId,
-      });
-      return sentCompletion(
-        settled,
-        dependencies.trustedTenant.tenantId,
-        authority,
-        sent.providerMessageId,
-      );
     },
   });
 }
+
+function ambiguousCompletion(
+  settled: DeliveryClaimRecord,
+  tenantId: string,
+  authority: DeliveryClaimAuthority,
+  providerMessageId: string | null,
+): DeliveryAmbiguousCompletion {
+  if (
+    settled.operation.tenantId !== tenantId ||
+    settled.attempt.tenantId !== tenantId ||
+    settled.operation.id !== authority.operationId ||
+    settled.attempt.operationId !== authority.operationId ||
+    settled.attempt.id !== authority.attemptId ||
+    settled.operation.status !== 'AMBIGUOUS' ||
+    settled.attempt.status !== 'AMBIGUOUS' ||
+    settled.operation.claimFence !== authority.claimFence ||
+    settled.attempt.claimFence !== authority.claimFence ||
+    settled.operation.claimOwner !== authority.claimOwner ||
+    settled.operation.leaseUntil !== authority.leaseUntil ||
+    settled.operation.workerGeneration !== authority.workerGeneration ||
+    settled.operation.childId !== authority.childId ||
+    settled.attempt.providerMessageId !== providerMessageId
+  ) {
+    throw new RepositoryError('DATABASE_ROW_INVALID');
+  }
+  return Object.freeze({
+    outcome: 'AMBIGUOUS',
+    manualReconciliationRequired: true,
+    tenantId,
+    operationId: authority.operationId,
+    attemptId: authority.attemptId,
+    claimFence: authority.claimFence,
+    claimOwner: authority.claimOwner,
+    leaseUntil: authority.leaseUntil,
+    workerGeneration: authority.workerGeneration,
+    childId: authority.childId,
+    providerMessageId,
+  });
+}
+
+function sendWithTimeout<T>(
+  send: Promise<T>,
+  timeoutMs: number,
+  scheduler: DeliverySendScheduler,
+): Promise<T> {
+  return new Promise((resolve, reject) => {
+    let settled = false;
+    const cancel = scheduler.schedule(timeoutMs, () => {
+      if (settled) return;
+      settled = true;
+      reject(new Error('Delivery provider outcome is unknown'));
+    });
+    send.then(
+      (result) => {
+        if (settled) return;
+        settled = true;
+        cancel();
+        resolve(result);
+      },
+      (error: unknown) => {
+        if (settled) return;
+        settled = true;
+        cancel();
+        reject(error instanceof Error ? error : new Error('Delivery provider failed'));
+      },
+    );
+  });
+}
+
+const deliverySendScheduler: DeliverySendScheduler = Object.freeze({
+  schedule(delayMs, task) {
+    const handle = setTimeout(task, delayMs);
+    return () => clearTimeout(handle);
+  },
+});
 
 function sentCompletion(
   settled: DeliveryClaimRecord,
