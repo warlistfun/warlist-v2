@@ -108,18 +108,22 @@ void test('adversarial matrix allows one synthetic sender call and never replays
     (await fixture.repository.loadDelivery(tenantId, ambiguousOperationId))?.status,
     'AMBIGUOUS',
   );
-  await assert.rejects(
-    createDeliveryClaimService({
-      repository: fixture.repository,
-      trustedTenant: { tenantId },
-      ownerId: 'claim_owner_matrix_replay',
-      idGenerator: { generate: () => '00000000-0000-4000-8000-000000000b07' },
-    }).claim({
-      operationId: ambiguousOperationId,
-      workerGeneration: worker.generation,
-      childId: worker.childId,
-    }),
-    { code: 'DELIVERY_CLAIM_CONFLICT' },
+  const ambiguousReplay = await createDeliveryClaimService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    ownerId: 'claim_owner_matrix_replay',
+    idGenerator: { generate: () => '00000000-0000-4000-8000-000000000b07' },
+  }).claim({
+    operationId: ambiguousOperationId,
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  });
+  assert.equal(ambiguousReplay.operation.status, 'AMBIGUOUS');
+  assert.equal(ambiguousReplay.attempt.status, 'AMBIGUOUS');
+  assert.equal(ambiguousReplay.attempt.id, '00000000-0000-4000-8000-000000000b06');
+  assert.equal(
+    await fixture.repository.loadDeliveryAttempt(tenantId, '00000000-0000-4000-8000-000000000b07'),
+    undefined,
   );
   assert.equal(sends, 2);
 

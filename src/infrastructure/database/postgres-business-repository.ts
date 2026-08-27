@@ -426,17 +426,25 @@ export function createPostgresBusinessRepository(dependencies: {
            FROM delivery_operations AS operation
            JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
            WHERE operation.tenant_id = $1 AND operation.id = $2
-             AND operation.status IN ('PREPARED', 'CLAIMED', 'SENDING', 'SENT')
+             AND operation.status IN ('PREPARED', 'CLAIMED', 'SENDING', 'SENT', 'AMBIGUOUS')
            FOR UPDATE OF operation
          ), claim_clock AS MATERIALIZED (
            SELECT date_trunc('milliseconds', clock_timestamp()) AS now FROM locked_operation
-         ), recovered AS (
+         ), recovered_attempt AS (
+           UPDATE delivery_attempts AS attempt
+           SET status = 'AMBIGUOUS', revision = attempt.revision + 1, updated_at = claim_clock.now
+           FROM locked_operation AS locked, claim_clock
+           WHERE locked.status = 'SENDING' AND locked.claim_lease_until <= claim_clock.now
+             AND attempt.tenant_id = locked.tenant_id AND attempt.operation_id = locked.id
+             AND attempt.claim_fence = locked.claim_fence AND attempt.status = 'PREPARED'
+           RETURNING attempt.*
+         ), recovered_operation AS (
            UPDATE delivery_operations AS operation
            SET status = 'AMBIGUOUS', revision = operation.revision + 1, updated_at = claim_clock.now
-           FROM locked_operation AS locked, claim_clock
+           FROM locked_operation AS locked, claim_clock, recovered_attempt AS attempt
            WHERE operation.tenant_id = locked.tenant_id AND operation.id = locked.id
-             AND locked.status = 'SENDING' AND locked.claim_lease_until <= claim_clock.now
-           RETURNING operation.id
+             AND attempt.tenant_id = locked.tenant_id AND attempt.operation_id = locked.id
+           RETURNING operation.*
          ), claimed AS (
            UPDATE delivery_operations AS operation
            SET status = 'CLAIMED', claim_owner = $4,
@@ -448,7 +456,7 @@ export function createPostgresBusinessRepository(dependencies: {
            WHERE operation.tenant_id = locked.tenant_id AND operation.id = locked.id
              AND (locked.status = 'PREPARED'
                OR (locked.status = 'CLAIMED' AND locked.claim_lease_until <= claim_clock.now))
-             AND NOT EXISTS (SELECT 1 FROM recovered)
+             AND NOT EXISTS (SELECT 1 FROM recovered_operation)
            RETURNING operation.*
          ), created_attempt AS (
            INSERT INTO delivery_attempts
@@ -496,7 +504,27 @@ export function createPostgresBusinessRepository(dependencies: {
          JOIN delivery_attempts AS attempt
            ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
           AND attempt.claim_fence = operation.claim_fence
-         WHERE operation.status = 'SENT' AND attempt.status = 'SENT'`,
+         WHERE operation.status IN ('SENT', 'AMBIGUOUS') AND attempt.status = operation.status
+         UNION ALL
+         SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
+                operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
+                operation.schema_version AS operation_schema_version,
+                operation.revision AS operation_revision,
+                operation.created_at AS operation_created_at,
+                operation.updated_at AS operation_updated_at,
+                attempt.id AS attempt_id, attempt.attempt_number,
+                attempt.status AS attempt_status,
+                attempt.claim_fence AS attempt_claim_fence,
+                attempt.provider_message_id,
+                attempt.schema_version AS attempt_schema_version,
+                attempt.revision AS attempt_revision,
+                attempt.created_at AS attempt_created_at,
+                attempt.updated_at AS attempt_updated_at
+         FROM recovered_operation AS operation
+         JOIN recovered_attempt AS attempt
+           ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+          AND attempt.claim_fence = operation.claim_fence`,
         [
           input.tenantId,
           input.operationId,
