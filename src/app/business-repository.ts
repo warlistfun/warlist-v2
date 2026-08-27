@@ -157,6 +157,18 @@ export interface DeliveryClaimRepositoryPort {
       correlationId: string;
     }>,
   ): Promise<DeliveryConfirmationRecord>;
+  recoverAmbiguousDelivery(
+    input: Readonly<{
+      tenantId: string;
+      operationId: string;
+      attemptId: string;
+      claimFence: number;
+      claimOwner: string;
+      leaseUntil: string;
+      workerGeneration: number;
+      childId: string;
+    }>,
+  ): Promise<DeliveryClaimRecord>;
 }
 
 export interface DeliveryConfirmationAdmissionRepositoryPort {

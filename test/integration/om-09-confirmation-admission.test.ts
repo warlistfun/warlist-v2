@@ -6,6 +6,7 @@ import { Client } from 'pg';
 import { createDeliveryClaimService } from '../../src/modules/delivery/application/delivery-claim-service';
 import { createDeliveryConfirmationAdmissionService } from '../../src/modules/delivery/application/delivery-confirmation-admission-service';
 import { createDeliveryConfirmationService } from '../../src/modules/delivery/application/delivery-confirmation-service';
+import { createDeliveryManualRecoveryService } from '../../src/modules/delivery/application/delivery-manual-recovery-service';
 import {
   createAcceptedClaimGatedDeliverySender,
   createDeliveryBeginPort,
@@ -334,4 +335,57 @@ void test('OM-10 concurrent replay is one debit and transaction failure rolls ba
     'SENT',
   );
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
+});
+
+void test('OM-11 authorized manual recovery converges ambiguous replay and restart to SENT without debit or resend', async (t) => {
+  const fixture = await createFixture(t);
+  await fixture.repository.prepareDelivery({
+    id: operationId,
+    tenantId,
+    operationKey: 'automation:om_11_manual_recovery',
+  });
+  const claim = await createDeliveryClaimService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    ownerId: 'claim_owner_om_11',
+    idGenerator: { generate: () => attemptId },
+  }).claim({ operationId, workerGeneration: worker.generation, childId: worker.childId });
+  const authority = {
+    operationId,
+    attemptId,
+    claimFence: claim.operation.claimFence,
+    claimOwner: claim.operation.claimOwner!,
+    leaseUntil: claim.operation.leaseUntil!,
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  };
+  await fixture.repository.beginDelivery({ tenantId, ...authority });
+  await fixture.repository.settleDelivery({
+    tenantId,
+    ...authority,
+    outcome: 'AMBIGUOUS',
+    providerMessageId: null,
+  });
+  const recovery = createDeliveryManualRecoveryService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+  });
+  const first = await recovery.resolve(authority);
+  const replay = await recovery.resolve(authority);
+  assert.equal(first.operation.status, 'SENT');
+  assert.equal(first.attempt.status, 'SENT');
+  assert.deepEqual(replay, first);
+  await fixture.repository.stop();
+  const restartedRepository = createRepository(fixture.database, fixture.authorization);
+  await restartedRepository.start();
+  t.after(() => restartedRepository.stop());
+  assert.deepEqual(
+    await createDeliveryManualRecoveryService({
+      repository: restartedRepository,
+      trustedTenant: { tenantId },
+    }).resolve(authority),
+    first,
+  );
+  assert.equal((await restartedRepository.readEntitlementBalance(tenantId)).units, 0);
+  assert.equal(fixture.sends.count, 0);
 });
