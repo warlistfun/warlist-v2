@@ -81,6 +81,15 @@ export type DeliveryConfirmationRecord = Readonly<{
   debit: EntitlementLedgerEntry | null;
 }>;
 
+export type DeliveryConfirmationAdmissionRecord = Readonly<{
+  outcome: 'CONFIRMED';
+  tenantId: string;
+  operationId: string;
+  attemptId: string;
+  providerMessageId: string;
+  confirmedAt: string;
+}>;
+
 export type EntitlementEntryType =
   'CREDIT_PAYMENT' | 'CREDIT_COUPON' | 'DEBIT_CONFIRMED_DELIVERY' | 'ADJUSTMENT';
 
@@ -148,6 +157,17 @@ export interface DeliveryClaimRepositoryPort {
       correlationId: string;
     }>,
   ): Promise<DeliveryConfirmationRecord>;
+}
+
+export interface DeliveryConfirmationAdmissionRepositoryPort {
+  admitDeliveryConfirmation(
+    input: Readonly<{
+      tenantId: string;
+      operationId: string;
+      attemptId: string;
+      providerMessageId: string;
+    }>,
+  ): Promise<DeliveryConfirmationAdmissionRecord>;
 }
 
 export type AuditEvent = Readonly<{
@@ -244,6 +264,7 @@ const repositoryErrors = {
   AUTOMATION_CONFIG_SYNC_CLAIM_CONFLICT: ['Automation config sync claim conflict', false],
   DELIVERY_ALREADY_EXISTS: ['Delivery operation already exists', false],
   DELIVERY_CLAIM_CONFLICT: ['Delivery claim conflict', false],
+  DELIVERY_CONFIRMATION_CONFLICT: ['Delivery confirmation conflict', false],
   ENTITLEMENT_BUSINESS_KEY_CONFLICT: ['Entitlement business key conflict', false],
   AUDIT_EVENT_ALREADY_EXISTS: ['Audit event already exists', false],
   DATABASE_UNAVAILABLE: ['Database is unavailable', true],
