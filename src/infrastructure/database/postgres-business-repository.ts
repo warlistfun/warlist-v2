@@ -11,6 +11,8 @@ import {
   type ConfigRecord,
   type DeliveryAttemptRecord,
   type DeliveryClaimRecord,
+  type DeliveryConfirmationAdmissionRecord,
+  type DeliveryConfirmationAdmissionRepositoryPort,
   type DeliveryConfirmationRecord,
   type DeliveryClaimRepositoryPort,
   type DeliveryRecord,
@@ -61,7 +63,9 @@ export function createPostgresBusinessRepository(dependencies: {
   readonly logger: LoggerPort;
   readonly metrics: MetricsPort;
   readonly poolFactory?: (options: PoolOptions) => PoolPort;
-}): BusinessRepositoryPort & DeliveryClaimRepositoryPort {
+}): BusinessRepositoryPort &
+  DeliveryClaimRepositoryPort &
+  DeliveryConfirmationAdmissionRepositoryPort {
   const config = parseConfig(dependencies.config);
   const poolFactory = dependencies.poolFactory ?? defaultPoolFactory;
   let pool: PoolPort | undefined;
@@ -410,6 +414,43 @@ export function createPostgresBusinessRepository(dependencies: {
         [tenantId, attemptId],
       );
       return parseOptional(result, parseDeliveryAttempt);
+    },
+    async admitDeliveryConfirmation(input): Promise<DeliveryConfirmationAdmissionRecord> {
+      authorize(input.tenantId);
+      if (!isDeliveryConfirmationAdmissionInput(input)) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const result = await query(
+        `WITH authority_clock AS MATERIALIZED (
+           SELECT date_trunc('milliseconds', clock_timestamp()) AS now
+         )
+         UPDATE delivery_attempts AS attempt
+         SET confirmation_provider_message_id = attempt.provider_message_id,
+             confirmed_at = COALESCE(attempt.confirmed_at, authority_clock.now),
+             revision = attempt.revision + CASE WHEN attempt.confirmed_at IS NULL THEN 1 ELSE 0 END,
+             updated_at = CASE
+               WHEN attempt.confirmed_at IS NULL THEN authority_clock.now
+               ELSE attempt.updated_at
+             END
+         FROM delivery_operations AS operation, authority_clock
+         WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'SENT'
+           AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+           AND attempt.id = $3 AND attempt.status = 'SENT'
+           AND attempt.claim_fence = operation.claim_fence
+           AND attempt.provider_message_id = $4
+           AND (attempt.confirmation_provider_message_id IS NULL
+             OR attempt.confirmation_provider_message_id = $4)
+         RETURNING attempt.tenant_id, attempt.operation_id, attempt.id AS attempt_id,
+                   attempt.confirmation_provider_message_id AS provider_message_id,
+                   attempt.confirmed_at`,
+        [input.tenantId, input.operationId, input.attemptId, input.providerMessageId],
+        (error) =>
+          postgresCode(error) === '23505'
+            ? new RepositoryError('DELIVERY_CONFIRMATION_CONFLICT')
+            : undefined,
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CONFIRMATION_CONFLICT');
+      return parseSingle(result, parseDeliveryConfirmationAdmission);
     },
     async claimDelivery(input): Promise<DeliveryClaimRecord> {
       authorize(input.tenantId);
@@ -1238,6 +1279,30 @@ function parseDeliveryConfirmation(row: unknown): DeliveryConfirmationRecord | u
   return Object.freeze({ operation, debit });
 }
 
+function parseDeliveryConfirmationAdmission(
+  row: unknown,
+): DeliveryConfirmationAdmissionRecord | undefined {
+  if (!isRecord(row)) return undefined;
+  const confirmedAt = timestamp(row.confirmed_at);
+  if (
+    !isUuid(row.tenant_id) ||
+    !isUuid(row.operation_id) ||
+    !isUuid(row.attempt_id) ||
+    !isIdentifier(row.provider_message_id, false) ||
+    !confirmedAt
+  ) {
+    return undefined;
+  }
+  return Object.freeze({
+    outcome: 'CONFIRMED',
+    tenantId: row.tenant_id,
+    operationId: row.operation_id,
+    attemptId: row.attempt_id,
+    providerMessageId: row.provider_message_id,
+    confirmedAt,
+  });
+}
+
 function parseEntitlementLedgerEntry(row: unknown): EntitlementLedgerEntry | undefined {
   if (!isRecord(row)) return undefined;
   const units = nonZeroInteger(row.units);
@@ -1487,6 +1552,16 @@ function isDeliveryConfirmationInput(value: unknown): boolean {
     isUuid(value.debitId) &&
     isIdentifier(value.businessKey, false) &&
     isIdentifier(value.correlationId, false)
+  );
+}
+
+function isDeliveryConfirmationAdmissionInput(value: unknown): boolean {
+  return (
+    isRecord(value) &&
+    isUuid(value.tenantId) &&
+    isUuid(value.operationId) &&
+    isUuid(value.attemptId) &&
+    isIdentifier(value.providerMessageId, false)
   );
 }
 
