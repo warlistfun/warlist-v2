@@ -1,13 +1,13 @@
 # WARLIST V2 Operational Migration Roadmap
 
-> **Status:** `OM-01 VERIFIED`; `OM-02 VERIFIED`; `OM-03 VERIFIED`; `OM-04 VERIFIED`; Operational Migration remains incomplete. This planning/status board is governed by [`operational-migration-master.md`](operational-migration-master.md). Every new implementation Issue from `OM-03` onward has at most two independently testable acceptance criteria and still requires a new explicit owner decision.
+> **Status:** `OM-01`–`OM-05 VERIFIED`; Operational Migration remains incomplete. This planning/status board is governed by [`operational-migration-master.md`](operational-migration-master.md). Every new implementation Issue from `OM-03` onward has at most two independently testable acceptance criteria and still requires a new explicit owner decision.
 
 ## Two-AC reslice summary
 
-- Verified history: `OM-01`–`OM-04`.
+- Verified history: `OM-01`–`OM-05`.
 - Roadmap range: `OM-01`–`OM-44`.
-- Remaining work: 40 slices, `OM-05`–`OM-44`.
-- Phase ranges: OM-A `OM-01`–`OM-11` (7 remaining), OM-B `OM-12`–`OM-29` (18), OM-C `OM-30`–`OM-38` (9), OM-D `OM-39`–`OM-44` (6).
+- Remaining work: 39 slices, `OM-06`–`OM-44`.
+- Phase ranges: OM-A `OM-01`–`OM-11` (6 remaining), OM-B `OM-12`–`OM-29` (18), OM-C `OM-30`–`OM-38` (9), OM-D `OM-39`–`OM-44` (6).
 - The 14 former unstarted slices each used an Issue ceiling of five AC. Preserving that ceiling as `2 + 2 + 1` originally yielded `14 × 3 = 42` post-`OM-02` Issues without padding a one-AC outcome or increasing scope.
 - This reslice changes only Issue size and numbering after `OM-02`; the established parity, safety, external-effect, verification, PR/CI/merge, cleanup, checkpoint, recommendation, prerequisite, exact `/new`, and stop flow remains unchanged.
 - Mandatory global gates are not extra AC, and hidden sub-AC are forbidden. If current evidence makes a planned outcome unnecessary, the roadmap must be corrected explicitly rather than padding its Issue.
@@ -45,13 +45,13 @@ A slice status never closes its phase automatically. Numerical order is the defa
 ## Current decision point
 
 - Backend Foundation remains `PARTIALLY VERIFIED` and non-operational.
-- Issues #132 (`OM-01`), #136 (`OM-02`), #140 (`OM-03`), and #142 (`OM-04`) are verified synthetic/local slices; none closes Operational Migration or OM-A.
+- Issues #132 (`OM-01`), #136 (`OM-02`), #140 (`OM-03`), #142 (`OM-04`), and #146 (`OM-05`) are verified synthetic/local slices; none closes Operational Migration or OM-A.
 - No WhatsApp provider, credential, hosted database, customer, deployment, financial, or Production action is authorized.
-- No slice after `OM-04` is authorized. The next recommendation is `OM-05`, not permission to start it.
+- No slice after `OM-05` is authorized. The next recommendation is `OM-06`, not permission to start it.
 
 ## Phase OM-A — Core WhatsApp/Baileys path
 
-**Range:** `OM-01–OM-11`. **Remaining:** 7.
+**Range:** `OM-01–OM-11`. **Remaining:** 6.
 
 **Objective:** Reproduce the legacy WhatsApp automation path through the existing V2 seams, one observable behavior at a time, without changing product flow or performing a bulk worker rewrite.
 
@@ -92,9 +92,11 @@ A slice status never closes its phase automatically. Numerical order is the defa
 ### OM-05 — Reconnect, logout, and explicit reset parity
 
 - **Source scope:** former OM-03.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. Retryable reconnect, terminal logout, stop, and explicit reset preserve the characterized legacy outcome while deleting only the fenced current root; ordinary pairing/status actions never delete auth state implicitly.
+- **Status:** `VERIFIED` — Issue #146; local synthetic-filesystem/fake-socket evidence only.
+- **Acceptance criteria (2/2):**
+  1. Retryable close reconnects with the same fenced owner; provider logout is terminal, and stop cancels socket/reconnect work and releases ownership without deleting auth state.
+  2. Only exact-owner `RESET_WORKER` deletes the synthetic tenant directory after terminal socket stop; cleanup failure stays fenced and retryable until deletion and release complete.
+- **Evidence:** [`operational-migration/om-05-reconnect-logout-reset-parity.md`](operational-migration/om-05-reconnect-logout-reset-parity.md).
 - **Explicit exclusions:** No real account action, Production auth copy, customer credential, provider send, or unrelated filesystem cleanup.
 
 ### OM-06 — Delivery claim to one Baileys send invocation

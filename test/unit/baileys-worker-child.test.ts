@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { mkdtemp, readdir, rm } from 'node:fs/promises';
+import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -154,6 +154,149 @@ void test('keeps credential failures and logged-out provider payloads behind saf
   ]);
 });
 
+void test('deletes synthetic auth only after an explicit reset reaches terminal stop', async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'warlist-v2-om-05-reset-'));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const credentialRoot = join(sandbox, 'credentials');
+  const credentialDirectory = join(credentialRoot, tenantId);
+  const marker = join(credentialDirectory, 'synthetic-auth-marker');
+  const sockets = new FakeBaileysSocketFactory();
+  const reconnectScheduler = new ManualScheduler();
+  const messages: ChildMessage[] = [];
+  const child = createBaileysWorkerChild({
+    credentialDirectory: createLocalWhatsAppCredentialDirectory({ root: credentialRoot }),
+    socketFactory: sockets,
+    scheduler: reconnectScheduler,
+    reconnectDelayMs: 2_000,
+    send(message) {
+      messages.push(message);
+    },
+  });
+
+  await child.handle({
+    protocolVersion: 1,
+    requestId: 'req_example_om_05_start_1',
+    correlationId: worker.correlationId,
+    tenantId,
+    generation: worker.generation,
+    childId: worker.childId,
+    type: 'START_WORKER',
+    payload: { configVersion: worker.configVersion },
+  });
+  await writeFile(marker, 'invented synthetic state', { mode: 0o600 });
+
+  const first = sockets.created[0]!;
+  await child.handle({
+    protocolVersion: 1,
+    requestId: 'req_example_om_05_pairing',
+    correlationId: worker.correlationId,
+    tenantId,
+    generation: worker.generation,
+    childId: worker.childId,
+    type: 'REQUEST_PAIRING',
+    payload: { pairingTarget: 'synthetic_om_05_target' },
+  });
+  first.events.emit('connection.update', { connection: 'open', qr: 'synthetic-signal' });
+  await flush();
+  await access(marker);
+
+  await child.handle({
+    protocolVersion: 1,
+    requestId: 'req_example_om_05_stale_reset',
+    correlationId: worker.correlationId,
+    tenantId,
+    generation: worker.generation + 1,
+    childId: 'child_example_146_stale',
+    type: 'RESET_WORKER',
+    payload: {},
+  });
+  await access(marker);
+
+  first.events.emit('connection.update', {
+    connection: 'close',
+    lastDisconnect: { error: { output: { statusCode: 408 } } },
+  });
+  reconnectScheduler.runNext();
+  await sockets.secondSocket;
+  await access(marker);
+
+  const second = sockets.created[1]!;
+  second.events.emit('connection.update', {
+    connection: 'close',
+    lastDisconnect: { error: { output: { statusCode: 401 } } },
+  });
+  assert.equal(reconnectScheduler.activeCount(), 0);
+  await access(marker);
+
+  await child.handle({
+    protocolVersion: 1,
+    requestId: 'req_example_om_05_stop',
+    correlationId: worker.correlationId,
+    tenantId,
+    generation: worker.generation,
+    childId: worker.childId,
+    type: 'STOP_WORKER',
+    payload: {},
+  });
+  await access(marker);
+
+  const resetWorker = {
+    ...worker,
+    generation: 2,
+    childId: 'child_example_146',
+  } as const;
+  await child.handle({
+    protocolVersion: 1,
+    requestId: 'req_example_om_05_start_2',
+    correlationId: resetWorker.correlationId,
+    tenantId,
+    generation: resetWorker.generation,
+    childId: resetWorker.childId,
+    type: 'START_WORKER',
+    payload: { configVersion: resetWorker.configVersion },
+  });
+  await child.handle({
+    protocolVersion: 1,
+    requestId: 'req_example_om_05_reset',
+    correlationId: resetWorker.correlationId,
+    tenantId,
+    generation: resetWorker.generation,
+    childId: resetWorker.childId,
+    type: 'RESET_WORKER',
+    payload: {},
+  });
+
+  await assert.rejects(access(credentialDirectory), (error: unknown) =>
+    hasFileCode(error, 'ENOENT'),
+  );
+  assert.equal(
+    messages.some(
+      (message) =>
+        message.type === 'COMMAND_ACK' &&
+        (message.payload as Readonly<{ commandType?: string }>).commandType === 'RESET_WORKER',
+    ),
+    true,
+  );
+});
+
+void test('allows a fresh owner only after reset acknowledgement releases the child', async (t) => {
+  const fixture = await createFixture(t);
+  await fixture.runtime.start();
+  assert.deepEqual(await fixture.runtime.startWorker(worker), { ok: true });
+  assert.deepEqual(await fixture.runtime.resetWorker(worker), { ok: true });
+
+  const next = {
+    ...worker,
+    generation: 2,
+    childId: 'child_example_146_next',
+    correlationId: 'corr_example_146_next',
+  } as const;
+  assert.deepEqual(await fixture.runtime.startWorker(next), { ok: true });
+  assert.equal(fixture.spawned, 2);
+  await fixture.runtime.stopWorker(next);
+  await fixture.runtime.stop();
+});
+
 void test('runtime shutdown disposes an open socket exactly once', async (t) => {
   const fixture = await createFixture(t);
   await fixture.runtime.start();
@@ -222,6 +365,7 @@ void test('child stop waits for credential ownership release', async (t) => {
         Promise.resolve({
           use: async <T>(operation: (directory: string) => T | PromiseLike<T>) =>
             operation(join(sandbox, 'credentials', tenantId)),
+          reset: () => Promise.resolve(),
           release: () =>
             new Promise<void>((resolve) => {
               releaseStarted = true;
@@ -490,6 +634,15 @@ function projectDiagnostics(events: readonly WorkerDiagnosticEvent[]): string[][
     }
     return [event.kind, event.state];
   });
+}
+
+function hasFileCode(error: unknown, code: string): boolean {
+  return (
+    typeof error === 'object' &&
+    error !== null &&
+    'code' in error &&
+    (error as Readonly<{ code?: unknown }>).code === code
+  );
 }
 
 async function flush(): Promise<void> {

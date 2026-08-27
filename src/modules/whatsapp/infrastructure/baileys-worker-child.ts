@@ -70,6 +70,7 @@ interface ActiveWorker {
   pairing: ActivePairing | undefined;
   pairingSignalReady: boolean;
   stopped: boolean;
+  resetRequested: boolean;
 }
 
 export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWorkerChild {
@@ -174,6 +175,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
           pairing: undefined,
           pairingSignalReady: false,
           stopped: false,
+          resetRequested: false,
         };
         active = worker;
         await connect(worker);
@@ -192,6 +194,14 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     }
 
     if (message.type === 'APPLY_CONFIG') {
+      sendError(message, 'WORKER_COMMAND_REJECTED');
+      return;
+    }
+
+    if (
+      active.stopped &&
+      message.type !== (active.resetRequested ? 'RESET_WORKER' : 'STOP_WORKER')
+    ) {
       sendError(message, 'WORKER_COMMAND_REJECTED');
       return;
     }
@@ -216,8 +226,9 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
 
     const worker = active;
     setPairingState(worker, 'STOPPED');
+    if (message.type === 'RESET_WORKER') worker.resetRequested = true;
     try {
-      await stopActive();
+      await stopActive(worker.resetRequested);
       emitConnection(worker, 'STOPPED');
       sendAcknowledgement(message);
     } catch {
@@ -225,14 +236,17 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     }
   }
 
-  async function stopActive(): Promise<void> {
+  async function stopActive(reset = false): Promise<void> {
     const worker = active;
     if (!worker) return;
-    worker.stopped = true;
-    worker.epoch += 1;
-    worker.cancelReconnect?.();
-    worker.cancelReconnect = undefined;
-    disposeSocket(worker);
+    if (!worker.stopped) {
+      worker.stopped = true;
+      worker.epoch += 1;
+      worker.cancelReconnect?.();
+      worker.cancelReconnect = undefined;
+      disposeSocket(worker);
+    }
+    if (reset) await worker.credentials.reset();
     await worker.credentials.release();
     if (active === worker) active = undefined;
   }
@@ -411,7 +425,9 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
   function sendAcknowledgement(message: ParentMessage): void {
     const identity = messageIdentity(message);
     dependencies.send(
-      message.type === 'REQUEST_PAIRING' || message.type === 'STOP_WORKER'
+      message.type === 'REQUEST_PAIRING' ||
+        message.type === 'STOP_WORKER' ||
+        message.type === 'RESET_WORKER'
         ? { ...identity, type: 'COMMAND_ACK', payload: { commandType: message.type } }
         : {
             ...identity,

@@ -17,11 +17,11 @@ PR #100 is the frozen backend implementation baseline. Later separately authoriz
 
 **Boundary:** This is a frozen implementation baseline, not a claim that every former phase definition or Production/cutover requirement is technically complete. No additional implementation may be started without a new explicit owner decision for one bounded Issue.
 
-## 2. Operational Migration — OM-01 through OM-04 verified subsets
+## 2. Operational Migration — OM-01 through OM-05 verified subsets
 
-**Status:** Issues #132 (`OM-01`), #136 (`OM-02`), #140 (`OM-03`), and #142 (`OM-04`) are verified synthetic/local slices. Operational Migration remains incomplete and no later slice is authorized.
+**Status:** Issues #132 (`OM-01`), #136 (`OM-02`), #140 (`OM-03`), #142 (`OM-04`), and #146 (`OM-05`) are verified synthetic/local slices. Operational Migration remains incomplete and no later slice is authorized.
 
-The owner-requested planning contract is [`operational-migration-master.md`](operational-migration-master.md), and its phase/slice status board is [`operational-migration-roadmap.md`](operational-migration-roadmap.md). They require legacy-flow parity by default, explicit classification for every behavior difference, minimum non-speculative implementation, at most two acceptance criteria for every new Issue from `OM-03`, durable slice checkpoints, and exactly one next-slice recommendation. The resliced roadmap runs through `OM-44`, with 40 slices remaining (`OM-05`–`OM-44`); no later slice is authorized. OM-01 proves only the synthetic local lifecycle path, OM-02 adds only synthetic inbound guard/IPC/decision evidence, OM-03 adds only a synthetic pairing request with bounded onboarding-state projection, and OM-04 adds only the local credential ownership/path boundary. None authorizes an external effect.
+The owner-requested planning contract is [`operational-migration-master.md`](operational-migration-master.md), and its phase/slice status board is [`operational-migration-roadmap.md`](operational-migration-roadmap.md). They require legacy-flow parity by default, explicit classification for every behavior difference, minimum non-speculative implementation, at most two acceptance criteria for every new Issue from `OM-03`, durable slice checkpoints, and exactly one next-slice recommendation. The resliced roadmap runs through `OM-44`, with 39 slices remaining (`OM-06`–`OM-44`); no later slice is authorized. OM-01 proves only the synthetic local lifecycle path, OM-02 adds only synthetic inbound guard/IPC/decision evidence, OM-03 adds only a synthetic pairing request with bounded onboarding-state projection, OM-04 adds only the local credential ownership/path boundary, and OM-05 adds only fake-socket reconnect/logout/stop plus exact-owner explicit-reset parity. None authorizes an external effect.
 
 Potential work needed only if V2 is selected to replace legacy WARLIST operationally:
 

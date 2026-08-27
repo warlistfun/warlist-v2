@@ -1,6 +1,7 @@
 export const IPC_PROTOCOL_VERSION = 1 as const;
 
-export type ParentCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'REQUEST_PAIRING' | 'STOP_WORKER';
+export type ParentCommandType =
+  'START_WORKER' | 'APPLY_CONFIG' | 'REQUEST_PAIRING' | 'STOP_WORKER' | 'RESET_WORKER';
 
 export type WorkerConnectionState =
   'CONNECTING' | 'OPEN' | 'CLOSED_RETRYING' | 'LOGGED_OUT' | 'CREDENTIALS_SAVE_FAILED' | 'STOPPED';
@@ -55,7 +56,7 @@ export type ParentMessage =
       readonly payload: PairingRequestPayload;
     })
   | (MessageIdentity & {
-      readonly type: 'STOP_WORKER';
+      readonly type: 'STOP_WORKER' | 'RESET_WORKER';
       readonly payload: Readonly<Record<string, never>>;
     });
 
@@ -85,7 +86,7 @@ export type ChildMessage =
             configVersion: number;
           }>
         | Readonly<{
-            commandType: 'REQUEST_PAIRING' | 'STOP_WORKER';
+            commandType: 'REQUEST_PAIRING' | 'STOP_WORKER' | 'RESET_WORKER';
           }>;
     })
   | (MessageIdentity & {
@@ -154,6 +155,7 @@ export function decodeParentMessage(input: unknown): ParentMessage {
         payload: decodePairingRequest(message.payload),
       });
     case 'STOP_WORKER':
+    case 'RESET_WORKER':
       requireExactKeys(message.payload, []);
       return freeze({ ...message.identity, type: message.type, payload: freeze({}) });
     default:
@@ -167,7 +169,11 @@ export function decodeChildMessage(input: unknown): ChildMessage {
   switch (message.type) {
     case 'COMMAND_ACK': {
       const commandType = decodeCommandType(message.payload.commandType);
-      if (commandType === 'REQUEST_PAIRING' || commandType === 'STOP_WORKER') {
+      if (
+        commandType === 'REQUEST_PAIRING' ||
+        commandType === 'STOP_WORKER' ||
+        commandType === 'RESET_WORKER'
+      ) {
         requireExactKeys(message.payload, ['commandType']);
         return freeze({
           ...message.identity,
@@ -343,7 +349,8 @@ function decodeCommandType(input: unknown): ParentCommandType {
     input === 'START_WORKER' ||
     input === 'APPLY_CONFIG' ||
     input === 'REQUEST_PAIRING' ||
-    input === 'STOP_WORKER'
+    input === 'STOP_WORKER' ||
+    input === 'RESET_WORKER'
   ) {
     return input;
   }
