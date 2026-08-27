@@ -5,6 +5,7 @@ import { Client } from 'pg';
 
 import { createDeliveryClaimService } from '../../src/modules/delivery/application/delivery-claim-service';
 import { createDeliveryConfirmationAdmissionService } from '../../src/modules/delivery/application/delivery-confirmation-admission-service';
+import { createDeliveryConfirmationService } from '../../src/modules/delivery/application/delivery-confirmation-service';
 import {
   createAcceptedClaimGatedDeliverySender,
   createDeliveryBeginPort,
@@ -14,7 +15,7 @@ import { createPostgresBusinessRepository } from '../../src/infrastructure/datab
 import { createPostgresWorkerLifecycleStateRepository } from '../../src/modules/whatsapp/infrastructure/postgres-worker-lifecycle-state-repository';
 import { MutableTenantAuthorization } from '../support/business-repository-contract';
 import { createDisposablePostgres } from '../support/disposable-postgres';
-import { NoopLogger, NoopMetrics } from '../support/test-adapters';
+import { FixedClock, NoopLogger, NoopMetrics } from '../support/test-adapters';
 
 const tenantId = '00000000-0000-4000-8000-000000000c01';
 const foreignTenantId = '00000000-0000-4000-8000-000000000c02';
@@ -223,3 +224,114 @@ async function sendOnce(
   });
   assert.equal(completion.outcome, 'SENT');
 }
+
+void test('OM-10 settles confirmation and daily debit atomically once', async (t) => {
+  const fixture = await createFixture(t);
+  await fixture.repository.prepareDelivery({
+    id: operationId,
+    tenantId,
+    operationKey: 'automation:om_10_atomic',
+  });
+  await sendOnce(fixture, operationId, attemptId);
+  const confirmation = createDeliveryConfirmationService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    clock: new FixedClock(new Date('2030-01-02T17:00:00.000Z')),
+    idGenerator: { generate: () => '00000000-0000-4000-8000-000000000c05' },
+  });
+  const delivery = await fixture.repository.loadDelivery(tenantId, operationId);
+  const attempt = await fixture.repository.loadDeliveryAttempt(tenantId, attemptId);
+  assert.ok(delivery?.claimOwner && delivery.leaseUntil && attempt?.claimFence);
+  const settled = await confirmation.confirm({
+    operationId,
+    attemptId,
+    claimFence: attempt.claimFence,
+    claimOwner: delivery.claimOwner,
+    leaseUntil: delivery.leaseUntil,
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  });
+  assert.equal(settled.operation.status, 'CONFIRMED');
+  assert.ok(settled.debit);
+  assert.equal(settled.debit.units, -1);
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
+});
+
+void test('OM-10 concurrent replay is one debit and transaction failure rolls back', async (t) => {
+  const fixture = await createFixture(t);
+  await fixture.repository.prepareDelivery({
+    id: operationId,
+    tenantId,
+    operationKey: 'automation:om_10_replay',
+  });
+  await sendOnce(fixture, operationId, attemptId);
+  const delivery = await fixture.repository.loadDelivery(tenantId, operationId);
+  const attempt = await fixture.repository.loadDeliveryAttempt(tenantId, attemptId);
+  assert.ok(delivery?.claimOwner && delivery.leaseUntil && attempt?.claimFence);
+  const authority = {
+    operationId,
+    attemptId,
+    claimFence: attempt.claimFence,
+    claimOwner: delivery.claimOwner,
+    leaseUntil: delivery.leaseUntil,
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  };
+  const make = () =>
+    createDeliveryConfirmationService({
+      repository: fixture.repository,
+      trustedTenant: { tenantId },
+      clock: new FixedClock(new Date('2030-01-02T17:00:00.000Z')),
+      idGenerator: { generate: () => '00000000-0000-4000-8000-000000000c06' },
+    }).confirm(authority);
+  const [first, replay] = await Promise.all([make(), make()]);
+  assert.deepEqual(replay, first);
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
+
+  const failedOperationId = '00000000-0000-4000-8000-000000000c07';
+  const failedAttemptId = '00000000-0000-4000-8000-000000000c08';
+  await fixture.repository.prepareDelivery({
+    id: failedOperationId,
+    tenantId,
+    operationKey: 'automation:om_10_rollback',
+  });
+  await sendOnce(fixture, failedOperationId, failedAttemptId);
+  const failedDelivery = await fixture.repository.loadDelivery(tenantId, failedOperationId);
+  const failedAttempt = await fixture.repository.loadDeliveryAttempt(tenantId, failedAttemptId);
+  assert.ok(failedDelivery?.claimOwner && failedDelivery.leaseUntil && failedAttempt?.claimFence);
+  const client = new Client(fixture.database.config);
+  await client.connect();
+  try {
+    await client.query(
+      `CREATE FUNCTION om_10_injected_debit_failure() RETURNS trigger LANGUAGE plpgsql AS $$ BEGIN RAISE EXCEPTION 'injected debit failure'; END $$`,
+    );
+    await client.query(
+      `CREATE TRIGGER om_10_injected_debit_failure BEFORE INSERT ON entitlement_ledger FOR EACH ROW EXECUTE FUNCTION om_10_injected_debit_failure()`,
+    );
+    const failure = createDeliveryConfirmationService({
+      repository: fixture.repository,
+      trustedTenant: { tenantId },
+      clock: new FixedClock(new Date('2030-01-03T17:00:00.000Z')),
+      idGenerator: { generate: () => '00000000-0000-4000-8000-000000000c09' },
+    });
+    await assert.rejects(
+      failure.confirm({
+        operationId: failedOperationId,
+        attemptId: failedAttemptId,
+        claimFence: failedAttempt.claimFence,
+        claimOwner: failedDelivery.claimOwner,
+        leaseUntil: failedDelivery.leaseUntil,
+        workerGeneration: worker.generation,
+        childId: worker.childId,
+      }),
+      { code: 'DATABASE_UNAVAILABLE' },
+    );
+  } finally {
+    await client.end();
+  }
+  assert.equal(
+    (await fixture.repository.loadDelivery(tenantId, failedOperationId))?.status,
+    'SENT',
+  );
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
+});
