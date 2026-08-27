@@ -1,5 +1,5 @@
 import { constants } from 'node:fs';
-import { lstat, mkdir, open, realpath, unlink, type FileHandle } from 'node:fs/promises';
+import { lstat, mkdir, open, realpath, rm, unlink, type FileHandle } from 'node:fs/promises';
 import { dirname, isAbsolute, join, parse, relative, resolve, sep } from 'node:path';
 
 export type LocalCredentialDirectoryErrorCode =
@@ -40,6 +40,7 @@ export type LocalCredentialDirectoryOwner = Readonly<{
 
 export type LocalCredentialDirectoryHandle = Readonly<{
   use<T>(operation: (directory: string) => T | PromiseLike<T>): Promise<T>;
+  reset(): Promise<void>;
   release(): Promise<void>;
 }>;
 
@@ -88,6 +89,8 @@ function createHandle(input: {
 }): LocalCredentialDirectoryHandle {
   let lockClosed = false;
   let released = false;
+  let resetStarted = false;
+  let resetComplete = false;
   let transition = Promise.resolve();
 
   function enqueue<T>(operation: () => Promise<T>): Promise<T> {
@@ -100,9 +103,13 @@ function createHandle(input: {
   }
 
   async function assertOwned(): Promise<void> {
+    await assertLockOwned();
+    await assertProtectedDirectory(input.directory, input.uid);
+  }
+
+  async function assertLockOwned(): Promise<void> {
     if (released || lockClosed) ownershipLost();
     await assertProtectedDirectory(input.root, input.uid);
-    await assertProtectedDirectory(input.directory, input.uid);
     const held = await input.lock.stat().catch(() => ownershipLost());
     if (
       !held.isFile() ||
@@ -119,7 +126,6 @@ function createHandle(input: {
 
   async function assertOwnedPath(): Promise<void> {
     await assertProtectedDirectory(input.root, input.uid);
-    await assertProtectedDirectory(input.directory, input.uid);
     const current = await safeLstat(input.lockPath).catch(() => ownershipLost());
     if (
       !current.isFile() ||
@@ -137,15 +143,35 @@ function createHandle(input: {
   return Object.freeze({
     use<T>(operation: (directory: string) => T | PromiseLike<T>): Promise<T> {
       return enqueue(async () => {
+        if (resetStarted) ownershipLost();
         await assertOwned();
         return operation(input.directory);
+      });
+    },
+    reset(): Promise<void> {
+      return enqueue(async () => {
+        if (resetComplete) return;
+        if (!resetStarted) {
+          await assertOwned();
+          resetStarted = true;
+        } else {
+          await assertOwnedPath();
+        }
+        try {
+          await rm(input.directory, { recursive: true, force: true });
+          resetComplete = true;
+        } catch {
+          unavailable();
+        }
       });
     },
     release(): Promise<void> {
       return enqueue(async () => {
         if (released) return;
+        if (resetStarted && !resetComplete) unavailable();
         if (!lockClosed) {
-          await assertOwned();
+          if (resetComplete) await assertLockOwned();
+          else await assertOwned();
           try {
             await input.lock.close();
             lockClosed = true;

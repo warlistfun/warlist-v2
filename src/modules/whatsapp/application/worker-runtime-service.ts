@@ -109,6 +109,7 @@ export interface WorkerRuntimeService extends WorkerRuntimePort {
   applyConfig(input: VersionedWorkerIdentity): Promise<WorkerCommandResult>;
   requestPairing(input: PairingWorkerIdentity): Promise<WorkerCommandResult>;
   stopWorker(input: WorkerIdentity): Promise<WorkerCommandResult>;
+  resetWorker(input: WorkerIdentity): Promise<WorkerCommandResult>;
   invalidateWorker(input: WorkerIdentity): void;
   getDebugSnapshot(): WorkerRuntimeDebugSnapshot;
 }
@@ -452,6 +453,9 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     stopWorker(input): Promise<WorkerCommandResult> {
       return command('STOP_WORKER', input);
     },
+    resetWorker(input): Promise<WorkerCommandResult> {
+      return command('RESET_WORKER', input);
+    },
     invalidateWorker(input): void {
       for (const pending of [...pendingByKey.values()]) {
         if (
@@ -495,7 +499,9 @@ function createMessage(
     generation: input.generation,
     childId: input.childId,
   } as const;
-  if (type === 'STOP_WORKER') return { ...identity, type, payload: {} };
+  if (type === 'STOP_WORKER' || type === 'RESET_WORKER') {
+    return { ...identity, type, payload: {} };
+  }
   if (type === 'REQUEST_PAIRING') {
     if (typeof payload !== 'string') throw new Error('pairingTarget is required');
     return { ...identity, type, payload: { pairingTarget: payload } };
@@ -516,7 +522,11 @@ function matches(
     parent.childId === child.childId &&
     parent.type === child.payload.commandType;
   if (!identityMatches || child.type === 'COMMAND_ERROR') return identityMatches;
-  if (parent.type === 'REQUEST_PAIRING' || parent.type === 'STOP_WORKER') {
+  if (
+    parent.type === 'REQUEST_PAIRING' ||
+    parent.type === 'STOP_WORKER' ||
+    parent.type === 'RESET_WORKER'
+  ) {
     return child.payload.commandType === parent.type;
   }
   if (!('configVersion' in child.payload)) return false;

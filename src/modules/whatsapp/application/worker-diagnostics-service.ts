@@ -5,7 +5,8 @@ import type {
   WorkerPairingState,
 } from '../../../interfaces/worker-ipc/contract';
 
-export type WorkerCommandType = 'START_WORKER' | 'APPLY_CONFIG' | 'REQUEST_PAIRING' | 'STOP_WORKER';
+export type WorkerCommandType =
+  'START_WORKER' | 'APPLY_CONFIG' | 'REQUEST_PAIRING' | 'STOP_WORKER' | 'RESET_WORKER';
 
 export type WorkerCommandOutcome =
   'ACKNOWLEDGED' | 'REJECTED' | 'TIMED_OUT' | 'UNAVAILABLE' | 'RUNTIME_STOPPED';
@@ -271,7 +272,8 @@ function isCommandType(value: unknown): value is WorkerCommandType {
     value === 'START_WORKER' ||
     value === 'APPLY_CONFIG' ||
     value === 'REQUEST_PAIRING' ||
-    value === 'STOP_WORKER'
+    value === 'STOP_WORKER' ||
+    value === 'RESET_WORKER'
   );
 }
 

@@ -84,7 +84,8 @@ export function createNodeWorkerCommandTransport(dependencies: {
         handler?.(decoded);
         if (
           decoded.type === 'COMMAND_ACK' &&
-          decoded.payload.commandType === 'STOP_WORKER' &&
+          (decoded.payload.commandType === 'STOP_WORKER' ||
+            decoded.payload.commandType === 'RESET_WORKER') &&
           matchesCommand(child.lastCommand, decoded)
         ) {
           detach(child);

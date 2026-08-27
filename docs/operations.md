@@ -1,10 +1,10 @@
 # Operations (As Built)
 
-WARLIST 2.0 has no deployed runtime, service, environment, hosted database, active provider connection, or Production release process. OM-01 adds one uncomposed local Baileys child/transport adapter; OM-02 extends its synthetic inbound guard/IPC/decision proof; OM-03 adds only the synthetic pairing-request and bounded onboarding-state proof; OM-04 adds only exact local credential ownership, path/permission checks, and terminal release through those existing seams. None of these slices establishes real credential/provider/account behavior.
+WARLIST 2.0 has no deployed runtime, service, environment, hosted database, active provider connection, or Production release process. OM-01 adds one uncomposed local Baileys child/transport adapter; OM-02 extends its synthetic inbound guard/IPC/decision proof; OM-03 adds only the synthetic pairing-request and bounded onboarding-state proof; OM-04 adds exact local credential ownership; OM-05 adds only local fake-socket reconnect/logout/stop parity and exact-owner explicit reset. None of these slices establishes real credential/provider/account behavior.
 
 The OM-03 pairing proof is local-only: a `synthetic_…` target reaches the existing child, the child discards the provider return value, and diagnostics expose only `REQUESTED`, `CODE_READY`, `OPEN`, `CLOSED`, `FAILED`, or `STOPPED` with bounded worker identity. QR/pairing material, credentials, JIDs, and raw provider updates never enter the projection.
 
-The OM-04 ownership proof is also local-only: temporary synthetic roots use `0700` directories and a `0600` empty per-tenant lock; one tenant/generation/child capability gates socket creation, lazy key-store access, and credential-save callbacks until awaited release. It does not read, copy, reset, delete, back up, or expose credential payloads. Explicit reset/logout deletion remains unimplemented.
+The OM-04/OM-05 credential proof is local-only: temporary synthetic roots use `0700` directories and a `0600` empty per-tenant lock; one tenant/generation/child capability gates socket creation, lazy key-store access, credential saves, explicit reset, and awaited release. Reconnect, logout, stop, pairing, and status-like activity do not delete auth state. Only exact-owner `RESET_WORKER` recursively deletes that synthetic tenant directory, and cleanup uncertainty retains the lock. The adapter never reads, copies, backs up, or exposes credential payloads.
 
 The only operational procedures are local/CI reconstruction and verification:
 

@@ -291,6 +291,44 @@ void test('runs start, config update, and stop commands through IPC v1 acknowled
   await service.stop();
 });
 
+void test('runs explicit reset through one exact IPC acknowledgement', async () => {
+  const { service, transport, diagnostics } = fixture();
+  await service.start();
+
+  const reset = service.resetWorker(worker);
+  await flushCommands();
+  assert.deepEqual(transport.sent, [
+    {
+      ...identity(transport.sent[0]!),
+      type: 'RESET_WORKER',
+      payload: {},
+    },
+  ]);
+  const sent = transport.sent[0]!;
+  acknowledge(
+    transport,
+    { ...sent, childId: 'child_example_stale' },
+    { commandType: 'RESET_WORKER' },
+  );
+  await flushCommands();
+  assert.equal(service.getDebugSnapshot().pendingCommands.length, 1);
+
+  acknowledge(transport, sent, { commandType: 'RESET_WORKER' });
+  assert.deepEqual(await reset, { ok: true });
+  assert.deepEqual(diagnostics, [
+    {
+      kind: 'COMMAND',
+      outcome: 'ACKNOWLEDGED',
+      commandType: 'RESET_WORKER',
+      correlationId: worker.correlationId,
+      tenantId: worker.tenantId,
+      generation: worker.generation,
+      childId: worker.childId,
+    },
+  ]);
+  await service.stop();
+});
+
 void test('deduplicates identical pending commands and serializes commands for one tenant', async () => {
   const { service, transport } = fixture();
   await service.start();
@@ -747,7 +785,7 @@ function acknowledge(
   sent: ParentMessage,
   payload:
     | { commandType: 'START_WORKER' | 'APPLY_CONFIG'; configVersion: number }
-    | { commandType: 'STOP_WORKER' },
+    | { commandType: 'STOP_WORKER' | 'RESET_WORKER' },
 ): void {
   transport.receive({ ...identity(sent), type: 'COMMAND_ACK', payload });
 }

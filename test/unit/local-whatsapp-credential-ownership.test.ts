@@ -1,5 +1,5 @@
 import assert from 'node:assert/strict';
-import { lstat, mkdir, mkdtemp, readdir, rm } from 'node:fs/promises';
+import { lstat, mkdir, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { createRequire } from 'node:module';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
@@ -11,6 +11,7 @@ import {
 } from '../../src/modules/whatsapp/infrastructure/local-whatsapp-credential-directory';
 
 const mutableFsPromises = createRequire(__filename)('node:fs/promises') as {
+  rm: typeof import('node:fs/promises').rm;
   unlink: typeof import('node:fs/promises').unlink;
 };
 
@@ -110,6 +111,59 @@ void test('retries release after one transient lock unlink failure', async (t) =
   await next.release();
 });
 
+void test('keeps reset cleanup fenced and retryable after a transient deletion failure', async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'warlist-v2-om-05-'));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const root = join(sandbox, 'credentials');
+  const directory = join(root, tenantId);
+  const marker = join(directory, 'synthetic-auth-marker');
+  const credentials = createLocalWhatsAppCredentialDirectory({ root });
+  const handle = await credentials.acquire(firstOwner);
+  await writeFile(marker, 'invented synthetic state', { mode: 0o600 });
+
+  const reset = mutableFsPromises.rm;
+  let attempts = 0;
+  mutableFsPromises.rm = async (path, ...options) => {
+    if (path === directory && attempts++ === 0) {
+      const error = new Error('synthetic reset failure') as NodeJS.ErrnoException;
+      error.code = 'EACCES';
+      throw error;
+    }
+    return reset(path, ...options);
+  };
+  try {
+    await assert.rejects(handle.reset(), unavailableError);
+    await assert.rejects(handle.release(), unavailableError);
+    await assert.rejects(credentials.acquire(nextOwner), ownedError);
+    await handle.reset();
+  } finally {
+    mutableFsPromises.rm = reset;
+  }
+
+  const lockPath = join(root, `.${tenantId}.owner.lock`);
+  const unlink = mutableFsPromises.unlink;
+  let releaseAttempts = 0;
+  mutableFsPromises.unlink = async (path, ...options) => {
+    if (path === lockPath && releaseAttempts++ === 0) {
+      const error = new Error('synthetic release failure') as NodeJS.ErrnoException;
+      error.code = 'EACCES';
+      throw error;
+    }
+    return unlink(path, ...options);
+  };
+  try {
+    await assert.rejects(handle.release(), unavailableError);
+    await assert.rejects(credentials.acquire(nextOwner), ownedError);
+    await handle.release();
+  } finally {
+    mutableFsPromises.unlink = unlink;
+  }
+
+  await assert.rejects(lstat(marker), (error: unknown) => hasFileCode(error, 'ENOENT'));
+  const next = await credentials.acquire(nextOwner);
+  await next.release();
+});
+
 function ownedError(error: unknown): boolean {
   return (
     error instanceof LocalCredentialDirectoryError &&
@@ -124,6 +178,16 @@ function lostError(error: unknown): boolean {
   return (
     error instanceof LocalCredentialDirectoryError &&
     error.code === 'CREDENTIAL_DIRECTORY_OWNERSHIP_LOST' &&
+    !error.message.includes('/tmp/') &&
+    !error.message.includes(tenantId) &&
+    !('cause' in error)
+  );
+}
+
+function unavailableError(error: unknown): boolean {
+  return (
+    error instanceof LocalCredentialDirectoryError &&
+    error.code === 'CREDENTIAL_DIRECTORY_UNAVAILABLE' &&
     !error.message.includes('/tmp/') &&
     !error.message.includes(tenantId) &&
     !('cause' in error)

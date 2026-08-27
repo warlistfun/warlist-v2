@@ -34,6 +34,11 @@ void test('decodes immutable IPC v1 parent commands', () => {
       type: 'STOP_WORKER',
       payload: {},
     },
+    {
+      ...identity,
+      type: 'RESET_WORKER',
+      payload: {},
+    },
   ] as const;
 
   for (const input of messages) {
@@ -147,6 +152,11 @@ void test('decodes immutable IPC v1 child acknowledgements and safe errors', () 
       type: 'COMMAND_ACK',
       payload: { commandType: 'STOP_WORKER' },
     },
+    {
+      ...identity,
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'RESET_WORKER' },
+    },
   ] as const;
   const failure = {
     ...identity,
@@ -185,6 +195,11 @@ void test('rejects command acknowledgements with contradictory payload fields', 
       ...identity,
       type: 'COMMAND_ACK',
       payload: { commandType: 'STOP_WORKER', configVersion: 9 },
+    },
+    {
+      ...identity,
+      type: 'COMMAND_ACK',
+      payload: { commandType: 'RESET_WORKER', configVersion: 9 },
     },
   ];
 
