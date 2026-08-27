@@ -8,6 +8,7 @@ import type {
   WorkerPairingState,
 } from '../../../interfaces/worker-ipc/contract';
 import { decodeParentMessage } from '../../../interfaces/worker-ipc/contract';
+import type { CorrelatedDeliverySend } from '../../delivery/application/claim-gated-delivery-sender';
 import type { CancelScheduledTask, ScheduleTaskPort } from '../application/worker-runtime-service';
 import type { LocalCredentialDirectoryHandle } from './local-whatsapp-credential-directory';
 import { createLocalWhatsAppCredentialDirectory } from './local-whatsapp-credential-directory';
@@ -21,6 +22,7 @@ export interface BaileysSocketPort {
     removeAllListeners(): void;
   };
   requestPairingCode(target: string): Promise<string>;
+  sendMessage?(target: string, content: Readonly<{ text: string }>): Promise<unknown>;
   end(): void;
 }
 
@@ -51,6 +53,7 @@ interface Dependencies {
 
 export interface BaileysWorkerChild {
   handle(message: unknown): Promise<void>;
+  sendDelivery(input: CorrelatedDeliverySend): Promise<void>;
   stop(): Promise<void>;
 }
 
@@ -472,10 +475,65 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       }
       return enqueue(() => handleCommand(message));
     },
+    sendDelivery(input): Promise<void> {
+      return enqueue(async () => {
+        const worker = active;
+        if (
+          !worker ||
+          worker.stopped ||
+          worker.start.tenantId !== input.tenantId ||
+          worker.start.generation !== input.workerGeneration ||
+          worker.start.childId !== input.childId ||
+          !isDeliveryInput(input)
+        ) {
+          throw new Error('Delivery sender rejected');
+        }
+        const socket = worker.socket;
+        if (!socket?.sendMessage) throw new Error('Delivery sender unavailable');
+        await socket.sendMessage(input.target, { text: input.text });
+      });
+    },
     stop(): Promise<void> {
       return enqueue(stopActive);
     },
   };
+}
+
+function isDeliveryInput(input: CorrelatedDeliverySend): boolean {
+  return (
+    isIdentifier(input.correlationId) &&
+    isUuid(input.tenantId) &&
+    isUuid(input.operationId) &&
+    isUuid(input.attemptId) &&
+    Number.isSafeInteger(input.claimFence) &&
+    input.claimFence > 0 &&
+    Number.isSafeInteger(input.workerGeneration) &&
+    input.workerGeneration > 0 &&
+    isIdentifier(input.childId) &&
+    isIdentifier(input.target) &&
+    isSafeOutboundText(input.text)
+  );
+}
+
+function isUuid(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    /^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/.test(value)
+  );
+}
+
+function isIdentifier(value: unknown): value is string {
+  return typeof value === 'string' && /^[a-z0-9_:-]{1,160}$/.test(value);
+}
+
+function isSafeOutboundText(value: unknown): value is string {
+  return (
+    typeof value === 'string' &&
+    value.length > 0 &&
+    value.length <= 4_096 &&
+    value === value.trim() &&
+    !/[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)
+  );
 }
 
 function disposeSocket(worker: ActiveWorker): void {
@@ -662,6 +720,9 @@ const concreteSocketFactory: BaileysSocketFactoryPort = {
         },
         requestPairingCode(target): Promise<string> {
           return socket.requestPairingCode(target);
+        },
+        sendMessage(target, content): Promise<unknown> {
+          return socket.sendMessage(target, content);
         },
         end(): void {
           socket.end(undefined);

@@ -1,6 +1,6 @@
 # Operations (As Built)
 
-WARLIST 2.0 has no deployed runtime, service, environment, hosted database, active provider connection, or Production release process. OM-01 adds one uncomposed local Baileys child/transport adapter; OM-02 extends its synthetic inbound guard/IPC/decision proof; OM-03 adds only the synthetic pairing-request and bounded onboarding-state proof; OM-04 adds exact local credential ownership; OM-05 adds only local fake-socket reconnect/logout/stop parity and exact-owner explicit reset. None of these slices establishes real credential/provider/account behavior.
+WARLIST 2.0 has no deployed runtime, service, environment, hosted database, active provider connection, or Production release process. OM-01 adds one uncomposed local Baileys child/transport adapter; OM-02 extends its synthetic inbound guard/IPC/decision proof; OM-03 adds only the synthetic pairing-request and bounded onboarding-state proof; OM-04 adds exact local credential ownership; OM-05 adds only local fake-socket reconnect/logout/stop parity and exact-owner explicit reset; OM-06 adds only a disposable-PostgreSQL-gated fake-socket send invocation. None of these slices establishes real credential/provider/account behavior.
 
 The OM-03 pairing proof is local-only: a `synthetic_…` target reaches the existing child, the child discards the provider return value, and diagnostics expose only `REQUESTED`, `CODE_READY`, `OPEN`, `CLOSED`, `FAILED`, or `STOPPED` with bounded worker identity. QR/pairing material, credentials, JIDs, and raw provider updates never enter the projection.
 
@@ -15,6 +15,7 @@ node --import tsx --test test/unit/baileys-worker-child.test.ts
 node --import tsx --test test/unit/baileys-inbound-event.test.ts
 node --import tsx --test test/unit/baileys-pairing-request.test.ts
 node --import tsx --test test/unit/local-whatsapp-credential-ownership.test.ts
+node --import tsx --test test/integration/om-06-baileys-delivery-authority.test.ts
 ```
 
 The legacy Production system is outside this repository's operational authority. No WARLIST 2.0 workflow may restart, deploy, call, or mutate it during the backend foundation.

@@ -4,7 +4,7 @@
 
 **PARTIALLY VERIFIED.** The frozen baseline contains substantial TypeScript, worker-contract, portable PostgreSQL, automation, delivery/entitlement, and identity foundations backed by synthetic and disposable-PostgreSQL evidence. It is **not** an operationally composed backend and is not ready for hosted operation, legacy migration, provider traffic, deployment, cutover, or Production.
 
-This audit itself authorizes no remediation, runtime/provider/customer-data access, financial action, deployment, or Production change. The current execution roadmap separately records the verified synthetic/local OM-01 through OM-05 slices; no later Operational Migration slice or Enhancement is authorized.
+This audit itself authorizes no remediation, runtime/provider/customer-data access, financial action, deployment, or Production change. The current execution roadmap separately records the verified synthetic/local OM-01 through OM-06 slices; no later Operational Migration slice or Enhancement is authorized.
 
 ## Scope, authority, and method
 
@@ -17,7 +17,7 @@ This audit itself authorizes no remediation, runtime/provider/customer-data acce
 
 ## Current remediation overlay
 
-Issues #123 and #126 are the owner-authorized, bounded post-audit remediations recorded against live `origin/main`. They resolve BF-01 and BF-09 respectively at the injected/disposable-PostgreSQL boundary. Issues #132, #136, #140, #142, and #146 add verified synthetic/local Baileys lifecycle, inbound, safe-pairing, credential-ownership, and reconnect/logout/explicit-reset slices without composing an application runtime. The Backend Foundation remains non-operational, Operational Migration remains incomplete, and this overlay authorizes no later Issue.
+Issues #123 and #126 are the owner-authorized, bounded post-audit remediations recorded against live `origin/main`. They resolve BF-01 and BF-09 respectively at the injected/disposable-PostgreSQL boundary. Issues #132, #136, #140, #142, #146, and #148 add verified synthetic/local Baileys lifecycle, inbound, safe-pairing, credential-ownership, reconnect/logout/explicit-reset, and database-gated fake-socket send slices without composing an application runtime. The Backend Foundation remains non-operational, Operational Migration remains incomplete, and this overlay authorizes no later Issue.
 
 ## Superseded tracked assertions
 
@@ -71,7 +71,7 @@ Source finding IDs are grouped once by cross-phase cause; inherited repeats are 
 ## Explicit limits and gaps
 
 - **Implementation defects:** `BF-06`–`BF-07` and `BF-10`–`BF-13` must be resolved only through separately approved bounded Issues before their affected operational paths are composed. `BF-01`, `BF-02`, `BF-08`, and `BF-09` are resolved only at the bounded synthetic/disposable boundaries described above.
-- **Evidence gaps:** hosted Supabase behavior, RLS/runtime roles, capacity, backup/restore, real credential/account/provider behavior, external delivery, broader legacy parity, deployment, rollback, and Production business correctness are unverified. OM-01 through OM-05 prove only synthetic/local lifecycle, inbound, safe-pairing, local credential ownership, and reconnect/logout/stop/explicit-reset behavior with temporary roots and fake sockets.
+- **Evidence gaps:** hosted Supabase behavior, RLS/runtime roles, capacity, backup/restore, real credential/account/provider behavior, external delivery, broader legacy parity, deployment, rollback, and Production business correctness are unverified. OM-01 through OM-06 prove only synthetic/local lifecycle, inbound, safe-pairing, local credential ownership, reconnect/logout/stop/explicit-reset, and a disposable-PostgreSQL-gated fake-socket send invocation.
 - **Not implemented:** a runnable operational composition, active-tenant discovery, real account/pairing or provider acceptance, legacy OPS/admin migration, notifier/onboarding parity, hosted database configuration, automatic ambiguous reconciliation, authentication provenance, sessions/token families, legacy-user migration tooling, and PIN/passkey ports.
 - **Accepted non-goals of the frozen foundation:** no live WhatsApp/provider send, customer fixture, hosted service, dev/staging environment, deployment workflow, cutover, or Production mutation.
 - **Deferred work is not audit closure:** billing/Pakasir stabilization, notification/PWA retirement, WhatsApp notification consent, Google projections, PIN/passkey rollout, Saweria, and Production migration remain outside this baseline and require new owner authorization.
