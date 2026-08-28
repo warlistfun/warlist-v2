@@ -176,6 +176,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       type,
       input.generation,
       input.childId,
+      input.correlationId,
       payload ?? 'none',
     ]);
     const duplicate = pendingByKey.get(key);
