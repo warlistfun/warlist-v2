@@ -61,7 +61,12 @@ export interface WorkerOwnershipService {
   startWorker(input: StartWorkerInput): Promise<WorkerCommandResult>;
   applyConfig(input: ApplyConfigInput): Promise<WorkerCommandResult>;
   stopWorker(input: StopWorkerInput): Promise<WorkerCommandResult>;
-  recordChildExit(tenantId: string, generation: number, childId: string): void;
+  recordChildExit(
+    tenantId: string,
+    generation: number,
+    childId: string,
+    correlationId: string,
+  ): void;
   getState(tenantId: string): WorkerOwnershipState;
 }
 
@@ -177,15 +182,25 @@ export function createWorkerOwnershipService(dependencies: {
     return promise;
   }
 
-  function recordChildExit(tenantId: string, generation: number, childId: string): void {
+  function recordChildExit(
+    tenantId: string,
+    generation: number,
+    childId: string,
+    correlationId: string,
+  ): void {
     const state = stateFor(tenantId);
-    if (state.generation !== generation || state.childId !== childId) return;
-    if (state.correlationId === null) return;
+    if (
+      state.generation !== generation ||
+      state.childId !== childId ||
+      state.correlationId !== correlationId
+    ) {
+      return;
+    }
     const command: WorkerCommand = {
       tenantId,
       generation,
       childId,
-      correlationId: state.correlationId,
+      correlationId,
     };
     const resolveStop = state.resolveStop;
     dependencies.commands.invalidateWorker(command);
