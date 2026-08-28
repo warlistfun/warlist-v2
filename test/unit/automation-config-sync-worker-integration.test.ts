@@ -146,7 +146,7 @@ void test('child exit fences a pending config acknowledgement before durable app
   await flush();
   const apply = transport.sent[1]!;
 
-  ownership.recordChildExit(tenantId, 1, 'child_example_sync');
+  ownership.recordChildExit(tenantId, 1, 'child_example_sync', 'correlation_example_start');
   transport.acknowledge(apply);
 
   const result = await dispatch;

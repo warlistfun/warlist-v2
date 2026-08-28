@@ -271,7 +271,7 @@ void test('rejects a start acknowledgement after its exact child already exited'
   const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
 
   const start = ownership.startWorker(tenant);
-  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId);
+  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId, tenant.correlationId);
   commands.startResults[0]!.resolve({ ok: true });
 
   await assert.rejects(
@@ -375,7 +375,7 @@ void test('does not let stale generation completion claim newer ownership', asyn
   });
   assert.equal(commands.starts[1]?.generation, 2);
 
-  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId);
+  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId, tenant.correlationId);
   assert.equal(ownership.getState(tenant.tenantId).generation, 2);
   assert.equal(ownership.getState(tenant.tenantId).state, 'STARTING');
 
@@ -391,7 +391,7 @@ void test('ignores prior-incarnation terminal evidence while a restarted owner i
   const first = ownership.startWorker(tenant);
   commands.startResults[0]!.resolve({ ok: true });
   await first;
-  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId);
+  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId, tenant.correlationId);
 
   const restarted = ownership.startWorker({
     ...tenant,
@@ -405,7 +405,7 @@ void test('ignores prior-incarnation terminal evidence while a restarted owner i
     correlationId: 'corr_restart',
     configVersion: 1,
   });
-  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId);
+  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId, tenant.correlationId);
   assert.deepEqual(ownership.getState(tenant.tenantId), {
     state: 'STARTING',
     desired: 'RUNNING',
@@ -490,6 +490,26 @@ void test('rejects update before command dispatch unless ownership is running', 
   assert.deepEqual(commands.updates, []);
 });
 
+void test('does not let stale correlation exit fence the current owner', async () => {
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({ commands, diagnostics: noopDiagnostics });
+
+  const start = ownership.startWorker(tenant);
+  commands.startResults[0]!.resolve({ ok: true });
+  await start;
+
+  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId, 'corr_stale');
+
+  assert.deepEqual(ownership.getState(tenant.tenantId), {
+    state: 'RUNNING',
+    desired: 'RUNNING',
+    generation: 1,
+    childId: tenant.childId,
+    quarantined: false,
+  });
+  assert.deepEqual(commands.stops, []);
+});
+
 void test('exact current-child exit is terminal evidence and respects desired stopped state', async () => {
   const commands = new ControlledCommands();
   const diagnostics: WorkerDiagnosticEvent[] = [];
@@ -509,7 +529,7 @@ void test('exact current-child exit is terminal evidence and respects desired st
   await start;
 
   const stop = ownership.stopWorker({ tenantId: tenant.tenantId, correlationId: 'corr_stop' });
-  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId);
+  ownership.recordChildExit(tenant.tenantId, 1, tenant.childId, 'corr_stop');
 
   assert.deepEqual(await stop, { ok: true });
   assert.equal(ownership.getState(tenant.tenantId).state, 'STOPPED');
