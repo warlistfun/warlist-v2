@@ -1,13 +1,13 @@
 # WARLIST V2 Operational Migration Roadmap
 
-> **Status:** `OM-01`–`OM-06 VERIFIED`; Operational Migration remains incomplete. This planning/status board is governed by [`operational-migration-master.md`](operational-migration-master.md). Every new implementation Issue from `OM-03` onward has at most two independently testable acceptance criteria and still requires a new explicit owner decision.
+> **Status:** `OM-01`–`OM-11 VERIFIED`; OM-A is closed at the synthetic/local evidence ceiling. Operational Migration and real-provider/account readiness remain `PARTIALLY VERIFIED`. This planning/status board is governed by [`operational-migration-master.md`](operational-migration-master.md). Every new implementation Issue from `OM-03` onward has at most two independently testable acceptance criteria and still requires a new explicit owner decision.
 
 ## Two-AC reslice summary
 
-- Verified history: `OM-01`–`OM-06`.
+- Verified history: `OM-01`–`OM-11`; OM-A closed at the synthetic/local evidence ceiling.
 - Roadmap range: `OM-01`–`OM-44`.
-- Remaining work: 38 slices, `OM-07`–`OM-44`.
-- Phase ranges: OM-A `OM-01`–`OM-11` (5 remaining), OM-B `OM-12`–`OM-29` (18), OM-C `OM-30`–`OM-38` (9), OM-D `OM-39`–`OM-44` (6).
+- Remaining work: 33 slices, `OM-12`–`OM-44`.
+- Phase ranges: OM-A `OM-01`–`OM-11` (closed), OM-B `OM-12`–`OM-29` (18 remaining), OM-C `OM-30`–`OM-38` (9), OM-D `OM-39`–`OM-44` (6).
 - The 14 former unstarted slices each used an Issue ceiling of five AC. Preserving that ceiling as `2 + 2 + 1` originally yielded `14 × 3 = 42` post-`OM-02` Issues without padding a one-AC outcome or increasing scope.
 - This reslice changes only Issue size and numbering after `OM-02`; the established parity, safety, external-effect, verification, PR/CI/merge, cleanup, checkpoint, recommendation, prerequisite, exact `/new`, and stop flow remains unchanged.
 - Mandatory global gates are not extra AC, and hidden sub-AC are forbidden. If current evidence makes a planned outcome unnecessary, the roadmap must be corrected explicitly rather than padding its Issue.
@@ -45,13 +45,14 @@ A slice status never closes its phase automatically. Numerical order is the defa
 ## Current decision point
 
 - Backend Foundation remains `PARTIALLY VERIFIED` and non-operational.
-- Issues #132 (`OM-01`), #136 (`OM-02`), #140 (`OM-03`), #142 (`OM-04`), #146 (`OM-05`), and #148 (`OM-06`) are verified synthetic/local slices; none closes Operational Migration or OM-A.
+- `OM-01`–`OM-11` are verified synthetic/local slices, and OM-A is closed only at that cross-seam traceability ceiling; no single composed runnable/provider path is claimed.
+- Operational Migration and real-provider/account readiness remain `PARTIALLY VERIFIED`.
 - No WhatsApp provider, credential, hosted database, customer, deployment, financial, or Production action is authorized.
-- No slice after `OM-06` is authorized. The next recommendation is `OM-07`, not permission to start it.
+- No OM-B slice is authorized. The next recommendation is `OM-12`, not permission to start it.
 
 ## Phase OM-A — Core WhatsApp/Baileys path
 
-**Range:** `OM-01–OM-11`. **Remaining:** 5.
+**Range:** `OM-01–OM-11`. **Status:** `VERIFIED` at the synthetic/local traceability ceiling. **Remaining:** 0.
 
 **Objective:** Reproduce the legacy WhatsApp automation path through the existing V2 seams, one observable behavior at a time, without changing product flow or performing a bulk worker rewrite.
 
@@ -112,52 +113,60 @@ A slice status never closes its phase automatically. Numerical order is the defa
 ### OM-07 — Durable sent evidence and replay suppression
 
 - **Source scope:** former OM-04.
-- **Status:** `NOT STARTED`.
+- **Status:** `VERIFIED` — Issue #150 / PR #151; disposable-PostgreSQL/fake-transport evidence only.
 - **Acceptance criteria (2/2):**
   1. A successful concrete send persists the bounded provider-identity projection and truthful `SENT` outcome under the same current attempt/fence before completion is reported.
   2. Duplicate delivery, restart, and replay observe durable `SENT` evidence and perform no second provider invocation.
+- **Classification:** `PARITY` for durable `SENT` before confirmation; `SAFETY_HARDENING` for bounded provider identity and database-backed replay suppression.
 - **Explicit exclusions:** No raw provider identity in diagnostics, blind retry, confirmation, entitlement debit, or exactly-once provider claim.
 
 ### OM-08 — Ambiguous send evidence and recovery fence
 
 - **Source scope:** former OM-04.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
+- **Status:** `VERIFIED` — Issue #152 / PR #153; disposable-PostgreSQL/fake-transport evidence only.
+- **Acceptance criteria (2/2):**
   1. Timeout, crash, unknown provider outcome, restart, and stale-worker races persist and preserve `AMBIGUOUS` manual-reconciliation evidence without automatic resend, closing the affected `BF-10` boundary for this path.
+  2. Replay and recovery read durable `AMBIGUOUS` evidence and perform no automatic provider invocation.
+- **Classification:** `PARITY` for durable ambiguity without blind retry; `SAFETY_HARDENING` for timeout, crash/restart, stale-authority, and replay fencing.
 - **Explicit exclusions:** No automatic ambiguous resend, bulk notification, billing change, or Production provider traffic.
 
 ### OM-09 — Confirmation admission and durable deduplication
 
 - **Source scope:** former OM-05.
-- **Status:** `NOT STARTED`.
+- **Status:** `VERIFIED` — Issue #154 / PR #155; disposable-PostgreSQL/fake-transport evidence only.
 - **Acceptance criteria (2/2):**
   1. Only a valid confirmation correlated to the current tenant/delivery/attempt is admitted; malformed, foreign, and stale confirmations fail closed.
   2. Duplicate, out-of-order, and post-restart confirmations converge on one durable confirmation outcome without another send.
+- **Classification:** `PARITY` for confirmation after durable `SENT`; `SAFETY_HARDENING` for exact authority, validation, and durable deduplication.
 - **Explicit exclusions:** No entitlement debit, new confirmation product rule, provider switch, or customer/provider action without separate approval.
 
 ### OM-10 — Atomic confirmation and entitlement debit
 
 - **Source scope:** former OM-05.
-- **Status:** `NOT STARTED`.
+- **Status:** `VERIFIED` — Issue #156 / PR #157; disposable-PostgreSQL/fake-transport evidence only.
 - **Acceptance criteria (2/2):**
   1. Confirmation settlement and the existing daily entitlement debit commit atomically once under current tenant/delivery authority.
   2. Concurrent duplicate, replay, and injected transaction failure prove rollback and prevent double debit or balance drift.
+- **Classification:** `PARITY` for one daily debit only after confirmation; `SAFETY_HARDENING` for atomic settlement, concurrent replay deduplication, and rollback.
 - **Explicit exclusions:** No pricing/rule change, payment-provider change, manual balance mutation, or Production financial effect.
 
 ### OM-11 — Ambiguous delivery manual recovery parity
 
 - **Source scope:** former OM-05.
-- **Status:** `NOT STARTED`.
+- **Status:** `VERIFIED` — Issue #158 / PR #159; disposable-PostgreSQL/fake-transport evidence only.
 - **Acceptance criteria (1/2):**
   1. Ambiguous delivery, restart, replay, and authorized manual resolution converge to an allowed terminal delivery/entitlement state without automatic resend or debit.
+- **Classification:** `PARITY` for no automatic resend or debit; `SAFETY_HARDENING` for current-authority fencing and replay/restart convergence.
 - **Explicit exclusions:** No automatic ambiguous resend, new operator product flow, provider switch, or Production mutation.
 
-### OM-A exit criteria
+### OM-A exit-criteria reconciliation
 
-- One correlated path is traceable from worker start through inbound decision, send evidence, confirmation, and entitlement outcome.
-- Legacy normal-flow results are parity-tested; every difference is classified under the master contract.
-- Raw credentials, QR/pairing material, JIDs, provider message IDs, and provider payloads stay inside the protected adapter boundary; only the explicitly authorized bounded projection may cross IPC.
-- Real provider/account behavior remains `PARTIALLY VERIFIED` until separately approved isolated acceptance evidence exists.
+- **Synthetic/local trace — `VERIFIED`:** Current source and focused tests trace worker lifecycle and bounded inbound decision through database-gated fake send, durable `SENT`/`AMBIGUOUS` evidence, confirmation, atomic daily debit, and manual recovery. This is cross-seam traceability, not one runnable provider-composed application.
+- **Legacy normal flow and differences — `VERIFIED` at the owned synthetic/local boundaries:** OM-01–OM-06 tracked parity matrices and the OM-07–OM-11 classifications above preserve the characterized normal results. In-scope differences are classified as `PARITY`, `SAFETY_HARDENING`, or the previously confirmed implicit-pairing-reset bug fix under the master contract.
+- **Protected adapter boundary — `VERIFIED` locally:** Raw credentials, QR/pairing material, JIDs, provider payloads, and raw provider message identities do not cross worker IPC or diagnostics. Only hashed/bounded inbound identity and the validated bounded provider-message identity projection are retained by their authorized seams.
+- **Real provider/account behavior — `PARTIALLY VERIFIED`:** No separately approved isolated acceptance run, real account/provider traffic, credentials, customer/runtime data, hosted environment, deployment, financial state, or Production action occurred.
+
+Closure evidence: Issues #132, #136, #140, #142, #146, #148, #150, #152, #154, #156, and #158 are closed; PRs #133, #137, #141, #145, #147, #149, #151, #153, #155, #157, and #159 are merged with published-head/merge tree parity and ancestry on live `origin/main`. Exact-head `CI / quality` and `CI / security` succeeded for every listed PR except #141, where GitHub reported no checks; its recorded canonical local gate passed, and no remote CI pass is claimed.
 
 ## Phase OM-B — Operational application parity
 
