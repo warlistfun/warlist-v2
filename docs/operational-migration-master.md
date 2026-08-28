@@ -1,241 +1,365 @@
-# WARLIST V2 Operational Migration Master Contract
+# WARLIST V2 Unified Operational Migration Contract
 
-> **Status:** Canonical planning contract. Current slice status and authorization live in [`execution-roadmap.md`](execution-roadmap.md) and [`operational-migration-roadmap.md`](operational-migration-roadmap.md). This document defines how each owner-authorized slice must preserve legacy behavior, classify corrections, avoid overengineering, prove completion, and hand off to the next session. It does not authorize implementation, provider access, credentials, customer data, hosted configuration, deployment, or Production changes.
+> **Status:** Canonical planning and execution contract. Current authorization lives in [`execution-roadmap.md`](execution-roadmap.md); sequence and slice status live in [`operational-migration-roadmap.md`](operational-migration-roadmap.md). This contract does not by itself authorize provider/account access, credentials, customer/runtime data, hosted configuration, financial effects, deployment, cutover, rollback, or Production changes.
 
 ## 1. Outcome
 
-Migrate WARLIST incrementally from the legacy implementation into WARLIST V2 while preserving the user-observable product flow and making every important path smaller, deterministic, testable, and easier to debug.
+Migrate WARLIST incrementally into one directly usable WARLIST 2.0 while preserving valid backend/bot behavior, replacing owner-superseded product behavior, and keeping every important path deterministic, testable, debuggable, recoverable, and tenant-safe.
 
-The migration is not a greenfield redesign. Its default rule is:
+There is no separate post-migration implementation track in the WARLIST 2.0 acceptance path. The one roadmap ends only after:
 
-> **Preserve the legacy product flow; simplify the implementation; do not inherit a confirmed bug.**
+```text
+core bot and delivery authority
+  -> runnable backend and approved provider acceptance
+  -> canonical identity and authentication
+  -> complete onboarding and customer Web
+  -> Saweria billing and entitlement
+  -> required admin and Android Web/PWA-compatible customer access
+  -> hosted migration and disaster recovery
+  -> immutable release and Production cutover
+```
 
-Success means a solo developer or Hermes can trace an event from the owning entry point to its terminal state without guessing through global state, hidden side effects, or duplicated business logic.
+Backend correctness stays first. “Unified” does not authorize frontend, Android, billing, or Production work before their server contracts and safety prerequisites exist.
 
-## 2. Authority and evidence
+## 2. Authority and provenance
 
 Authority is split deliberately:
 
-1. [`execution-roadmap.md`](execution-roadmap.md) is the active execution authority and records whether work is authorized.
-2. This document is the canonical Operational Migration contract: invariants, parity rules, correction rules, safety boundaries, and completion protocol.
-3. [`operational-migration-roadmap.md`](operational-migration-roadmap.md) is the phase/slice status board and recommended sequence.
-4. Current source, tests, executable schemas, and migrations prove as-built behavior.
-5. The legacy source and its tests are read-only behavior references. Protected runtime/customer/credential paths are never migration fixtures.
-6. GitHub Issues, PRs, CI, merge commits, and checkpoints provide bounded change evidence.
+1. [`execution-roadmap.md`](execution-roadmap.md) is the active execution authority.
+2. This contract defines invariants, decision precedence, parity/change rules, evidence, safety, and closure protocol.
+3. [`operational-migration-roadmap.md`](operational-migration-roadmap.md) owns the ordered slice board and status.
+4. Current source, tests, executable schemas, migrations, and current-state docs prove as-built behavior.
+5. Owner-approved product contracts decide intentional future behavior.
+6. Legacy source/tests are read-only behavior references; protected runtime/customer/credential paths are never fixtures.
+7. Issues, PRs, CI, merge commits, and checkpoints provide bounded evidence.
+8. Historical plans and brainstorming are provenance and gap input only; they do not become scope by being written down.
 
-A roadmap row, recommendation, merged slice, or checkpoint never authorizes the next slice automatically. Owner authorization is required for each bounded Issue and separately for provider, credential, hosted, deployment, financial, customer-data, or Production effects.
+Every decision-bearing artifact used by a slice must be classified before implementation:
 
-## 3. Behavior baseline
+| Provenance             | Meaning                                                   | Use                                                                                                                |
+| ---------------------- | --------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------ |
+| `OWNER_FINAL`          | Explicit latest owner decision                            | Defines product direction unless technically impossible or unsafe; blockers must be reported, not silently changed |
+| `CURRENT_AUTHORITY`    | Canonical roadmap/contract/accepted ADR                   | Governs work until explicitly reconciled                                                                           |
+| `AS_BUILT_EVIDENCE`    | Current source/test/schema/runtime-safe proof             | Establishes what exists and its evidence ceiling                                                                   |
+| `HISTORICAL_REFERENCE` | Old plan, legacy doc, checkpoint, commit note, brainstorm | May reveal requirements or risks; cannot authorize scope                                                           |
+| `UNRESOLVED`           | Conflicting or insufficient evidence                      | Stop or preserve safe parity; obtain owner/technical decision                                                      |
 
-The migration begins from the behavior actually implemented in legacy WARLIST, not from a rewritten idealization. The relevant legacy path is inspected read-only before each slice.
+A later owner-final decision may supersede planning text but does not erase valid landed evidence. Record both facts.
 
-The core flow to preserve is:
+## 3. Owner-final WARLIST 2.0 product contract
+
+### 3.1 Identity and authentication
+
+WARLIST 2.0 uses:
+
+- Google OAuth through Supabase for registration and login;
+- Google as the initial recovery path;
+- an optional verified WhatsApp number + **Kata Sandi WARLIST** login on the same canonical Supabase user;
+- server-derived user, membership, and tenant authority;
+- a separate admin authentication realm/capability boundary.
+
+It does not use OPS ID or a short PIN as the end-user credential. OPS ID may remain a public identifier only.
+
+New users register only through Google. Pairing proves initial control of the canonical WhatsApp number; pairing itself is not a WARLIST login session. The phone/password method can be activated only after successful Google registration and pairing. Google and WhatsApp login must resolve to the same canonical Supabase user and WARLIST tenant.
+
+This exact same-user flow is `BLOCKED_ON_FEASIBILITY_PROOF` until official Supabase behavior plus a disposable isolated integration test proves it. No slice may “solve” the gap by creating duplicate WARLIST users, storing a shadow application password, trusting a browser-supplied phone number, auto-merging accounts, or weakening collision checks.
+
+### 3.2 Customer product
+
+The migration is not complete without a fresh, mobile-first customer product built from zero:
+
+```text
+public landing and legal pages
+  -> Google registration/login or enabled WhatsApp login
+  -> legal acceptance
+  -> WhatsApp pairing
+  -> activate WhatsApp login
+  -> select group and admin
+  -> configure trigger/keyword and schedule
+  -> review and activate
+  -> dashboard/status
+  -> settings and bot control
+  -> entitlement/history
+  -> Saweria billing/payment state
+  -> relink/REPAIR_REQUIRED recovery
+```
+
+Legacy screens and code are capability/content/failure-mode references only. Browser, Android-browser/PWA, and admin clients consume the same versioned WARLIST API and canonical server state. They never receive service-role credentials, choose tenant authority, or directly mutate privileged Supabase/business/provider state.
+
+### 3.3 Android
+
+Android access is inside Operational Migration through the required mobile-first responsive Web journey, verified in Android browsers. An installable PWA shell is optional and enters scope only if the owner approves it as the smallest useful delivery choice. A native Android APK/Play Store client is not a WARLIST 2.0 acceptance requirement unless the owner separately approves it. No client may create a second backend or client-side business authority.
+
+Android is a client, not a second backend. It reuses identity, tenant, onboarding, billing, recovery, and business contracts.
+
+### 3.4 Saweria
+
+Saweria is the WARLIST 2.0 payment gateway. Pakasir-specific implementation is not the V2 target.
+
+The already-tested artifact at `/home/marlo/Payment-Gateway-Saweria-WEBHOOK` remains separate. Do not modify or re-audit it unless the owner explicitly requests that. WARLIST integration owns only its side of the contract:
+
+```text
+checkout intent
+  -> durable provider request identity
+  -> gateway acceptance/status/signal
+  -> authoritative WARLIST verification/reconciliation
+  -> idempotent settlement
+  -> tenant-scoped entitlement credit exactly once
+  -> customer/admin status and recovery
+```
+
+Keep provider-specific transport behind the existing billing/application boundary. This is not permission to build speculative multi-provider infrastructure.
+
+### 3.5 Retirement and explicit non-scope
+
+Retire Telegram control/product coupling and legacy PWA push only after every active responsibility has a verified replacement or owner-approved retirement disposition. Do not automatically port Fonnte or legacy notification behavior.
+
+Unless later promoted by an explicit owner decision, these are not WARLIST 2.0 acceptance requirements:
+
+- native Android APK/Play Store client;
+- passkeys/WebAuthn;
+- Google Sheets or Contacts projections;
+- WhatsApp notification campaigns;
+- customer-service AI agent;
+- multi-group/rule-set expansion;
+- analytics expansion;
+- microservices, Kubernetes, external brokers, or multi-region operation.
+
+They do not require a second roadmap now.
+
+## 4. Preserved behavior baseline
+
+OM-01–OM-14 are landed bounded subsets. OM-A is closed only through OM-11; OM-12–OM-14 are landed subsets of OM-B, which remains open. Reconciliation may correct their status documentation, but it must not reopen, renumber, diminish, or rewrite their implementation history without a separately evidenced defect.
+
+The core path remains:
 
 ```text
 application boot
-  -> discover active tenant/OPS
-  -> start locally owned WhatsApp worker
-  -> load/save local Baileys auth state
-  -> observe connection state
-  -> receive live Baileys event
-  -> apply transport guards
-  -> normalize inbound message
-  -> evaluate automation gates in the characterized order
+  -> discover canonical active tenant
+  -> acquire current worker ownership
+  -> start locally owned Baileys worker
+  -> load/save protected local auth
+  -> observe connection and pairing state
+  -> receive and normalize inbound event
+  -> evaluate automation gates
   -> acquire durable delivery authority
-  -> perform at most the authorized external attempt
-  -> persist sent or ambiguous evidence
-  -> process confirmation
-  -> consume entitlement once
-  -> expose safe status and operator actions
+  -> perform at most the admitted external attempt
+  -> persist SENT or AMBIGUOUS evidence
+  -> admit/process confirmation
+  -> consume entitlement atomically once
+  -> apply exact committed config revision
+  -> expose safe customer/operator state and recovery
 ```
 
-Transport behavior that must be characterized before migration includes live `messages.upsert` handling, history/replay rejection, `fromMe`, stale/pre-connect messages, quoted/no-text payloads, connection/reconnect/logout state, local credential persistence, and terminal stop.
+Preserved product/business behavior includes group/admin/keyword ordering, bot/status/schedule gates, dedupe, daily entitlement rules, reply construction, delivery ambiguity, confirmation, and explicit operator-visible states unless the owner approves a change or a defect is proven.
 
-Business behavior that must remain explicit includes bot/status/schedule/group/admin/keyword decisions, daily-use and entitlement rules, deduplication, existing-delivery handling, reply construction, send admission, confirmation, and operator-visible status.
+## 5. Change classification
 
-This summary is not a substitute for slice-specific source inspection. Exact precedence, fallback behavior, and output must be locked by the slice parity matrix.
+Every observable legacy/V2 difference must be classified before implementation.
 
-## 4. Change classification
+| Class                   | Meaning                                                                                 | Required action                                                                |
+| ----------------------- | --------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------ |
+| `PARITY`                | Intentional legacy behavior remains correct                                             | Preserve input, precedence, output, and side effects                           |
+| `CONFIRMED_BUG_FIX`     | Legacy behavior reproducibly violates product/correctness/security/data/recovery intent | Minimum fix plus legacy/V2 regression evidence                                 |
+| `SAFETY_HARDENING`      | Fail closed on malformed, unauthorized, timeout, concurrency, crash, or cleanup paths   | Prove normal happy path is preserved                                           |
+| `OWNER_APPROVED_CHANGE` | Latest owner intentionally changes product behavior                                     | Implement the approved replacement and record supersession                     |
+| `RETIRE`                | Responsibility is intentionally removed                                                 | Prove no active dependency remains or provide explicit replacement/disposition |
+| `UNKNOWN`               | Evidence cannot resolve intent                                                          | Preserve safe parity or stop for a decision; never guess                       |
 
-Every observable difference between legacy and V2 must be classified before implementation.
+Confirmed security, tenant, credential, duplicate-send, double-credit, stale-authority, corrupt-persistence, replay, and unbounded-cleanup defects are not features to preserve.
 
-| Class                   | Meaning                                                                                                                                   | Required action                                                              |
-| ----------------------- | ----------------------------------------------------------------------------------------------------------------------------------------- | ---------------------------------------------------------------------------- |
-| `PARITY`                | Legacy behavior is intentional and safe enough for the migrated boundary.                                                                 | Preserve input, precedence, output, and side effects.                        |
-| `CONFIRMED_BUG_FIX`     | Legacy behavior is reproducibly incorrect against product intent or a correctness, security, data-integrity, or recovery invariant.       | Apply the smallest V2 correction and retain legacy/V2 regression evidence.   |
-| `SAFETY_HARDENING`      | Malformed input, unauthorized access, timeout, concurrency, crash, or cleanup is made fail-closed without changing the normal happy path. | Prove the happy path remains equivalent and the unsafe path is closed.       |
-| `OWNER_APPROVED_CHANGE` | User-visible product behavior is intentionally changed.                                                                                   | Require explicit owner decision recorded in the Issue before implementation. |
-| `UNKNOWN`               | Evidence does not establish whether the difference is a bug or intended behavior.                                                         | Preserve parity or stop for an owner decision; never guess.                  |
+Owner-approved changes in this roadmap include Google/WhatsApp authentication replacing OPS ID/PIN, Saweria replacing Pakasir as V2 provider, fresh customer UI from zero, Android-browser/mobile-Web access (with an optional approved PWA shell), and retirement of Telegram/legacy PWA push after responsibility disposition.
 
-The owner permits confirmed legacy bugs to be corrected in V2. That permission does not allow speculative cleanup or silent product redesign.
+## 6. Mandatory slice evidence matrix
 
-A bug may be corrected inside the current slice only when all are true:
+Every behavior slice includes:
 
-- the legacy behavior is reproduced from source, a characterization test, or a synthetic fixture;
-- the expected behavior follows from an explicit product or safety invariant;
-- the correction is directly relevant to the authorized slice;
-- one regression fails before the fix and passes afterward;
-- unrelated happy-path behavior remains unchanged;
-- the Issue, PR, and checkpoint label the correction `CONFIRMED_BUG_FIX` or `SAFETY_HARDENING`.
-
-Cross-tenant access, credential leakage, duplicate external send, double financial mutation, stale-worker authority, partial/corrupt persistence, unsafe replay, and unbounded lifecycle cleanup are correctness defects, not features to preserve. Product-visible semantics such as gate order, keyword matching, reply format, daily-use rules, onboarding steps, or reconnect UX require parity unless their bug status is proven or the owner approves a change.
-
-## 5. Mandatory parity matrix
-
-Every implementation slice must include a matrix with at least these columns:
-
-| Legacy source/behavior     | Synthetic input or transition | Legacy result   | Classification           | Required V2 result            | Evidence                                             |
-| -------------------------- | ----------------------------- | --------------- | ------------------------ | ----------------------------- | ---------------------------------------------------- |
-| Exact relevant symbol/path | Invented fixture only         | Observed result | One class from Section 4 | Preserved or corrected result | RED/GREEN test, command, or bounded acceptance proof |
+| Prior source/contract            | Synthetic or approved transition                        | Prior/required result            | Classification    | Required V2 result                                | Evidence                                                                        |
+| -------------------------------- | ------------------------------------------------------- | -------------------------------- | ----------------- | ------------------------------------------------- | ------------------------------------------------------------------------------- |
+| Exact symbol/path/owner contract | Invented fixture or explicitly approved isolated effect | Observed or owner-final behavior | One class from §5 | Preserved, corrected, replaced, or retired result | RED/GREEN test, command, browser run, provider acceptance, or bounded rehearsal |
 
 Rules:
 
-- characterize only the path owned by the current slice;
-- do not copy legacy runtime data, credentials, auth state, messages, JIDs, logs, database files, or Git history;
-- preserve known-good evidence even when its historical interpretation was wrong;
-- one successful example is not parity for error, timeout, restart, or replay behavior;
+- inspect only the end-to-end path owned by the slice;
+- use current V2 authority and source before historical plans;
+- never use runtime/customer/credential data as fixtures;
+- preserve known-good evidence even when old interpretation/status was stale;
+- one happy example is not proof for error, timeout, restart, replay, accessibility, or recovery;
+- unit tests do not prove browser/provider/hosted behavior;
 - provider/account behavior remains `UNVERIFIED` until an explicitly approved isolated acceptance run exercises it.
 
-## 6. Anti-overengineering contract
+## 7. Backend-first dependency gates
+
+No client slice may fabricate a missing server contract.
+
+### Runtime gate
+
+Auth, onboarding, billing, admin, Web, and Android integration require one runnable non-Production backend with deterministic startup/shutdown, real listener/static composition, versioned runtime validation, truthful readiness, and safe diagnostics.
+
+### Auth gate
+
+Integrated auth UI requires canonical principal/session contracts, tenant derivation, collision denial, CSRF/cookie/session security, logout revocation, generic credential errors, brute-force controls, and the disposable same-user feasibility proof.
+
+### Onboarding gate
+
+Onboarding UI requires server-backed resumable stages, bounded pairing projection, canonical phone derivation, group/admin provenance, revisioned config, atomic activation, and `REPAIR_REQUIRED` recovery.
+
+### Payment gate
+
+Billing UI and financial smoke require durable order identity, persist-before-effect ordering, bounded gateway contracts, signal authenticity/replay protection, authoritative verification, idempotent transactional settlement, restart reconciliation, and manual-attention states.
+
+### Android gate
+
+Android-browser verification follows stable Web/API/auth/onboarding/payment/re-pair contracts. An optional PWA shell may share schemas and design tokens, but it cannot duplicate business logic or privileged state. Native Android packaging remains outside the 2.0 acceptance gate unless separately approved.
+
+### Release gate
+
+Customer migration and Production require tenant isolation, least privilege, backup/restore, business/credential separation, blank-host rebuild, old/new worker fencing, immutable artifacts, previous-good compatibility, rollback, and explicit approvals.
+
+## 8. Anti-overengineering contract
 
 Use the first rung that solves the authorized behavior:
 
-1. Do not add code when the existing V2 seam already represents the behavior.
-2. Prefer Node.js/TypeScript/PostgreSQL/native platform behavior over a new dependency.
-3. Reuse an already installed and pinned dependency before adding another.
+1. Do not add code when an existing seam already represents the behavior.
+2. Prefer Node.js/TypeScript/PostgreSQL/browser/native platform behavior before a new dependency.
+3. Reuse pinned dependencies before adding another.
 4. Add one concrete implementation for the current product path.
-5. Extract a reusable abstraction only when a second real use or a trust boundary requires it.
-6. Make the minimum explicit change that passes the parity and safety evidence.
+5. Extract an abstraction only for a second real use or a trust boundary.
+6. Make the minimum explicit change that passes product, parity, and safety evidence.
 
-Operational Migration must not introduce, without a separately proven need:
+Do not introduce without proven need:
 
-- a dependency-injection framework, service locator, plugin framework, or internal event bus;
+- DI/service-locator/plugin frameworks;
 - microservices, Kubernetes, Redis/broker, workflow engine, or distributed scheduler;
-- a provider factory with one provider;
-- a generic retry/reconciliation framework before the first concrete failure semantics exist;
-- duplicate worker lifecycle, IPC, credential-directory, normalizer, evaluator, claim, or ledger implementations;
-- a worker pool merely because the legacy repository contains an optional pool path;
-- a bulk `WAWorker` rewrite or mass file conversion;
-- speculative config flags, adapters, tables, DTOs, or directories “for later.”
+- a provider factory for Saweria alone;
+- generic retry/reconciliation infrastructure before concrete failure semantics exist;
+- duplicate worker, credential, normalizer, evaluator, delivery, ledger, auth, onboarding, billing, or API implementations;
+- broad legacy rewrites or mass conversion;
+- speculative config flags, tables, DTOs, components, services, or directories.
 
-Start with one concrete Baileys path and one child process where isolation is required. Keep the existing V2 lifecycle, IPC, diagnostics, local credential-directory, automation, delivery, and persistence seams unless current evidence proves a defect. The current legacy dependency lock is the starting compatibility reference; do not combine a Baileys upgrade with behavior migration unless the current version is proven unusable and the owner accepts a separately evidenced dependency decision.
+## 9. Slice contract
 
-## 7. Slice contract
+Each session owns exactly one bounded GitHub Issue and one externally meaningful vertical outcome.
 
-Each session owns exactly one bounded GitHub Issue and one externally meaningful vertical behavior.
+- New OM implementation Issues freeze at most two independently testable acceptance criteria.
+- Global parity, safety, verification, publication, cleanup, checkpoint, and handoff requirements are completion gates, not hidden AC.
+- If a result cannot fit honestly into two AC, reslice before coding.
+- One writer owns a slice; specialist audits/reviews may run independently.
 
-Completed `OM-01` and `OM-02` retain their historical acceptance evidence. Every new implementation Issue from `OM-03` onward must freeze at most two independently testable acceptance criteria. Mandatory parity, safety, verification, publication, cleanup, checkpoint, recommendation, and handoff requirements remain global completion gates; they are not extra AC. Do not pad a one-AC outcome, and if an outcome cannot fit honestly inside two AC, split it into the next sequential Issue instead of packing hidden sub-AC into prose.
+Before implementation freeze:
 
-### Execution timebox
+- outcome and at most two AC;
+- owner product contract and affected prior behavior;
+- exact source/test/contracts in scope;
+- evidence matrix rows;
+- dependencies and explicit exclusions;
+- external-effect/approval boundary;
+- focused verification and CI expectations;
+- concrete risk triggers requiring independent review;
+- recovery/revert contract.
 
-Keep each slice small enough to finish in one focused session:
+Behavior changes use RED-GREEN-REFACTOR:
 
-- **Target:** reach a published PR within 60 minutes of active engineering (inspection, implementation, focused tests, final diff review, and publication).
-- **At 60 minutes:** stop optional research, refactoring, and hardening; reduce the slice to the smallest complete path that satisfies its frozen acceptance criteria.
-- **At 90 minutes:** stop active implementation, write the durable checkpoint, and hand off unfinished work as a recommended smaller bounded Issue. Do not open it without owner authorization or continue merely to avoid leaving work for the next session.
-- **Exception:** only a security, data-integrity, trust-boundary, or lifecycle-correctness blocker may justify the minimum extension needed to leave the current path safe; record the reason in the checkpoint. Cosmetic cleanup, speculative design, and extra evidence do not qualify.
-- Passive CI/review/network waiting is not active engineering time, but it does not authorize starting another slice or expanding scope.
+1. write one failing behavioral test or observe an honest missing-path proof;
+2. verify the intended RED;
+3. implement the minimum GREEN result;
+4. run focused checks;
+5. inspect the exact diff and protected boundary;
+6. publish the frozen diff promptly;
+7. run remote CI and any risk-required review;
+8. fix at most one bounded review/CI cycle before escalating a remaining blocker.
 
-Before implementation, freeze:
+### Timebox
 
-- one outcome and at most two acceptance criteria;
-- legacy symbols/tests and V2 seams in scope;
-- the parity matrix rows owned by the slice;
-- explicit exclusions and external-effect boundaries;
-- focused verification and remote CI expectations;
-- whether repository policy explicitly requires a local canonical gate before publication;
-- whether one bounded independent review is required by concrete auth, tenant-isolation, credential, payment/entitlement, schema/migration, concurrency/async-lifecycle, Production/release risk, or an explicit repository rule.
+- Target PR-ready within 60 minutes of active engineering.
+- At 60 minutes, stop optional research/refactor and reduce to the smallest complete outcome.
+- At 90 minutes, stop implementation, leave the path safe, checkpoint, and recommend a smaller continuation.
+- Only security, data-integrity, trust-boundary, or lifecycle correctness may justify the minimum safe extension.
 
-Behavior changes use strict RED-GREEN-REFACTOR:
+Do not pull a later slice into the current Issue.
 
-1. write one failing behavior/parity regression;
-2. observe the intended failure, not a broken fixture;
-3. implement the minimum passing change;
-4. run focused affected tests;
-5. review the exact diff and protected-path boundary;
-6. freeze the diff, then commit, push, and open/read back the PR immediately;
-7. use remote PR CI as the default canonical gate and start any risk-required bounded review concurrently after publication.
+## 10. Debuggability and product proof
 
-Do not run a local full canonical gate merely to duplicate CI. Run it before publication only when another repository rule explicitly requires it, or after publication when remote CI is unavailable or a concrete failure needs diagnosis. If required review times out, keep the PR published and block only merge; do not start a replacement reviewer in the same session. One surgical fix/re-review cycle is the ceiling.
+Every slice leaves the smallest real reproduction appropriate to its layer:
 
-Do not pull a later roadmap slice into the current Issue. Record the dependency or finding, finish the smallest safe unit, and defer it.
+- focused test or safe synthetic command;
+- browser path for user-visible behavior;
+- disposable provider/account integration for provider claims;
+- hosted isolated proof for hosted behavior;
+- recovery/rollback rehearsal for operability claims.
 
-### Debuggability proof
+Async boundaries expose stable safe state/error codes and correlation identity. Outputs exclude passwords, OAuth tokens, service-role keys, credentials, QR/pairing material, phone/JID/customer content, provider payloads, and unrestricted logs.
 
-Every migrated slice must leave one smallest reproducible diagnostic path:
+A process running, HTTP `200`, a screenshot, a unit test, a callback, or a successful local fixture is not whole-product correctness.
 
-- one exact focused test or safe synthetic command that reproduces its accepted/rejected/error outcome;
-- a stable decision/error/state code and correlation identity where the path crosses an asynchronous boundary;
-- the owning source path and terminal state named in the Issue, PR, and checkpoint;
-- safe output that excludes credentials, QR/pairing material, customer/JID/message content, raw provider payloads, and unrestricted logs.
+## 11. External-effect and data gates
 
-Do not build a generic debugging framework for this requirement. Reuse the focused test, existing diagnostics, or existing debug command when it already proves the path; add the smallest command only when no reproducible entry point exists.
+Synthetic/fake transport and disposable local PostgreSQL evidence are allowed. These require explicit owner scope at the exact slice:
 
-## 8. External-effect gates
-
-Synthetic/fake transport and disposable local PostgreSQL evidence may be used without touching Production. The following require explicit owner scope before execution:
-
-- real WhatsApp account pairing or credential creation;
+- real/disposable WhatsApp account pairing or credential creation;
 - external inbound/outbound messages;
-- provider/network mutation;
-- hosted Supabase/project configuration;
-- legacy runtime/customer-data inspection beyond approved read-only source/schema metadata;
-- financial/account mutation;
-- deployment, restart, cutover, rollback, or Production action.
+- Supabase project/OAuth/provider configuration;
+- Saweria/gateway network or financial effect;
+- hosted database/project mutation;
+- legacy customer/runtime-data inspection or migration;
+- deployment, restart, DNS/edge, cutover, rollback, or Production action.
 
-Use a disposable account and isolated local credential root for approved WhatsApp acceptance. Never type, print, commit, or copy credentials, QR/pairing material, phone/JID values, customer messages, or raw provider payloads.
+Use only disposable accounts and invented data for approved acceptance before Production. Never type, print, commit, copy, or document secrets, passwords, OAuth tokens, QR, pairing material, phone/JID, customer messages, or raw provider payloads.
 
-## 9. Completion and checkpoint protocol
+The Saweria gateway artifact remains unmodified and is not re-audited by WARLIST integration work unless explicitly requested.
+
+## 12. Recovery contract
+
+Canonical business database state is durable and must have tested backup/restore, portable export, migration invariants, and previous-compatible rollback.
+
+Baileys auth is sensitive, local, revocable, and not canonical business state:
+
+```text
+local session intact and valid -> reuse under exact ownership
+missing/corrupt/revoked/untrusted -> REPAIR_REQUIRED -> customer re-pairs
+```
+
+Do not promise cross-host auth continuity. Encrypted auth backup is a later optimization only after an isolated disposable-account drill proves encryption, key ownership, tenant-scoped restore, revocation, provider acceptance, and old/new worker fencing.
+
+A clean-host recovery claim requires a measured rehearsal:
+
+```text
+fence old host/workers
+  -> provision clean Linux host
+  -> apply reproducible bootstrap
+  -> deploy exact artifact digest
+  -> restore/reconnect business database
+  -> reuse valid local auth or mark REPAIR_REQUIRED
+  -> verify readiness and business invariants
+  -> switch approved edge origin
+```
+
+## 13. Completion and checkpoint protocol
 
 A slice is complete only after:
 
-- every acceptance criterion is verified or honestly classified;
-- relevant focused evidence and remote canonical CI pass, or unavailable CI is classified honestly under repository policy;
-- the slice's smallest safe reproduction/debug path is recorded and executable;
-- any risk-required bounded review passed the exact current PR head SHA with no unresolved material finding;
-- PR scope/file list and CI are verified;
-- squash merge, Issue closure, live-main ref/tree parity, remote/local branch cleanup, and protected-path preservation are verified;
-- as-built docs are updated only where reality changed.
+- every AC is verified or honestly classified;
+- focused evidence and remote CI pass, or unavailable infrastructure is classified truthfully;
+- the smallest reproduction is recorded;
+- risk-required review passes the exact current head with no material finding;
+- PR file list/scope are verified;
+- squash merge, Issue closure, live-main ref/tree parity, cleanup, and protected-state preservation are verified;
+- current-state docs change only where reality changed.
 
-Immediately after those gates, write a durable checkpoint:
+Then write a durable local checkpoint unless publication is requested:
 
 ```text
 docs/checkpoints/session-checkpoint-YYYY-MM-DD-om-NN-<slug>.md
 ```
 
-The checkpoint is local and uncommitted by default unless the owner requests publication. It must record:
+Record outcome status, Issue/PR/refs/CI, classification matrix, real commands/results, files, reproduction path, external effects not run, residual risk, recovery, phase/slice status, and exactly one next-slice recommendation with prerequisites and exact `/new` prompt.
 
-- outcome status: `VERIFIED`, `PARTIALLY VERIFIED`, `FAILED`, `UNVERIFIED`, or `BLOCKED`;
-- Issue, PR, head/merge/live-main refs, CI, parity, and cleanup evidence;
-- exact legacy behavior migrated and final parity matrix;
-- confirmed bug fixes or hardening, with regression evidence;
-- files changed and commands actually run;
-- the smallest safe command/test for reproducing the migrated behavior and its stable terminal code/state;
-- external/provider/hosted/Production effects that did not run;
-- residual risk, blockers, and rollback/recovery notes;
-- current roadmap phase/slice status;
-- exactly one recommended next slice, why it is next, its prerequisites, and an exact `/new` prompt.
+Stop after the checkpoint. Recommendation is not authorization.
 
-After writing and verifying the checkpoint, recommend the next slice and stop. A recommendation is not authorization. Do not open or implement the next Issue in the same session.
+## 14. Phase and WARLIST 2.0 closure
 
-## 10. Choosing the next slice
+A merged slice never closes a phase. A phase closes only when all applicable slices and exit criteria are landed, evidence ceilings are explicit, current source/docs agree, and next-phase authorization is explicit.
 
-Recommend the earliest roadmap slice whose prerequisites are landed and whose work:
+WARLIST 2.0 closes only after all applicable OM-A through OM-H criteria are verified, including usable Web on desktop and Android browsers, auth/onboarding, Saweria, admin, hosted/recovery, migration, immutable release, rollback, and explicitly approved Production acceptance. An installable PWA or native Android package is not implied by this closure rule.
 
-1. continues the same end-to-end product path;
-2. removes the nearest blocker to observable business behavior;
-3. reuses existing V2 seams;
-4. has the smallest safe blast radius;
-5. does not require an unapproved external effect.
-
-If the next sequential slice is blocked, recommend the immediate operational resolution or the smallest prerequisite slice. Do not skip to cosmetic or deferred work merely because it is easier.
-
-## 11. Phase closure
-
-A merged slice never closes its parent phase. A phase may be called complete only when every applicable slice and phase exit criterion is landed, the current source and roadmap agree, residual risk is explicit, and a phase checkpoint records the next-phase authorization state.
-
-Operational Migration as a whole remains incomplete until legacy parity, hosted/runtime operation, migration rehearsal, restore, immutable release, cutover, rollback, and Production acceptance are separately proven. No local test, process state, HTTP `200`, or provider callback establishes Production readiness.
-
-## 12. Deferred enhancements
-
-Operational Migration does not silently include PIN/passkeys, WhatsApp notification campaigns, Google Sheets/Contacts, Saweria cutover, PWA rebuild, native mobile, frontend redesign, or unrelated product expansion. Those remain deferred until separately authorized after the operational replacement path is safe.
+No unstarted future item is made complete by appearing in this contract. No missing provider, hosted, migration, browser, Android, recovery, or Production evidence may be inferred from lower-layer tests.

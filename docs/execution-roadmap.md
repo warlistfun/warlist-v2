@@ -1,54 +1,111 @@
 # WARLIST V2 Execution Roadmap
 
-> **Current execution authority:** This is the active roadmap for WARLIST V2. The older [phase roadmap](roadmap.md) and the durable backend master plan remain preserved historical planning/scope references; they do not authorize implementation beyond the owner-approved execution boundary below.
+> **Current execution authority:** WARLIST V2 has one unified, backend-first Operational Migration roadmap. There is no separate post-migration feature roadmap in the WARLIST 2.0 acceptance path.
 
-## 1. Backend Foundation — frozen implementation baseline
+## 1. Outcome
 
-**Status:** `PARTIALLY VERIFIED` and non-operational. PR #100 remains the frozen implementation baseline; separately authorized post-audit remediation evidence is recorded in the [as-built audit](backend-foundation-as-built-audit.md).
+WARLIST 2.0 is complete only when the migrated backend, customer product, commercial path, operations, recovery, and cutover are integrated and verified as one directly usable system.
 
-PR #100 is the frozen backend implementation baseline. Later separately authorized remediation and frontend slices are bounded overlays; they do not silently redefine or close the Backend Foundation. The baseline includes:
+The required order is:
 
-- TypeScript modular-monolith composition, strict checks, synthetic-only CI, and repository boundaries.
-- Resource-free worker lifecycle, IPC validation, diagnostics, generation/child fencing, and synthetic orchestration.
-- Portable PostgreSQL schema/migrations, repository contracts, readiness/telemetry boundaries, and protected local credential-directory boundary.
-- Pure automation normalization/evaluation, field-scoped config, exact-revision synchronization, and simulator.
-- Delivery claim/fence/ambiguity handling, confirmation, entitlement ledger, and disposable PostgreSQL adversarial proofs.
-- Atomic tenant enrollment, strict authenticated-principal tenant derivation, and cross-tenant IDOR authorization proof.
+```text
+landed backend/bot evidence
+  -> runnable backend and disposable Baileys acceptance
+  -> canonical identity, authentication, and onboarding backend
+  -> usable customer Web
+  -> Saweria billing and entitlement
+  -> admin and Android Web/PWA-compatible customer access
+  -> hosted operation, migration, and recovery
+  -> immutable release and Production cutover
+```
 
-**Boundary:** This is a frozen implementation baseline, not a claim that every former phase definition or Production/cutover requirement is technically complete. No additional implementation may be started without a new explicit owner decision for one bounded Issue.
+Backend and bot correctness remain first. Frontend, auth, payment, Android, and cutover work may not bypass missing backend contracts or safety gates.
 
-## 2. Operational Migration — OM-A closed on synthetic/local evidence
+## 2. Current verified baseline
 
-**Status:** Issues #132, #136, #140, #142, #146, #148, #150, #152, #154, #156, and #158 (`OM-01`–`OM-11`) are verified synthetic/local slices. OM-A is closed at that evidence ceiling; Operational Migration and real-provider/account readiness remain `PARTIALLY VERIFIED`, and no OM-B slice is authorized.
+**Canonical snapshot before this reconciliation:** `origin/main@bcc41dfa2f73f75525b06a1feb2f09057e10e195`.
 
-The owner-requested planning contract is [`operational-migration-master.md`](operational-migration-master.md), and its phase/slice status board is [`operational-migration-roadmap.md`](operational-migration-roadmap.md). They require legacy-flow parity by default, explicit classification for every behavior difference, minimum non-speculative implementation, at most two acceptance criteria for every new Issue from `OM-03`, durable slice checkpoints, and exactly one next-slice recommendation. The resliced roadmap runs through `OM-44`, with 33 slices remaining (`OM-12`–`OM-44`). OM-01–OM-05 prove the local fake lifecycle, inbound, pairing, credential-ownership, and reset boundaries; OM-06–OM-11 prove the disposable-PostgreSQL/fake-transport send authority, durable `SENT`/`AMBIGUOUS` evidence, confirmation, atomic daily debit, and manual recovery boundaries. Current source and tests provide correlated cross-seam traceability, not one composed runnable/provider path. `OM-12` is the next recommendation, not authorization, and none of this evidence authorizes an external effect.
+### Backend Foundation
 
-Potential work needed only if V2 is selected to replace legacy WARLIST operationally:
+**Status:** `PARTIALLY VERIFIED` and non-operational.
 
-- concrete runtime composition, WhatsApp worker/process integration, and safe local credential lifecycle;
-- canonical hosted database/configuration operation and observability;
-- required admin operations and active billing/entitlement capability;
-- read-only legacy inventory, migration/parity evidence, backup/restore, immutable release, cutover, and rollback.
+The frozen PR #100 foundation plus later bounded overlays provide reusable TypeScript, PostgreSQL, automation, delivery/entitlement, identity, frontend, and worker seams. They do not prove one runnable product, hosted operation, provider acceptance, deployment, or Production readiness.
 
-This section is not authorization to design, implement, contact providers, migrate data, deploy, or change Production.
+### Operational Migration
 
-## 3. Enhancements — deferred
+**Status:** `OM-01`–`OM-14` are landed bounded slices at their recorded synthetic/local/disposable evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-14` landed. Operational Migration as a whole remains `PARTIALLY VERIFIED`.
 
-**Status:** Deferred; roadmap-only.
+- `OM-01`–`OM-11`: Issues #132, #136, #140, #142, #146, #148, #150, #152, #154, #156, and #158.
+- `OM-12`: Issue #164 / PR #165 / merge `d5dc513e81ab325203c60087f4b1bcdc4a9b09a6`.
+- `OM-13`: Issue #166 / PR #167 / merge `fc54dddbce29aee01b5c3afe97ed55b7384ee75e`.
+- `OM-14`: Issue #168 / PR #170 / merge `bcc41dfa2f73f75525b06a1feb2f09057e10e195`.
 
-Potential later capabilities:
+These are valid landed subsets and are not reopened or rewritten by this roadmap reconciliation. They still do not prove a real account, hosted environment, customer migration, deployment, financial effect, or Production operation.
 
-- session/token-family foundation and PIN/passkey rollout;
-- user notifications and PWA retirement;
-- Google Sheets/Contacts projections;
-- Saweria adapter;
-- other product/UI enhancements.
+The public frontend foundation also exists through PR #124 and PR #130. It is preserved as landed foundation, not counted as integrated customer-product completion.
 
-These items require an explicit owner decision and a separate bounded Issue before implementation.
+## 3. Owner-approved product corrections
 
-## Authority and safety
+The following decisions supersede older planning assumptions:
 
-- PR #100 is the final landed implementation in the frozen baseline.
-- PR #102 was closed without merge; Issue #101 is `NOT_PLANNED`.
-- The legacy phase roadmap and backend master plan are preserved for traceability and gap analysis.
-- No status label here authorizes Production, runtime/customer-data, credential, provider, financial, deployment, or destructive action.
+| Area                  | WARLIST 2.0 direction                                                                                                                                           | Superseded direction                                                |
+| --------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------- |
+| Roadmap               | One unified Operational Migration through usable 2.0                                                                                                            | Separate generic Enhancements/post-migration execution path         |
+| End-user registration | Google OAuth through Supabase only                                                                                                                              | OPS ID + PIN registration                                           |
+| End-user login        | Google, or verified WhatsApp number + WARLIST Password, on the same canonical Supabase user                                                                     | OPS ID/PIN as end-user credential                                   |
+| Onboarding            | Complete resumable customer journey is required                                                                                                                 | Backend-only setup completion                                       |
+| Frontend              | Fresh mobile-first Web built from zero is required                                                                                                              | Frontend redesign deferred beyond migration                         |
+| Android access        | Mobile-first Web usability in Android browsers is part of OM; an installable PWA is optional; native APK/Play Store is outside scope unless separately approved | Android indefinitely deferred / native package implied              |
+| Payment               | Saweria is the WARLIST 2.0 payment gateway                                                                                                                      | Pakasir stabilization as the V2 target                              |
+| Gateway artifact      | Integrate the separately tested owner-provided Saweria gateway without modifying or re-auditing it unless explicitly requested                                  | Copying/rebuilding its implementation inside WARLIST                |
+| Telegram/PWA push     | Retire after required responsibilities have approved replacements/dispositions                                                                                  | Porting legacy control or push implementation                       |
+| Baileys recovery      | Missing, revoked, invalid, or untrusted session becomes `REPAIR_REQUIRED`; customer re-pairs                                                                    | Assuming provider credential restore is canonical business recovery |
+
+The exact Google plus WhatsApp-password same-user flow remains a technical feasibility gate. It must be proven with official Supabase behavior and a disposable isolated account before implementation can claim the contract. It may not be approximated with duplicate WARLIST users, a shadow password database, or client-selected identity.
+
+## 4. Unified phase board
+
+| Phase | Range         | Purpose                                                                        | Status                                  |
+| ----- | ------------- | ------------------------------------------------------------------------------ | --------------------------------------- |
+| OM-A  | `OM-01–OM-11` | Core Baileys, delivery, entitlement, and cross-seam bot authority              | `VERIFIED` at bounded evidence ceilings |
+| OM-B  | `OM-12–OM-20` | Landed runtime seams, runnable backend, and disposable real-Baileys acceptance | `PARTIALLY VERIFIED`                    |
+| OM-C  | `OM-21–OM-30` | Canonical identity, Google/WhatsApp authentication, and onboarding backend     | `NOT STARTED`                           |
+| OM-D  | `OM-31–OM-38` | Directly usable mobile-first customer Web                                      | `NOT STARTED`                           |
+| OM-E  | `OM-39–OM-46` | Saweria checkout, settlement, reconciliation, and billing product              | `NOT STARTED`                           |
+| OM-F  | `OM-47–OM-53` | Required admin product and Android Web/PWA-compatible access                   | `NOT STARTED`                           |
+| OM-G  | `OM-54–OM-62` | Hosted operation, migration, backup/restore, and blank-host recovery           | `NOT STARTED`                           |
+| OM-H  | `OM-63–OM-69` | Immutable release, Production migration, cutover, rollback, and acceptance     | `NOT STARTED`                           |
+
+Detailed slice contracts, dependencies, acceptance criteria, and exclusions live in [`operational-migration-roadmap.md`](operational-migration-roadmap.md). Global parity, safety, evidence, checkpoint, and approval rules live in [`operational-migration-master.md`](operational-migration-master.md).
+
+Phase letters are organizational groups inside this one roadmap. They are not separate products or a reason to defer required usability until after migration.
+
+## 5. WARLIST 2.0 acceptance
+
+`OM-69` may close WARLIST 2.0 only when all applicable phase exit criteria are landed and verified, including:
+
+- the core bot path works through the approved real provider/account boundary without weakening delivery, entitlement, tenant, or credential safety;
+- Google registration/login and WhatsApp-number/WARLIST-password login resolve to the same canonical user and tenant;
+- complete onboarding, pairing/re-pair, dashboard, settings, status, entitlement, billing, and recovery journeys work through canonical server state;
+- Saweria success credits the correct tenant entitlement exactly once and restart/reconciliation behavior is proven;
+- required admin and Android-browser/mobile-Web outcomes are complete; an optional PWA is included only if separately approved;
+- hosted operation, backup/restore, blank-host rebuild, `REPAIR_REQUIRED`, immutable artifact, rollback, and migration invariants are proven;
+- explicitly approved Production cutover passes bounded business acceptance, not only process or HTTP checks.
+
+Native Android APK/Play Store packaging, passkeys, Google Sheets/Contacts, notification campaigns, customer-service agents, multi-group expansion, and infrastructure scale-out are not WARLIST 2.0 acceptance requirements unless the owner later explicitly amends this authority. They are not silently scheduled in a second roadmap.
+
+## 6. Current decision point
+
+No implementation slice is active or authorized by this documentation reconciliation.
+
+**Exactly one next recommendation:** `OM-15 — Runnable application and HTTP adapter composition` after this roadmap correction is landed and canonical refs are reconciled.
+
+A recommendation is not authorization. Every implementation Issue remains bounded to at most two independently testable acceptance criteria. Real account/provider, hosted project, financial, customer-data, deployment, migration, rollback, or Production effects still require their explicit scope and approval at the slice where they occur.
+
+## 7. Safety and authority
+
+- Current source, tests, migrations, and executable schemas prove implemented behavior.
+- This execution roadmap authorizes only the owner-approved roadmap direction; it does not make unimplemented slices complete.
+- Historical plans and legacy Markdown remain evidence and provenance, not competing execution authority.
+- Legacy Production `/home/marlo/warlist`, runtime/customer data, credentials, databases, logs, and protected paths remain untouched.
+- No status wording authorizes Production, provider, account, credential, hosted, customer-data, financial, deployment, destructive, cutover, or rollback action by implication.

@@ -13,8 +13,8 @@
 
 ### Execution-roadmap authority — mandatory for WARLIST V2
 
-- `docs/execution-roadmap.md` is the active execution authority. Backend Foundation remains `PARTIALLY VERIFIED` and non-operational after the as-built audit. OM-A is closed on verified synthetic/local `OM-01` through `OM-11` evidence, while Operational Migration and real-provider/account readiness remain `PARTIALLY VERIFIED`; `OM-12` is only the next recommendation. Do not start another implementation slice unless a new explicit owner decision authorizes one bounded Issue.
-- The durable WARLIST V2 backend master plan and `docs/roadmap.md` are preserved historical planning/scope references. Consult them for traceability and gap analysis; they do not authorize work beyond the execution roadmap.
+- `docs/execution-roadmap.md` is the active execution authority. Backend Foundation remains `PARTIALLY VERIFIED` and non-operational after the as-built audit. Unified Operational Migration preserves `OM-01` through `OM-14` as verified bounded evidence while the whole product remains `PARTIALLY VERIFIED`; `OM-15` is only the next recommendation. Do not start another implementation slice unless a new explicit owner decision authorizes one bounded Issue.
+- The durable WARLIST V2 backend master plan, `docs/roadmap.md`, and older three-part/post-migration plans are preserved historical planning/scope references. Consult them for provenance and gap analysis; they do not authorize work beyond the unified execution roadmap.
 - A merged Issue/PR or a verified bounded slice/foundation never proves a historical parent phase complete by itself. Do not create or claim historical phase closure without explicit reconciliation against the master plan.
 - No status wording authorizes Production, migration/cutover, provider, credential, customer-data, deployment, or financial actions.
 - Current guardrail: Phase 4 is **Supabase schema and repository foundation** in the master plan. Disposable local PostgreSQL evidence is a verified subset only; it is not Phase 4 closure evidence for the master plan.

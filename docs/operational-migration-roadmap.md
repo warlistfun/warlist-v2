@@ -1,530 +1,702 @@
-# WARLIST V2 Operational Migration Roadmap
+# WARLIST V2 Unified Operational Migration Roadmap
 
-> **Status:** `OM-01`–`OM-11 VERIFIED`; OM-A is closed at the synthetic/local evidence ceiling. Operational Migration and real-provider/account readiness remain `PARTIALLY VERIFIED`. This planning/status board is governed by [`operational-migration-master.md`](operational-migration-master.md). Every new implementation Issue from `OM-03` onward has at most two independently testable acceptance criteria and still requires a new explicit owner decision.
+> **Status:** `OM-01`–`OM-14` are landed bounded slices at their recorded evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-14` landed. `OM-15`–`OM-69` are `NOT STARTED`. Operational Migration as a whole remains `PARTIALLY VERIFIED`. No implementation Issue is active or authorized by this document alone.
+>
+> **Governing contract:** [`operational-migration-master.md`](operational-migration-master.md). Active authorization: [`execution-roadmap.md`](execution-roadmap.md).
 
-## Two-AC reslice summary
+## 1. One-roadmap rule
 
-- Verified history: `OM-01`–`OM-11`; OM-A closed at the synthetic/local evidence ceiling.
-- Roadmap range: `OM-01`–`OM-44`.
-- Remaining work: 33 slices, `OM-12`–`OM-44`.
-- Phase ranges: OM-A `OM-01`–`OM-11` (closed), OM-B `OM-12`–`OM-29` (18 remaining), OM-C `OM-30`–`OM-38` (9), OM-D `OM-39`–`OM-44` (6).
-- The 14 former unstarted slices each used an Issue ceiling of five AC. Preserving that ceiling as `2 + 2 + 1` originally yielded `14 × 3 = 42` post-`OM-02` Issues without padding a one-AC outcome or increasing scope.
-- This reslice changes only Issue size and numbering after `OM-02`; the established parity, safety, external-effect, verification, PR/CI/merge, cleanup, checkpoint, recommendation, prerequisite, exact `/new`, and stop flow remains unchanged.
-- Mandatory global gates are not extra AC, and hidden sub-AC are forbidden. If current evidence makes a planned outcome unnecessary, the roadmap must be corrected explicitly rather than padding its Issue.
+WARLIST 2.0 uses one backend-first Operational Migration roadmap. Phase letters group dependencies; they are not separate products or a post-migration feature track.
 
-The former post-`OM-02` labels were planning-only and never started, so they are superseded as follows:
+```text
+OM-A  OM-01–OM-11  landed core bot/delivery evidence (closed subset)
+  -> OM-B  OM-12–OM-20  landed runtime seams + runnable backend/disposable acceptance
+  -> OM-C  identity, authentication, and onboarding backend
+  -> OM-D  usable mobile-first customer Web
+  -> OM-E  Saweria billing and entitlement
+  -> OM-F  required admin and Android Web/PWA-compatible access
+  -> OM-G  hosted operation, migration, and recovery
+  -> OM-H  immutable release and Production cutover
+```
 
-| Former planned slice | Current at-most-two-AC slices |
-| -------------------- | ----------------------------- |
-| `OM-03`              | `OM-03–OM-05`                 |
-| `OM-04`              | `OM-06–OM-08`                 |
-| `OM-05`              | `OM-09–OM-11`                 |
-| `OM-06`              | `OM-12–OM-14`                 |
-| `OM-07`              | `OM-15–OM-17`                 |
-| `OM-08`              | `OM-18–OM-20`                 |
-| `OM-09`              | `OM-21–OM-23`                 |
-| `OM-10`              | `OM-24–OM-26`                 |
-| `OM-11`              | `OM-27–OM-29`                 |
-| `OM-12`              | `OM-30–OM-32`                 |
-| `OM-13`              | `OM-33–OM-35`                 |
-| `OM-14`              | `OM-36–OM-38`                 |
-| `OM-15`              | `OM-39–OM-41`                 |
-| `OM-16`              | `OM-42–OM-44`                 |
+Every new implementation Issue has one bounded outcome and at most two independently testable acceptance criteria. Global parity, safety, verification, review, CI, merge, cleanup, checkpoint, handoff, and approval requirements are not hidden AC.
 
-## Status legend
+## 2. Status and supersession
 
-- `NOT STARTED` — no implementation authority or landed evidence.
-- `AUTHORIZED` — owner approved one bounded Issue; no completion claim.
-- `IN PROGRESS` — the authorized Issue is being implemented.
-- `PARTIALLY VERIFIED` — useful landed evidence exists but the slice exit criteria are incomplete.
-- `VERIFIED` — slice is landed and its closure/ref/tree/checkpoint evidence is complete.
-- `BLOCKED` — cannot proceed safely; blocker and immediate resolution are recorded.
+- `OM-01–OM-11` retain their original numbers, landed implementation, Issue/PR evidence, and bounded evidence ceilings; OM-A remains closed only at that boundary.
+- `OM-12–OM-14` retain their original numbers and landed implementation as partially verified OM-B subsets; they do not close OM-B or the whole migration.
+- The former planning-only `OM-15–OM-44` rows never started. They are superseded by the `OM-15–OM-69` board below; no implementation history is rewritten.
+- The former Pakasir slices are replaced by Saweria slices. Provider-neutral financial safety invariants are preserved.
+- OPS ID + PIN, deferred customer UI, and a separate post-migration roadmap are superseded by the owner-approved Google/WhatsApp auth, usable product, Android, and Saweria direction.
+- PR #124 and PR #130 remain landed frontend foundations. They do not close any integrated product slice below.
 
-A slice status never closes its phase automatically. Numerical order is the default dependency order unless the owner explicitly approves a different recorded dependency.
+### Status legend
 
-## Current decision point
+| Status               | Meaning                                                                     |
+| -------------------- | --------------------------------------------------------------------------- |
+| `NOT STARTED`        | Planning only; no implementation authority or completion evidence           |
+| `AUTHORIZED`         | Owner approved exactly one bounded Issue                                    |
+| `IN PROGRESS`        | The authorized Issue has a real active handle                               |
+| `PARTIALLY VERIFIED` | Useful evidence exists but the slice outcome is incomplete                  |
+| `VERIFIED`           | Slice is landed; CI/review/closure/ref/tree/checkpoint evidence is complete |
+| `BLOCKED`            | A named blocker and safe next resolution are recorded                       |
+| `SUPERSEDED`         | An unstarted plan was replaced by a newer explicit decision                 |
 
-- Backend Foundation remains `PARTIALLY VERIFIED` and non-operational.
-- `OM-01`–`OM-11` are verified synthetic/local slices, and OM-A is closed only at that cross-seam traceability ceiling; no single composed runnable/provider path is claimed.
-- Operational Migration and real-provider/account readiness remain `PARTIALLY VERIFIED`.
-- No WhatsApp provider, credential, hosted database, customer, deployment, financial, or Production action is authorized.
-- No OM-B slice is authorized. The next recommendation is `OM-12`, not permission to start it.
+A slice never closes its parent phase automatically.
 
-## Phase OM-A — Core WhatsApp/Baileys path
+## 3. Phase OM-A — Preserved core backend and bot authority
 
-**Range:** `OM-01–OM-11`. **Status:** `VERIFIED` at the synthetic/local traceability ceiling. **Remaining:** 0.
+**Range:** `OM-01–OM-11`
+**Status:** `VERIFIED` at bounded synthetic/local/disposable evidence ceilings
+**Objective:** Preserve the already landed Baileys lifecycle, automation, delivery, entitlement, boot, ownership, and config authority foundations without pretending they form one runnable or Production-ready product.
 
-**Objective:** Reproduce the legacy WhatsApp automation path through the existing V2 seams, one observable behavior at a time, without changing product flow or performing a bulk worker rewrite.
+| Slice   | Landed outcome                                     | Evidence                                                           | Ceiling                                                                         |
+| ------- | -------------------------------------------------- | ------------------------------------------------------------------ | ------------------------------------------------------------------------------- |
+| `OM-01` | Local Baileys connection lifecycle parity          | Issue #132 / PR #133                                               | Fake socket and temporary credential root                                       |
+| `OM-02` | Inbound event and transport-guard parity           | Issue #136 / PR #137                                               | Synthetic inbound/fake transport                                                |
+| `OM-03` | Pairing request and safe onboarding projection     | Issue #140 / PR #141; corrective Issue #162 / PR #163 / `ba6dc624` | Fake socket; no real pairing; pending-command correlation fence corrected later |
+| `OM-04` | Local credential ownership boundary                | Issue #142 / PR #145                                               | Synthetic filesystem/ownership                                                  |
+| `OM-05` | Reconnect, logout, stop, and explicit reset parity | Issue #146 / PR #147                                               | Fake socket and synthetic credential root                                       |
+| `OM-06` | Database-gated one Baileys send invocation         | Issue #148 / PR #149                                               | Disposable PostgreSQL/fake socket                                               |
+| `OM-07` | Durable `SENT` evidence and replay suppression     | Issue #150 / PR #151                                               | Disposable PostgreSQL/fake transport                                            |
+| `OM-08` | Durable `AMBIGUOUS` evidence and recovery fence    | Issue #152 / PR #153                                               | Disposable PostgreSQL/fake transport                                            |
+| `OM-09` | Confirmation admission and deduplication           | Issue #154 / PR #155                                               | Disposable PostgreSQL/fake transport                                            |
+| `OM-10` | Atomic confirmation and daily entitlement debit    | Issue #156 / PR #157                                               | Disposable PostgreSQL/fake transport                                            |
+| `OM-11` | Ambiguous delivery manual recovery                 | Issue #158 / PR #159                                               | Disposable PostgreSQL/fake transport                                            |
 
-### OM-01 — Local Baileys connection lifecycle parity
+### OM-A exit verdict
 
-- **Source scope:** landed OM-01.
-- **Status:** `VERIFIED` — Issue #132; local fake-socket evidence only.
-- **Acceptance criteria:** Historical landed Issue; the new two-AC ceiling is not retroactive.
-- **Explicit exclusions:** No inbound automation, pairing UI, outbound send, pool, hosted DB, or real account without separate approval.
+- Core cross-seam traceability is preserved and not reopened.
+- No real account/provider acceptance, runnable application, hosted operation, customer migration, financial effect, deployment, or Production behavior is inferred.
+- Any future defect found in these paths requires one separately authorized corrective Issue; roadmap reconciliation alone is not evidence of a defect.
 
-### OM-02 — Inbound event and transport-guard parity
+## 4. Phase OM-B — Runtime seams, runnable backend, and disposable Baileys acceptance
 
-- **Source scope:** landed OM-02.
-- **Status:** `VERIFIED` — Issue #136; local synthetic evidence only.
-- **Acceptance criteria:** Historical landed Issue; the new two-AC ceiling is not retroactive.
-- **Explicit exclusions:** No external send, confirmation, product redesign, or duplicate evaluator.
+**Range:** `OM-12–OM-20`
+**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-14` landed; `OM-15`–`OM-20` not started
+**Objective:** Compose the preserved backend/bot seams into one runnable non-Production path, then prove the core automation outcome with an explicitly approved disposable WhatsApp account before auth/product work consumes it.
 
-### OM-03 — Pairing request and safe onboarding projection
+### Landed OM-B baseline — preserved, not reopened
 
-- **Source scope:** landed OM-03.
-- **Status:** `VERIFIED` — Issue #140; local fake-socket evidence only.
-- **Acceptance criteria (2/2):**
-  1. A synthetic pairing request reaches the current Baileys child through the existing runtime/IPC identity fence and exposes only the bounded onboarding state required by the characterized legacy flow.
-  2. Repeated request, open, close, and terminal-stop transitions are deterministic without QR/pairing material, credential payload, JID, or raw provider update in diagnostics.
-- **Evidence:** [`operational-migration/om-03-safe-pairing-projection.md`](operational-migration/om-03-safe-pairing-projection.md).
-- **Explicit exclusions:** No real account pairing, customer credential, provider send, hosted DB, or Production effect.
+| Slice   | Landed outcome                                   | Evidence                          | Ceiling                                |
+| ------- | ------------------------------------------------ | --------------------------------- | -------------------------------------- |
+| `OM-12` | Canonical active-tenant discovery                | Issue #164 / PR #165 / `d5dc513e` | Synthetic/local; no composed boot      |
+| `OM-13` | Current worker ownership and restart fencing     | Issue #166 / PR #167 / `fc54dddb` | Synthetic/local; no provider authority |
+| `OM-14` | Monotonic worker config application and recovery | Issue #168 / PR #170 / `bcc41dfa` | Synthetic/local; no hosted config      |
 
-### OM-04 — Local credential ownership boundary
+These three landed slices are evidence for OM-B, not phase closure. They are not repeated by the unstarted contracts below.
 
-- **Source scope:** former OM-03.
-- **Status:** `VERIFIED` — Issue #142; local synthetic-filesystem/fake-socket evidence only.
-- **Acceptance criteria (2/2):**
-  1. Exactly one current tenant/generation owner may use its tenant-scoped local credential root; concurrent, foreign, and stale owners fail closed.
-  2. Path hardening and owner-only permissions prevent root escape or credential payload leakage across IPC, diagnostics, and repository boundaries.
-- **Evidence:** [`operational-migration/om-04-local-credential-ownership.md`](operational-migration/om-04-local-credential-ownership.md).
-- **Explicit exclusions:** No Production auth copy, PostgreSQL/Supabase credential storage, customer credential, or unapproved filesystem cleanup.
+### OM-15 — Runnable application and HTTP adapter composition
 
-### OM-05 — Reconnect, logout, and explicit reset parity
-
-- **Source scope:** former OM-03.
-- **Status:** `VERIFIED` — Issue #146; local synthetic-filesystem/fake-socket evidence only.
-- **Acceptance criteria (2/2):**
-  1. Retryable close reconnects with the same fenced owner; provider logout is terminal, and stop cancels socket/reconnect work and releases ownership without deleting auth state.
-  2. Only exact-owner `RESET_WORKER` deletes the synthetic tenant directory after terminal socket stop; cleanup failure stays fenced and retryable until deletion and release complete.
-- **Evidence:** [`operational-migration/om-05-reconnect-logout-reset-parity.md`](operational-migration/om-05-reconnect-logout-reset-parity.md).
-- **Explicit exclusions:** No real account action, Production auth copy, customer credential, provider send, or unrelated filesystem cleanup.
-
-### OM-06 — Delivery claim to one Baileys send invocation
-
-- **Source scope:** former OM-04.
-- **Status:** `VERIFIED` — Issue #148; disposable-PostgreSQL/fake-socket evidence only.
-- **Acceptance criteria (2/2):**
-  1. An `ACCEPTED` decision must acquire current database delivery authority before any sender call; unavailable persistence, duplicate work, or stale tenant/attempt/fence/worker identity invokes nothing.
-  2. One valid authority invokes the concrete Baileys sender at most once with correlated bounded input through the existing delivery seam.
-- **Evidence:** [`operational-migration/om-06-database-gated-baileys-send.md`](operational-migration/om-06-database-gated-baileys-send.md).
-- **Explicit exclusions:** Synthetic/fake transport only unless a disposable account/group and external send are separately approved; no retry, confirmation, or billing change.
-
-### OM-07 — Durable sent evidence and replay suppression
-
-- **Source scope:** former OM-04.
-- **Status:** `VERIFIED` — Issue #150 / PR #151; disposable-PostgreSQL/fake-transport evidence only.
-- **Acceptance criteria (2/2):**
-  1. A successful concrete send persists the bounded provider-identity projection and truthful `SENT` outcome under the same current attempt/fence before completion is reported.
-  2. Duplicate delivery, restart, and replay observe durable `SENT` evidence and perform no second provider invocation.
-- **Classification:** `PARITY` for durable `SENT` before confirmation; `SAFETY_HARDENING` for bounded provider identity and database-backed replay suppression.
-- **Explicit exclusions:** No raw provider identity in diagnostics, blind retry, confirmation, entitlement debit, or exactly-once provider claim.
-
-### OM-08 — Ambiguous send evidence and recovery fence
-
-- **Source scope:** former OM-04.
-- **Status:** `VERIFIED` — Issue #152 / PR #153; disposable-PostgreSQL/fake-transport evidence only.
-- **Acceptance criteria (2/2):**
-  1. Timeout, crash, unknown provider outcome, restart, and stale-worker races persist and preserve `AMBIGUOUS` manual-reconciliation evidence without automatic resend, closing the affected `BF-10` boundary for this path.
-  2. Replay and recovery read durable `AMBIGUOUS` evidence and perform no automatic provider invocation.
-- **Classification:** `PARITY` for durable ambiguity without blind retry; `SAFETY_HARDENING` for timeout, crash/restart, stale-authority, and replay fencing.
-- **Explicit exclusions:** No automatic ambiguous resend, bulk notification, billing change, or Production provider traffic.
-
-### OM-09 — Confirmation admission and durable deduplication
-
-- **Source scope:** former OM-05.
-- **Status:** `VERIFIED` — Issue #154 / PR #155; disposable-PostgreSQL/fake-transport evidence only.
-- **Acceptance criteria (2/2):**
-  1. Only a valid confirmation correlated to the current tenant/delivery/attempt is admitted; malformed, foreign, and stale confirmations fail closed.
-  2. Duplicate, out-of-order, and post-restart confirmations converge on one durable confirmation outcome without another send.
-- **Classification:** `PARITY` for confirmation after durable `SENT`; `SAFETY_HARDENING` for exact authority, validation, and durable deduplication.
-- **Explicit exclusions:** No entitlement debit, new confirmation product rule, provider switch, or customer/provider action without separate approval.
-
-### OM-10 — Atomic confirmation and entitlement debit
-
-- **Source scope:** former OM-05.
-- **Status:** `VERIFIED` — Issue #156 / PR #157; disposable-PostgreSQL/fake-transport evidence only.
-- **Acceptance criteria (2/2):**
-  1. Confirmation settlement and the existing daily entitlement debit commit atomically once under current tenant/delivery authority.
-  2. Concurrent duplicate, replay, and injected transaction failure prove rollback and prevent double debit or balance drift.
-- **Classification:** `PARITY` for one daily debit only after confirmation; `SAFETY_HARDENING` for atomic settlement, concurrent replay deduplication, and rollback.
-- **Explicit exclusions:** No pricing/rule change, payment-provider change, manual balance mutation, or Production financial effect.
-
-### OM-11 — Ambiguous delivery manual recovery parity
-
-- **Source scope:** former OM-05.
-- **Status:** `VERIFIED` — Issue #158 / PR #159; disposable-PostgreSQL/fake-transport evidence only.
-- **Acceptance criteria (1/2):**
-  1. Ambiguous delivery, restart, replay, and authorized manual resolution converge to an allowed terminal delivery/entitlement state without automatic resend or debit.
-- **Classification:** `PARITY` for no automatic resend or debit; `SAFETY_HARDENING` for current-authority fencing and replay/restart convergence.
-- **Explicit exclusions:** No automatic ambiguous resend, new operator product flow, provider switch, or Production mutation.
-
-### OM-A exit-criteria reconciliation
-
-- **Synthetic/local trace — `VERIFIED`:** Current source and focused tests trace worker lifecycle and bounded inbound decision through database-gated fake send, durable `SENT`/`AMBIGUOUS` evidence, confirmation, atomic daily debit, and manual recovery. This is cross-seam traceability, not one runnable provider-composed application.
-- **Legacy normal flow and differences — `VERIFIED` at the owned synthetic/local boundaries:** OM-01–OM-06 tracked parity matrices and the OM-07–OM-11 classifications above preserve the characterized normal results. In-scope differences are classified as `PARITY`, `SAFETY_HARDENING`, or the previously confirmed implicit-pairing-reset bug fix under the master contract.
-- **Protected adapter boundary — `VERIFIED` locally:** Raw credentials, QR/pairing material, JIDs, provider payloads, and raw provider message identities do not cross worker IPC or diagnostics. Only hashed/bounded inbound identity and the validated bounded provider-message identity projection are retained by their authorized seams.
-- **Real provider/account behavior — `PARTIALLY VERIFIED`:** No separately approved isolated acceptance run, real account/provider traffic, credentials, customer/runtime data, hosted environment, deployment, financial state, or Production action occurred.
-
-Closure evidence: Issues #132, #136, #140, #142, #146, #148, #150, #152, #154, #156, and #158 are closed; PRs #133, #137, #141, #145, #147, #149, #151, #153, #155, #157, and #159 are merged with published-head/merge tree parity and ancestry on live `origin/main`. Exact-head `CI / quality` and `CI / security` succeeded for every listed PR except #141, where GitHub reported no checks; its recorded canonical local gate passed, and no remote CI pass is claimed.
-
-## Phase OM-B — Operational application parity
-
-**Range:** `OM-12–OM-29`. **Remaining:** 18.
-
-**Objective:** Replace the operational responsibilities around the core worker without reintroducing Telegram coupling, direct persistence, duplicate business logic, or unsafe operator behavior.
-
-### OM-12 — Canonical active-tenant discovery
-
-- **Source scope:** former OM-06.
+- **Prerequisites:** OM-01–OM-14; freeze the exact maintained HTTP adapter choice against current Node/TypeScript/API requirements before implementation.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Boot discovers only canonical active tenants using the existing repository contract and preserves tenant isolation.
-  2. Inactive, malformed, unavailable, or unauthorized tenant records start no worker and expose only safe bounded evidence.
-- **Explicit exclusions:** No config mutation, provider effect, hosted deployment, or Production start.
+  1. One explicit entrypoint composes the existing repository, application, worker, HTTP, and built-Web boundaries without import-time effects or duplicate business logic.
+  2. One non-public listener serves the versioned API envelope and approved static/Web routes with runtime validation and deterministic startup-failure unwind.
+- **Explicit exclusions:** No auth, customer state, real account, public deployment, hosted project, payment, or Production action.
 
-### OM-13 — Current worker ownership and restart fencing
+### OM-16 — Concrete worker process and canonical active-tenant boot
 
-- **Source scope:** former OM-06.
+- **Prerequisites:** OM-15.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Each active tenant has exactly one current worker owner with correlated tenant/generation/child identity.
-  2. Restart and replacement fence stale owners and recover the current owner without duplicate provider authority.
-- **Explicit exclusions:** No config application, provider effect before authority, hosted deployment, or Production change.
+  1. The runnable application discovers canonical active tenants and starts each through the existing exact tenant/generation/child ownership and IPC path.
+  2. Child exit, replacement, partial start, and unavailable tenant state remain fenced and cannot create duplicate current worker authority.
+- **Explicit exclusions:** No real account/provider effect, customer/runtime data, hosted deployment, or Production start.
 
-### OM-14 — Monotonic config application and recovery
+### OM-17 — Coordinated shutdown, readiness, and safe runtime diagnostics
 
-- **Source scope:** former OM-06.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. Workers apply and recover only the exact committed config revision; stale rollback and unscoped full-record propagation fail closed, resolving affected `BF-06`/`BF-07` boundaries.
-- **Explicit exclusions:** No provider effect before authority, speculative config transport, hosted deployment, or Production change.
-
-### OM-15 — Runnable application startup composition
-
-- **Source scope:** former OM-07.
+- **Prerequisites:** OM-15–OM-16.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. One explicit V2 entrypoint composes existing repository, worker, and HTTP lifecycles in deterministic start order without import-time effects.
-  2. Startup failure unwinds only started resources in reverse order and returns a bounded safe failure.
-- **Explicit exclusions:** No process-manager change, public environment, deployment, or Production claim.
+  1. Signal, repeated-stop, and partial-start paths execute one bounded reverse-order shutdown and leave workers/resources in explicit terminal states.
+  2. Liveness, readiness, degradation, and correlated diagnostics truthfully distinguish process, database, worker, and provider ceilings without exposing sensitive material.
+- **Explicit exclusions:** No public monitor, external account, deployment, credential content, customer data, or Production claim.
 
-### OM-16 — Coordinated shutdown and lifecycle recovery
+### OM-18 — Disposable account pairing and lifecycle acceptance
 
-- **Source scope:** former OM-07.
+- **Prerequisites:** OM-15–OM-17; explicit disposable-account/provider approval; isolated credential root.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Shutdown signals trigger one coordinated reverse-order stop and reach a terminal state without abandoning resources.
-  2. Repeated stop, partial-start shutdown, and bounded cleanup failure remain deterministic and recoverable.
-- **Explicit exclusions:** No process-manager change, deployment, public environment, or Production action.
+  1. An approved disposable WhatsApp account completes pairing, credential save, open, retryable reconnect, terminal logout, and explicit reset/re-pair through the runnable path.
+  2. Logs, IPC, API, diagnostics, and artifacts contain no QR, pairing material, credential payload, raw phone/JID, customer content, or unsafe provider payload.
+- **Explicit exclusions:** No customer account, Production credential, campaign, financial state, public deployment, or cross-host credential copy.
 
-### OM-17 — Truthful readiness and safe diagnostics
+### OM-19 — Disposable live inbound-to-decision acceptance
 
-- **Source scope:** former OM-07.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. Readiness remains distinct from liveness and correlation-based diagnostics expose only closed safe states/errors across starting, healthy, degraded, and failed dependencies, resolving the runtime portion of `BF-03`.
-- **Explicit exclusions:** No public monitoring endpoint, deployment, process-manager change, credential/customer/raw-provider data, or Production claim.
-
-### OM-18 — Trusted enrollment identity and tenant authority
-
-- **Source scope:** former OM-08.
+- **Prerequisites:** OM-18; approved disposable group/admin/message fixtures.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Enrollment derives tenant authority from the authenticated principal; client-selected tenant or owner identity cannot override it.
-  2. Cross-tenant, duplicate, and ownership-collision attempts fail closed with safe audit evidence and no partial enrollment.
-- **Explicit exclusions:** No PIN/passkey rollout, customer migration, default shared credential, or UI redesign.
+  1. One approved disposable live inbound event traverses transport guards, normalization, and the characterized automation gates to one correlated accepted/rejected result.
+  2. History/replay, `fromMe`, wrong group/admin, malformed/no-text, stale/pre-connect, disabled, schedule, and no-entitlement cases produce the expected safe decision without unauthorized send.
+- **Explicit exclusions:** No customer messages, broad traffic, billing, notification campaign, public deployment, or Production operation.
 
-### OM-19 — Server-side group and admin provenance
+### OM-20 — Disposable delivery, confirmation, and entitlement acceptance
 
-- **Source scope:** former OM-08.
+- **Prerequisites:** OM-19; explicit external-send approval for one bounded disposable case.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Current server-side group/admin provenance is validated before enrollment or automation ownership is accepted.
-  2. Missing, stale, forged, or foreign provenance blocks atomically without partial state or provider effect.
-- **Explicit exclusions:** No client-trusted group/admin identity, real provider lookup without approval, customer migration, or product redesign.
-
-### OM-20 — Atomic onboarding completion and retry recovery
-
-- **Source scope:** former OM-08.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. The characterized registration/setup outcome commits required tenant/config/worker state atomically and retry-safe, resolving relevant ownership, expiry, decoder, and collision boundaries (`BF-12`/`BF-13`).
-- **Explicit exclusions:** No PIN/passkey rollout, customer migration, UI redesign, or provider effect without authority.
-
-### OM-21 — Authenticated session and dashboard-read parity
-
-- **Source scope:** former OM-09.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (2/2):**
-  1. Required legacy login/session and dashboard-status outcomes are served from canonical V2 state under trusted authenticated identity.
-  2. Expired, unauthorized, missing, and cross-tenant requests return bounded safe user-visible errors without state or provider mutation.
-- **Explicit exclusions:** No PIN/passkey rollout, visual redesign, mobile app, billing implementation, or direct database/provider access.
-
-### OM-22 — Authenticated config mutation parity
-
-- **Source scope:** former OM-09.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (2/2):**
-  1. Required automation configuration reads and commits run through canonical application services with exact-revision state.
-  2. Stale, conflicting, invalid, and failed mutations preserve canonical state and the characterized safe user-visible outcome.
-- **Explicit exclusions:** No visual redesign, direct database/provider access, worker control, billing implementation, or new product flow.
-
-### OM-23 — Authenticated worker status and control parity
-
-- **Source scope:** former OM-09.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. Required worker status/control operations and runtime failures preserve the characterized user-visible outcomes through canonical V2 services.
-- **Explicit exclusions:** No visual redesign, direct database/provider access, billing implementation, mobile app, or new product flow.
-
-### OM-24 — Owner/admin tenant list and detail parity
-
-- **Source scope:** former OM-10.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (2/2):**
-  1. Required owner/admin dashboard and tenant/OPS list/detail reads come from canonical services with characterized filters and status outcomes.
-  2. Safe DTO and authorization evidence prevents raw aggregate, log, credential, or cross-tenant exposure.
-- **Explicit exclusions:** No broad admin redesign, direct store/provider call, customer-data migration, or credential operation.
-
-### OM-25 — Owner/admin worker reset and staged deletion
-
-- **Source scope:** former OM-10.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (2/2):**
-  1. Required worker status, stop, and reset actions use current lifecycle ownership and never delete credential state directly from an HTTP handler.
-  2. Staged deletion is authorized, auditable, dependency-aware, and fail-safe across retry or partial failure.
-- **Explicit exclusions:** No broad admin redesign, immediate destructive deletion, raw credential access, or Production customer-state mutation.
-
-### OM-26 — Owner/admin finance and coupon parity
-
-- **Source scope:** former OM-10.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. Required finance/coupon views and mutations preserve existing product semantics, authorization, balance/coupon invariants, and safe audit evidence through canonical services.
-- **Explicit exclusions:** No pricing change, provider switch, real financial mutation without approval, or admin redesign.
-
-### OM-27 — Pakasir checkout creation and ambiguous outcome
-
-- **Source scope:** former OM-11.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (2/2):**
-  1. A validated idempotent checkout command persists its intent before one injected Pakasir create call.
-  2. Success, timeout, and provider error persist truthful created or ambiguous evidence without duplicate checkout intent.
-- **Explicit exclusions:** Fake provider only unless financial/provider mutation is separately approved; no Saweria, pricing change, or multi-provider framework.
-
-### OM-28 — Pakasir verification and idempotent settlement
-
-- **Source scope:** former OM-11.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (2/2):**
-  1. Verification/callback admission validates current checkout identity and authenticity before applying settlement.
-  2. Duplicate, out-of-order, replayed, or conflicting settlement cannot double-credit entitlement or drift the ledger/balance.
-- **Explicit exclusions:** No real financial mutation without approval, pricing change, Saweria switch, or speculative provider abstraction.
-
-### OM-29 — Pakasir restart reconciliation and integrity
-
-- **Source scope:** former OM-11.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. Restart, outage, conflict, and retry reconcile pending/ambiguous checkout state from canonical provider evidence without another charge or balance drift, resolving `BF-11` before hosted financial operation.
-- **Explicit exclusions:** No real financial mutation without approval, Saweria switch, pricing change, or guessed ambiguous settlement.
+  1. One accepted disposable inbound event acquires current durable authority, performs at most one Baileys send, persists truthful `SENT`/`AMBIGUOUS` evidence, and processes an approved confirmation.
+  2. Duplicate/replay/restart/stale-worker cases do not resend or double-debit, and one confirmed business date consumes entitlement atomically at most once.
+- **Explicit exclusions:** No exactly-once network claim, customer account, campaign, billing provider, public deployment, or Production traffic.
 
 ### OM-B exit criteria
 
-- Required user and operator flows no longer depend on Telegram-owned orchestration or direct legacy store/provider calls.
-- One runnable non-Production composition reports truthful readiness and safe diagnostics.
-- Active config, tenant identity, worker ownership, billing, and entitlement transitions are durable and recoverable.
-- Every active Telegram-owned responsibility is preserved through V2 services or explicitly retired by an owner-approved product decision.
-- Product-visible differences have explicit owner approval; confirmed legacy defects have regression evidence.
+- One runnable non-Production backend exists with deterministic lifecycle, listener, static/API boundary, readiness, and diagnostics.
+- The core bot journey is verified with a disposable account at its approved evidence ceiling.
+- All real-account material is isolated, redacted, revocable, and never becomes repository or hosted business data.
 
-## Phase OM-C — Hosted operation and migration rehearsal
+## 5. Phase OM-C — Canonical identity, authentication, and onboarding backend
 
-**Range:** `OM-30–OM-38`. **Remaining:** 9.
+**Range:** `OM-21–OM-30`
+**Status:** `NOT STARTED`
+**Objective:** Build the server-side identity and onboarding contracts before integrated UI, using Google-only registration and optional WhatsApp-number/WARLIST-password login on one canonical Supabase user.
 
-**Objective:** Prove V2 can operate against the selected hosted database and migrate legacy business state recoverably without touching Production or mixing credential environments.
+### OM-21 — Supabase same-user auth feasibility proof
 
-### OM-30 — Isolated hosted project and runtime-role proof
-
-- **Source scope:** former OM-12.
+- **Prerequisites:** OM-B; official current Supabase documentation; explicit isolated disposable-project approval.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. An owner-approved isolated PostgreSQL/Supabase project uses current official limits and least-privilege runtime roles.
-  2. Hosted RLS/tenant-isolation tests prove the runtime role cannot cross tenant boundaries or obtain schema/secret authority outside its contract.
-- **Explicit exclusions:** No Production project, customer data, WhatsApp credential, deployment, or cutover.
+  1. A disposable proof determines whether one Google-created Supabase user can safely gain phone/password login while preserving the exact same user ID and without exposing admin/service-role authority to the client.
+  2. Registration, phone collision, wrong password, logout/revocation, recovery, and phone-change results are recorded as `SUPPORTED`, `UNSUPPORTED`, or `REQUIRES_OWNER_REVISION` with no workaround hidden in implementation.
+- **Explicit exclusions:** No Production Supabase project, customer identity, shadow password store, auto-merge, app source implementation, or live rollout.
 
-### OM-31 — Hosted pool, readiness, and degradation proof
+### OM-22 — Canonical auth, membership, and session persistence
 
-- **Source scope:** former OM-12.
+- **Prerequisites:** OM-21 `SUPPORTED` or an owner-approved revised contract.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Bounded pool, timeout, configuration, and readiness behavior is verified against the isolated hosted project under healthy and unavailable states.
-  2. Monitoring plus pause/read-only/degraded behavior stays actionable and fail-safe without admitting unauthorized external effects.
-- **Explicit exclusions:** No Production project, customer data, WhatsApp credential, deployment, provider effect, or cutover.
+  1. Forward-only schema/repositories represent canonical Supabase user linkage, unique verified WhatsApp identity, membership, legal/onboarding state, and revocable session/auth provenance without storing end-user passwords.
+  2. Constraints and adversarial PostgreSQL tests reject duplicate phone ownership, duplicate membership, client-selected tenant, partial enrollment, and cross-tenant access atomically.
+- **Explicit exclusions:** No UI, Production user migration, service-role key in browser, real customer, passkey, or admin-auth implementation.
 
-### OM-32 — Hosted backup, restore, and portable exit
+### OM-23 — Google-only registration and idempotent tenant creation
 
-- **Source scope:** former OM-12.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. Export/restore and the PostgreSQL-portable exit path reproduce schema revisions, approved counts/invariants, and credential separation in an isolated target under current hosted-plan constraints.
-- **Explicit exclusions:** No Production backup/project, customer data, WhatsApp credential, deployment, or cutover.
-
-### OM-33 — Read-only legacy inventory and disposition
-
-- **Source scope:** former OM-13.
+- **Prerequisites:** OM-22.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. The allowed legacy source/schema surface has a file-level relevance, licensing, sensitivity, and parity inventory without reading protected values.
-  2. Every inventoried item has one evidenced disposition—migrate, replace, retire, or exclude—with protected/runtime/customer/credential paths default-denied.
-- **Explicit exclusions:** No live customer/runtime read, credential access, code copy, destructive cleanup, dual-write, or Production mutation.
+  1. A verified Google/Supabase session creates or resumes exactly one WARLIST user, owner membership, and tenant idempotently; no phone/OPS/PIN registration path exists.
+  2. Missing/forged/expired identity, collision, retry, and concurrent registration fail closed without trial, tenant, membership, or session drift.
+- **Explicit exclusions:** No Web screen, WhatsApp login, pairing, customer migration, hosted Production project, or public rollout.
 
-### OM-34 — Versioned synthetic legacy upcaster
+### OM-24 — Google login, logout, and browser-session security
 
-- **Source scope:** former OM-13.
+- **Prerequisites:** OM-23.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. A versioned deterministic upcaster transforms an invented legacy corpus into the current migration contract with explicit source revision/checksum evidence.
-  2. Unsupported, corrupt, duplicate, interrupted, and retried input fails safely or resumes without partial/duplicate canonical state.
-- **Explicit exclusions:** No live legacy value, customer/runtime data, credential migration, dual-write, or Production mutation.
+  1. Google login establishes a regenerated, bounded, server-validated session whose tenant comes only from canonical principal membership; logout revokes/destroys it completely.
+  2. CSRF, cookie, expiry, unauthorized/forbidden, fixation, replay, rate-limit, and cross-tenant tests return stable generic errors without leaking identity existence or privileged state.
+- **Explicit exclusions:** No UI, WhatsApp password, admin realm, customer migration, public rollout, or Production credential.
 
-### OM-35 — Migration counts, invariants, and resumability
+### OM-25 — Pair-derived WhatsApp identity binding
 
-- **Source scope:** former OM-13.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. Pre/post counts and business invariants produce a safe report; repeated/interrupted synthetic runs resume idempotently and abort on any mismatch.
-- **Explicit exclusions:** No live customer/runtime read, credential migration, destructive cleanup, dual-write, or Production mutation.
-
-### OM-36 — End-to-end synthetic export/import rehearsal
-
-- **Source scope:** former OM-14.
+- **Prerequisites:** OM-24 and OM-18 lifecycle evidence.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. A synthetic business export/import rehearsal uses the approved versioned migration contract.
-  2. The imported candidate passes the approved pre/post invariant report in an isolated environment.
-- **Explicit exclusions:** No Production backup copy, real credential, provider traffic, public deployment, or customer data.
+  1. Only the canonical number derived from a successful current pairing can bind to the authenticated Google-created user; browser-supplied number identity is never authoritative.
+  2. Existing-owner collision, stale pairing, re-pair, concurrent bind, and retry fail closed without auto-merge, reassignment, duplicate user, or credential leakage.
+- **Explicit exclusions:** No password activation, UI, customer account, OTP, notification number, or Production pairing.
 
-### OM-37 — Separated backup, restore, and restart recovery
+### OM-26 — WhatsApp-number login activation and same-user proof
 
-- **Source scope:** former OM-14.
+- **Prerequisites:** OM-21 `SUPPORTED`; OM-25.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Business-database and local-credential backup manifests remain coordinated but separate, with no credential payload crossing the database path.
-  2. Integrity-verified restore reaches the expected readiness and restart-recovery state in isolation.
-- **Explicit exclusions:** No Production backup copy, real credential, provider traffic, public deployment, or customer data.
+  1. A recently authenticated user activates a WARLIST Password for the verified paired number through Supabase Auth without storing/verifying that password in WARLIST business storage.
+  2. Disposable integration proves Google login and WhatsApp-number/password login return the same Supabase user, WARLIST membership, and tenant; unknown number or wrong password cannot register or enumerate a user.
+- **Explicit exclusions:** No OTP, OPS ID/PIN, app password database, auto-merge, customer account, or Production rollout.
 
-### OM-38 — Previous-compatible rollback rehearsal
+### OM-27 — Auth recovery, phone change, and abuse controls
 
-- **Source scope:** former OM-14.
+- **Prerequisites:** OM-26.
 - **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. An induced migration/startup failure executes bounded rollback to a previous-compatible state and verifies post-rollback invariants, readiness, and restart recovery.
-- **Explicit exclusions:** No Production backup copy, real credential, provider traffic, public deployment, or customer data.
+- **Acceptance criteria (2/2):**
+  1. Google re-authentication resets WARLIST Password or changes the paired phone on the same user only after new pairing, recent-auth, and collision checks.
+  2. Generic failures, throttling/progressive delay/CAPTCHA policy, session revocation, audit redaction, and recovery replay tests prevent enumeration and credential leakage.
+- **Explicit exclusions:** No self-service recovery without Google, OTP, passkey, customer migration, or Production account action.
+
+### OM-28 — Resumable onboarding and legal state contract
+
+- **Prerequisites:** OM-23–OM-27.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Canonical server state represents versioned legal acceptance and resumable stages for account, pairing, WhatsApp-login activation, group/admin, rules/schedule, review, activation, and completion.
+  2. Refresh/back/retry/expiry/conflict/concurrent-session tests resume from committed state and never let browser/local storage claim completion.
+- **Explicit exclusions:** No UI, invented legal acceptance, provider effect beyond approved pairing seam, or customer migration.
+
+### OM-29 — Server-side group, admin, and configuration provenance
+
+- **Prerequisites:** OM-28 and a current connected disposable worker seam.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Safe group/admin directories plus target/admin/trigger/schedule writes validate current server-side provenance and exact revision before commit.
+  2. Missing/stale/forged/foreign membership, ambiguous trigger ownership, conflict, and provider unavailability preserve canonical state without partial activation or worker effect.
+- **Explicit exclusions:** No UI, client-trusted JID/phone authority, broad provider scan, customer group, or Production effect.
+
+### OM-30 — Atomic activation, re-pair, and onboarding closure
+
+- **Prerequisites:** OM-28–OM-29.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Review/activation validates required committed stages and atomically reaches setup-complete, active config, entitlement eligibility, and current worker start without stale or partial state.
+  2. Missing/invalid/revoked Baileys state becomes `REPAIR_REQUIRED`; re-pair resumes the same user/tenant/onboarding contract without credential restore, tenant duplication, or lost config.
+- **Explicit exclusions:** No UI, mandatory cross-host credential backup, customer migration, public rollout, or Production action.
 
 ### OM-C exit criteria
 
-- Hosted behavior, capacity/degradation, runtime roles, backup, restore, and PostgreSQL exit path are evidenced in isolation.
-- Synthetic legacy migration is resumable, checkpointed, and produces an explicit pre/post invariant report.
-- Business database state and local credential state have coordinated but separate recovery procedures.
+- Google-only registration and both approved login methods resolve to one canonical user/tenant under disposable proof.
+- Session, collision, tenant, legal, onboarding, pairing, activation, and `REPAIR_REQUIRED` contracts are server-owned and adversarially tested.
+- No OPS ID/PIN end-user credential, browser tenant authority, duplicate-account workaround, or shadow password store exists.
 
-## Phase OM-D — Immutable release and cutover
+## 6. Phase OM-D — Usable mobile-first customer Web
 
-**Range:** `OM-39–OM-44`. **Remaining:** 6.
+**Range:** `OM-31–OM-38`
+**Status:** `NOT STARTED`
+**Objective:** Complete the fresh customer Web against real approved backend contracts so WARLIST is usable from desktop and Android browsers before Android packaging/client expansion.
 
-**Objective:** Produce a recoverable release candidate and replace legacy WARLIST only after explicit Production approval.
+### OM-31 — Public legal surfaces and authenticated Web runtime
 
-### OM-39 — Release enforcement and artifact provenance
-
-- **Source scope:** former OM-15.
+- **Prerequisites:** OM-15 and landed PRs #124/#130; owner-approved current legal copy.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. The `BF-04` branch/release enforcement risk is resolved for the candidate path and release starts from a reviewed clean canonical commit.
-  2. Current and previous-good artifacts are reproducible, immutable, provenance-recorded, and hash-verified before use.
-- **Explicit exclusions:** No Production deployment, DNS/service mutation, customer/provider traffic, or credential inclusion.
+  1. The existing fresh Web foundation serves approved Terms, Privacy, and Refund surfaces plus conventional direct routes without copying legacy source or advertising unavailable behavior.
+  2. Browser runtime consumes the canonical versioned API/error envelope and handles unavailable, unauthorized, stale, and route-error states accessibly at mobile and desktop widths.
+- **Explicit exclusions:** No fake business API/data, auth UI, provider action, public deployment, CDN expansion, or Production publication.
 
-### OM-40 — Candidate preflight, start, and bounded smoke
+### OM-32 — Google registration/login Web journey
 
-- **Source scope:** former OM-15.
+- **Prerequisites:** OM-23–OM-24 and OM-31.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Migration, configuration, required-secret-presence, dependency, and capacity preflight fails closed in an approved isolated target.
-  2. The immutable candidate starts without source-checkout mutation and passes readiness plus bounded synthetic business smoke.
-- **Explicit exclusions:** No Production deployment, DNS/service mutation, customer/provider traffic, or real credential.
+  1. Formal-`Anda` registration/login, callback, route protection, logout, and session-expiry screens complete the real Google/Supabase path without handling Google passwords or privileged tokens.
+  2. Cancelled, denied, expired, duplicate, retry, forbidden, and offline/stale paths show safe recovery and never claim tenant/session success before the server.
+- **Explicit exclusions:** No WhatsApp login UI, onboarding, fake OAuth, customer identity, public deployment, or Production rollout.
 
-### OM-41 — Candidate previous-good rollback drill
+### OM-33 — WhatsApp login and activation Web journey
 
-- **Source scope:** former OM-15.
-- **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. An induced failed candidate gate executes documented application/data rollback and verifies previous-good readiness, bounded smoke, counts, and recovery invariants.
-- **Explicit exclusions:** No Production deployment, DNS/service mutation, customer/provider traffic, or real credential.
-
-### OM-42 — Production path and responsibility inventory
-
-- **Source scope:** former OM-16.
+- **Prerequisites:** OM-25–OM-27 and OM-32.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Actual service/path/port ownership and dependency mapping are verified against the approved cutover target.
-  2. Every active legacy notification, PWA, and operator responsibility has a verified preserve-or-owner-approved-retire disposition.
-- **Explicit exclusions:** No cutover mutation, implicit approval, customer/provider traffic, credential copy, or silent responsibility removal.
+  1. Login offers Google or enabled WhatsApp number + WARLIST Password, and post-pair activation clearly separates WARLIST Password from Google/WhatsApp credentials.
+  2. Unknown/wrong/collision/re-auth/recovery/phone-change paths use generic accessible errors, recent-auth gates, canonical state, and no credential persistence in browser storage.
+- **Explicit exclusions:** No OTP, OPS ID/PIN, fake account, customer credential, or Production rollout.
 
-### OM-43 — Production backup, abort, and approval gate
+### OM-34 — Pairing, relink, and `REPAIR_REQUIRED` Web journey
 
-- **Source scope:** former OM-16.
+- **Prerequisites:** OM-18, OM-25, OM-30, and OM-33.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Integrity-verified backups, previous-good compatibility, abort thresholds, and recovery ownership are frozen before cutover.
-  2. All required Production, customer/provider, financial, cutover, and rollback approvals are explicit before any mutation begins.
-- **Explicit exclusions:** No implicit approval, cutover mutation, uncontrolled dual-write, credential copying between environments, or feature expansion.
+  1. Authenticated users complete bounded pairing-code/QR, expiry, open, relink, logout, and explicit repair flows using safe short-lived projections only.
+  2. Refresh/back/retry/disconnect/terminal logout and `REPAIR_REQUIRED` states recover from canonical server state without exposing or caching QR, credential, phone/JID, or provider payload material.
+- **Explicit exclusions:** No customer credential fixture, automatic reset, cross-host credential restore, public deployment, or Production pairing.
 
-### OM-44 — Production cutover and bounded acceptance
+### OM-35 — Group and admin selection Web journey
 
-- **Source scope:** former OM-16.
+- **Prerequisites:** OM-29 and OM-34.
 - **Status:** `NOT STARTED`.
-- **Acceptance criteria (1/2):**
-  1. The explicitly approved immutable candidate cuts over once; bounded business/count/invariant gates decide acceptance and any failed gate immediately executes and verifies previous-good rollback.
-- **Explicit exclusions:** No feature expansion, implicit approval, uncontrolled dual-write, cross-environment credential copy, unbounded acceptance, or continued rollout after failure.
+- **Acceptance criteria (2/2):**
+  1. Connected users load safe current group/admin projections and commit one target plus valid admin ownership through server provenance and revision contracts.
+  2. Empty/stale/disconnected/forged/conflict/retry paths preserve prior canonical selection and provide an accessible next action without client-authoritative identifiers.
+- **Explicit exclusions:** No multi-group expansion, raw JID display, fake provider list, customer data, or Production effect.
+
+### OM-36 — Trigger, schedule, review, and activation Web journey
+
+- **Prerequisites:** OM-28–OM-30 and OM-35.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Users configure the approved admin trigger/keyword and time window, review exact pending state, and activate only through the atomic server completion contract.
+  2. Validation, ambiguous trigger ownership, stale revision, retry, back/refresh, partial failure, and incomplete setup remain recoverable and never fabricate completion or worker success.
+- **Explicit exclusions:** No new automation product rules, multi-rule sets, client-only validation authority, public deployment, or Production effect.
+
+### OM-37 — Dashboard, status, settings, and bot control Web journey
+
+- **Prerequisites:** OM-30 and OM-36.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. The dashboard renders separate canonical setup, WhatsApp, bot, entitlement, freshness, and activity states; settings and bot control return the exact committed revision/state.
+  2. Loading/empty/offline/stale/unauthorized/forbidden/conflict/degraded/disconnected/repair/retry paths preserve the last confirmed render without treating it as current truth.
+- **Explicit exclusions:** No raw aggregate/credentials/logs, fake metrics, realtime infrastructure without need, billing UI, or Production publication.
+
+### OM-38 — Entitlement/history Web and integrated Web hardening
+
+- **Prerequisites:** OM-31–OM-37.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Users can inspect paginated entitlement/delivery history and understand balance, confirmed consumption, ambiguous/manual-attention, and empty states from safe canonical projections.
+  2. End-to-end browser evidence covers auth through activation/dashboard/settings/history at agreed desktop and Android widths, keyboard/screen-reader semantics, 200% text, reduced motion, security headers, no overflow, and no secret/PII leakage.
+- **Explicit exclusions:** No billing checkout yet, native Android package, analytics expansion, public deploy, customer data, or Production claim.
 
 ### OM-D exit criteria
 
-- Previous-good application and data compatibility are proven.
-- Cutover, rollback, ownership, and recovery evidence are explicit.
-- Tenant/config/delivery/entitlement/payment counts and invariants match the approved migration contract.
-- Active legacy Telegram, notification, PWA, and operator responsibilities are parity-proven or explicitly retired by an owner-approved decision; none disappears silently.
-- Production acceptance is based on bounded business evidence, not process state or HTTP `200` alone.
+- A disposable user can register/login, activate WhatsApp login, complete onboarding, pair/re-pair, activate the bot, use dashboard/settings, and inspect entitlement/history through real approved contracts.
+- The Web is freshly built, mobile-first, accessible, and canonical-state-driven; it does not copy legacy implementation or fabricate unavailable state.
+- Saweria billing remains the next backend-first dependency before commercial usability is complete.
 
-## Deferred enhancements
+## 7. Phase OM-E — Saweria billing and entitlement
 
-The following are not Operational Migration slices and remain unauthorized until separately promoted from Enhancements:
+**Range:** `OM-39–OM-46`
+**Status:** `NOT STARTED`
+**Objective:** Integrate the separately tested Saweria gateway into WARLIST's canonical billing/entitlement path and expose truthful customer payment behavior without modifying or re-auditing the gateway artifact.
 
-- PIN/passkey product rollout;
-- WhatsApp notification campaigns and PWA replacement;
+### OM-39 — Saweria billing state and trust contract
+
+- **Prerequisites:** OM-C; current integration contract for the separately tested gateway artifact.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Forward-only schema/repositories represent tenant-owned checkout intent, provider transaction/evidence, requested/final amount, expiry, status, idempotency, reconciliation, and manual-attention state independently of mutable tenant aggregates.
+  2. Constraints and repository tests enforce tenant isolation, unique order/provider identity, monotonic terminal state, bounded amounts/days, persist-before-effect ordering, and transactional entitlement correlation.
+- **Explicit exclusions:** No gateway modification/re-audit, network call, Pakasir adapter, multi-provider framework, UI, or financial effect.
+
+### OM-40 — WARLIST-to-gateway adapter boundary
+
+- **Prerequisites:** OM-39; exact approved gateway interface/version/deployment boundary.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. One narrow WARLIST adapter validates and maps checkout creation plus status/signal inputs from the existing Saweria gateway without importing its unofficial endpoint logic into WARLIST domain/application code.
+  2. Synthetic timeout, malformed response, unknown outcome, duplicate signal, signature/timestamp/replay, and unavailable gateway cases produce bounded truthful evidence without credit or blind retry.
+- **Explicit exclusions:** No modification or re-audit of `/home/marlo/Payment-Gateway-Saweria-WEBHOOK`, real transaction, Pakasir, speculative provider factory, or Production wiring.
+
+### OM-41 — Idempotent Saweria checkout creation
+
+- **Prerequisites:** OM-39–OM-40.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. A validated tenant checkout command persists one intent before at most one gateway create call and returns only a bounded safe QR/payment projection.
+  2. Idempotency reuse, unresolved-invoice limit, timeout, restart, conflicting input, and gateway error converge on canonical created/pending/ambiguous state without duplicate intent or charge assumption.
+- **Explicit exclusions:** Fake gateway only unless separately approved; no real money, customer account, UI, or Production operation.
+
+### OM-42 — Saweria signal and authoritative payment verification
+
+- **Prerequisites:** OM-41.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Gateway signals are authenticated, timestamp/replay bounded, correlated to one current checkout, and treated as prompts for authoritative verification rather than financial truth.
+  2. Malformed, forged, duplicate, out-of-order, wrong-amount/order, expired, unavailable, and conflicting evidence cannot terminally mark paid or credit entitlement.
+- **Explicit exclusions:** No real financial mutation without approval, browser-trusted payment result, Pakasir, pricing change, or Production callback.
+
+### OM-43 — Atomic Saweria settlement and entitlement credit
+
+- **Prerequisites:** OM-42.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Verified paid evidence settles the exact tenant checkout and appends one correlated entitlement credit in one database transaction.
+  2. Duplicate/concurrent/replayed/conflicting settlement and injected transaction failure return canonical state without double credit, partial payment, or ledger drift.
+- **Explicit exclusions:** No manual balance edit, customer transaction, pricing expansion, coupon work, or Production financial effect.
+
+### OM-44 — Restart reconciliation and manual attention
+
+- **Prerequisites:** OM-41–OM-43.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Restart/outage recovery discovers durable creating/pending/ambiguous payments and reconciles them from gateway evidence without another checkout or guessed settlement.
+  2. Expired, unavailable, inconsistent, and non-terminal evidence reaches a truthful retryable/manual-attention state with safe operator diagnostics and no balance drift.
+- **Explicit exclusions:** No blind polling loop, guessed paid/expired truth, customer financial mutation, or Production scheduler.
+
+### OM-45 — Customer billing and payment Web journey
+
+- **Prerequisites:** OM-41–OM-44 and OM-D.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Authenticated users create one checkout and inspect safe creating/pending/paid/failed/expired/ambiguous/reconciling/payment-history states through canonical server confirmation.
+  2. Refresh/back/offline/timeout/retry/duplicate-submit/expired-QR/manual-attention flows remain accessible and never treat browser redirect, local timer, QR disappearance, or gateway signal as paid truth.
+- **Explicit exclusions:** No customer transaction without explicit isolated approval, direct gateway/browser call, fake success, public deployment, or Production billing.
+
+### OM-46 — Approved disposable Saweria acceptance and phase closure
+
+- **Prerequisites:** OM-39–OM-45; explicit minimum disposable financial scope/account/amount approval.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. One approved disposable Saweria transaction traverses checkout, gateway evidence, WARLIST verification, atomic settlement, entitlement credit, and customer status for the exact tenant once.
+  2. Duplicate signal/reload/restart/reconciliation evidence proves no second charge intent or credit, and logs/artifacts contain no secret, credential, raw customer identity, or unsafe financial payload.
+- **Explicit exclusions:** No Production money/account, campaign, gateway modification/re-audit, Pakasir, pricing rollout, or unbounded transaction testing.
+
+### OM-E exit criteria
+
+- Saweria is the only active WARLIST 2.0 payment target; Pakasir-specific V2 work is absent.
+- Payment intent, evidence, settlement, entitlement, reconciliation, customer status, and approved disposable external behavior agree.
+- A gateway callback/signal or browser state never becomes financial truth by itself.
+
+## 8. Phase OM-F — Admin product and Android-browser access
+
+**Range:** `OM-47–OM-53`
+**Status:** `NOT STARTED`
+**Objective:** Complete required owner operations and prove customer usability from Android browsers through the same API, identity, tenant, billing, and recovery contracts. An installable PWA shell is optional; native Android packaging is not implied.
+
+### OM-47 — Distinct admin authentication and safe summary
+
+- **Prerequisites:** OM-C, OM-E.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. A distinct owner/admin principal, regenerated/revoked session, CSRF, throttling, capability middleware, and audit boundary protect all admin routes independently from customer auth.
+  2. `/admin` renders only safe tenant/worker/finance summary DTOs; unauthorized, fixation, logout, IDOR, and redaction tests expose no raw aggregates, credentials, JIDs, paths, provider payloads, or unrestricted logs.
+- **Explicit exclusions:** No shared admin/customer boolean, plaintext final credential, destructive action, direct store/provider call, or Production admin account.
+
+### OM-48 — Admin tenant detail and diagnostics
+
+- **Prerequisites:** OM-47.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Admin tenant list/detail and worker/payment diagnostics use canonical query services, bounded filters/pagination, freshness, stable state/error codes, and redacted audit identity.
+  2. Cross-tenant, missing, stale, oversized, and unavailable queries fail safely without raw customer, credential, process, filesystem, or provider internals.
+- **Explicit exclusions:** No mutation, unrestricted export/log browser, customer data fixture, or Production query.
+
+### OM-49 — Admin stop, reset, and staged deletion
+
+- **Prerequisites:** OM-47–OM-48 and current worker ownership/recovery contracts.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Stop/reset/re-pair operations require explicit capability, reason, current revision, idempotency, step-up/re-auth where applicable, terminal ownership proof, and audit evidence.
+  2. Tenant deletion is staged/recoverable and cannot remove business or credential state from an HTTP handler; retry/partial failure/stale worker cannot revive or externally act for the tenant.
+- **Explicit exclusions:** No immediate permanent delete, incidental credential deletion, customer/Production mutation, or hidden filesystem shortcut.
+
+### OM-50 — Coupon and admin finance operations
+
+- **Prerequisites:** OM-E and OM-47.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Customer coupon redemption and admin create/deactivate/list behavior use durable idempotent reservation/application/commit semantics and credit tenant entitlement exactly once.
+  2. Admin finance/payment/coupon views and authorized recovery commands derive from canonical payment/ledger state with redacted audit evidence and no manual paid/balance truth.
+- **Explicit exclusions:** No pricing expansion, direct database edit, Production financial mutation, Pakasir, or broad support export.
+
+### OM-51 — Android browser compatibility and mobile interaction proof
+
+- **Prerequisites:** OM-D, OM-E; stable versioned API and approved Web/API journeys.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. The customer Web completes the approved auth, pairing/onboarding, dashboard, settings, bot-control, entitlement, and recovery journeys in agreed Android browsers without a second backend or client-side business authority.
+  2. Android browser evidence covers viewport/orientation, touch targets, safe-area/keyboard behavior, back/refresh, text scaling, offline/stale, QR/pairing projection, and no horizontal overflow or secret leakage.
+- **Explicit exclusions:** No native Android package, Play Store publication, service-worker push product, new backend, direct privileged Supabase mutation, customer credential, or Production distribution.
+
+### OM-52 — Optional installable Web/PWA shell decision
+
+- **Prerequisites:** OM-51 and the corresponding verified Web/API journeys; explicit owner approval before implementation.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. The decision records whether an installable PWA shell reduces customer friction; no decision or a `NO_PWA` decision leaves the verified Android-browser path as the accepted delivery.
+  2. If approved, the shell installs/updates and handles launch, offline/stale, session expiry, logout, and `REPAIR_REQUIRED` without storing secrets, adding push-campaign behavior, or changing canonical server state.
+- **Explicit exclusions:** No native Android package, Android-only business logic, customer account, push notification product, public distribution, or Production effect.
+
+### OM-53 — Cross-client billing, accessibility, and release-candidate proof
+
+- **Prerequisites:** OM-45–OM-46 and OM-51–OM-52.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Android-browser users complete entitlement/history and Saweria checkout/status/reconciliation journeys with the same financial truth and idempotency as desktop Web.
+  2. Browser/device evidence covers screen sizes, text scaling, keyboard/TalkBack semantics where available, touch targets, back/deep-link behavior, no-secret client state, and reproducible candidate Web assets; an approved PWA is tested by the same criteria.
+- **Explicit exclusions:** No native Android package, Play Store/public release, push campaigns, analytics expansion, customer transaction, or Production distribution.
+
+### OM-F exit criteria
+
+- Required admin operations use distinct auth, safe DTOs, canonical services, staged destructive behavior, and audit evidence.
+- Android-browser Web completes the required customer journeys through the same backend contracts; an approved PWA remains a thin delivery shell, not a second product backend.
+- Native Android packaging and public distribution remain outside the 2.0 acceptance path unless separately approved; neither is inferred from a local candidate build.
+
+## 9. Phase OM-G — Hosted operation, migration, and recovery
+
+**Range:** `OM-54–OM-62`
+**Status:** `NOT STARTED`
+**Objective:** Prove hosted business operation, legacy migration, portable restore, `REPAIR_REQUIRED`, and blank-host recovery in isolation before Production.
+
+### OM-54 — Isolated hosted business database and runtime roles
+
+- **Prerequisites:** OM-B–OM-F; explicit isolated hosted-project approval; current official service limits.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. An isolated PostgreSQL/Supabase project applies current migrations through a migration role while runtime uses separate least-privilege credentials and configuration.
+  2. Hosted tenant/RLS/role tests prove runtime cannot cross tenants, alter schema, obtain privileged auth/service authority, or access WhatsApp credentials.
+- **Explicit exclusions:** No Production project, customer data, Baileys auth, public deployment, or cutover.
+
+### OM-55 — Hosted pool, readiness, and outage behavior
+
+- **Prerequisites:** OM-54.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Bounded pool, timeout, SSL/configuration, startup, shutdown, capacity, and readiness behavior is verified against healthy, unavailable, and recovered hosted states.
+  2. Database degradation prevents unclaimed automation/payment/entitlement effects, exposes actionable safe state, and reconciles from durable authority after recovery.
+- **Explicit exclusions:** No Production project, customer/provider effect, credential, public deployment, or cutover.
+
+### OM-56 — Hosted runtime isolation and observability
+
+- **Prerequisites:** OM-54–OM-55.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Application/worker boundaries sanitize child environment, isolate tenant credential volumes, deny source/backup/Podman-socket/other-tenant access, and run least-privileged/non-root where feasible.
+  2. Structured logs, metrics, readiness, reconciliation, storage/capacity, and alert signals are actionable and redact identity, credentials, messages, payment payloads, and internal paths.
+- **Explicit exclusions:** No Production host, customer data, external monitoring campaign, public deployment, or credential copy.
+
+### OM-57 — Read-only legacy inventory and responsibility disposition
+
+- **Prerequisites:** current safe legacy source/docs; explicit scope before any runtime/customer-data inspection.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Every allowed legacy source/schema responsibility has file-level relevance, licensing, sensitivity, and `MIGRATE`, `REPLACE`, `RETIRE`, or `EXCLUDE` disposition without reading protected values.
+  2. Telegram, PWA push, Fonnte, Pakasir, notifications, admin, coupons, onboarding, payment, data, and operator responsibilities have explicit owner-approved V2 destinations; none silently disappears.
+- **Explicit exclusions:** No protected value read, runtime/customer/credential access, code copy, deletion, dual-write, or Production mutation.
+
+### OM-58 — Versioned synthetic legacy upcaster
+
+- **Prerequisites:** OM-57 and current canonical schema.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. A deterministic versioned upcaster transforms an invented legacy corpus into canonical user/tenant/config/entitlement/payment/coupon/delivery/audit migration records with source revision/checksum evidence.
+  2. Unsupported, corrupt, duplicate, interrupted, and retried input fails safely or resumes without partial/duplicate canonical state.
+- **Explicit exclusions:** No live customer/runtime value, Baileys credential migration, uncontrolled dual-write, or Production mutation.
+
+### OM-59 — Migration counts, invariants, and resumability
+
+- **Prerequisites:** OM-58.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Pre/post counts and ownership, config, entitlement, payment, coupon, delivery, identity, and audit invariants produce a redacted deterministic report and abort on mismatch.
+  2. Repeated, interrupted, resumed, and rollback-compatible synthetic runs converge idempotently without loss, duplicate credit, duplicate tenant, or credential/business-state mixing.
+- **Explicit exclusions:** No live customer data, credential migration, dual-write, destructive cleanup, or Production action.
+
+### OM-60 — Business backup, restore, and portable database exit
+
+- **Prerequisites:** OM-54–OM-59.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Versioned encrypted business-database export/restore reproduces schema revisions, approved counts/invariants, users/tenants/config/delivery/entitlement/payment/coupon/audit state in an isolated target.
+  2. The PostgreSQL-portable exit path, retention, key ownership, restore ordering, and measured RPO/RTO evidence remain separate from Baileys credential/session handling.
+- **Explicit exclusions:** No Production backup, customer data, Baileys auth archive, cross-environment copy, or cutover.
+
+### OM-61 — Blank-host rebuild and `REPAIR_REQUIRED` recovery
+
+- **Prerequisites:** OM-56 and OM-60; disposable clean Linux host.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. A clean host is reproducibly bootstrapped, receives an exact candidate artifact/config reference, reconnects/restores the isolated business database, and reaches truthful readiness within measured time.
+  2. Valid local disposable auth may be reused under exact fencing; missing/corrupt/revoked/untrusted auth becomes `REPAIR_REQUIRED`, and customer re-pair restores service without duplicate worker authority or lost business config.
+- **Explicit exclusions:** No Production host, mandatory auth backup/restore, customer credential, DNS switch, or public traffic.
+
+### OM-62 — Isolated full migration, recovery, and rollback rehearsal
+
+- **Prerequisites:** OM-54–OM-61.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. One isolated rehearsal runs synthetic export/upcast/import, hosted start, Web/Android-browser/admin/bot/Saweria-safe synthetic smoke, invariant report, and recovery from an induced interruption.
+  2. An induced migration/startup failure executes the documented previous-compatible application/data rollback and verifies counts, readiness, business invariants, worker fencing, and repair states.
+- **Explicit exclusions:** No Production backup/data, customer/provider traffic, real credential, public deployment, DNS, or cutover.
+
+### OM-G exit criteria
+
+- Hosted roles/isolation, pool/degradation, observability, legacy disposition, migration, restore, portable exit, blank-host rebuild, repair, and rollback are evidenced in isolation.
+- Canonical business recovery never depends on restoring a possibly invalid Baileys session.
+- RTO/RPO are measured from drills rather than guessed.
+
+## 10. Phase OM-H — Immutable release and Production cutover
+
+**Range:** `OM-63–OM-69`
+**Status:** `NOT STARTED`
+**Objective:** Build and promote one recoverable candidate, then replace legacy WARLIST at `warlist.fun` only after explicit Production/customer/provider/financial approval.
+
+### OM-63 — Immutable artifact and release provenance
+
+- **Prerequisites:** OM-G and clean canonical source.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. CI builds one reproducible immutable application/Web artifact with version, commit, dependency provenance, SBOM/license/boundary/secret checks, and verified digest; runtime/customer state is excluded.
+  2. Current and previous-good artifacts plus schema/application compatibility are recorded and retrievable without rebuilding or mutating a source checkout.
+- **Explicit exclusions:** No Production deploy, DNS/service mutation, customer/provider traffic, credential inclusion, or live install.
+
+### OM-64 — Candidate runtime isolation and service definition
+
+- **Prerequisites:** OM-56 and OM-63.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Versioned runtime/service definitions run the immutable artifact with explicit read-only application, protected writable state, resource limits, graceful shutdown, health/readiness, and least privilege.
+  2. Worker/tenant volume, environment, network, process, socket, backup, source, and deploy-authority isolation tests prevent cross-tenant/host-management access and preserve repair/recovery boundaries.
+- **Explicit exclusions:** No Production host mutation, customer credential, public deployment, or cutover.
+
+### OM-65 — Isolated candidate preflight, start, and business smoke
+
+- **Prerequisites:** OM-63–OM-64.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Migration, configuration, required-secret-presence, dependency, storage, capacity, compatibility, and ownership preflight fails closed before candidate start.
+  2. The exact artifact starts without source mutation and passes readiness plus bounded synthetic Web/Android/admin/bot/payment/recovery business smoke.
+- **Explicit exclusions:** No Production deploy, public DNS/edge, customer/provider traffic, real credential, or financial effect.
+
+### OM-66 — Candidate previous-good rollback drill
+
+- **Prerequisites:** OM-65.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Induced application, migration, readiness, and business-smoke failures trigger the documented bounded rollback to exact previous-good application/data compatibility.
+  2. Post-rollback counts, invariants, worker fencing, readiness, Web/Android-browser/admin behavior, and `REPAIR_REQUIRED` recovery are verified without losing protected state.
+- **Explicit exclusions:** No Production rollback, customer data, credential copy, provider traffic, or DNS mutation.
+
+### OM-67 — Production path, edge, and responsibility inventory
+
+- **Prerequisites:** OM-57 and OM-63–OM-66; read-only Production metadata scope.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Actual `warlist.fun` edge/origin, service, path, port, artifact, writable-state, database, secret-reference, monitoring, backup, and operator ownership are verified without exposing values.
+  2. Every active legacy Telegram/PWA/Fonnte/Pakasir/notification/admin/customer/public-route responsibility has a verified replacement/retire/rollback disposition and compatibility redirect/content decision.
+- **Explicit exclusions:** No dev/staging publication, Production mutation, credential/customer value read, DNS/service change, or silent responsibility removal.
+
+### OM-68 — Production migration, backup, abort, and approval gate
+
+- **Prerequisites:** OM-62–OM-67; explicit scoped read-only migration preflight approval.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. Integrity-verified business backup, migration manifest/checkpoint, counts/invariants, maintenance window, previous-good compatibility, worker fencing, abort thresholds, recovery owners, and rollback commands are frozen and independently reviewed.
+  2. Production, customer-data, WhatsApp/provider, Saweria/financial, deploy, edge, cutover, and rollback approvals are explicit before any mutation; missing approval leaves the cutover blocked.
+- **Explicit exclusions:** No implicit approval, uncontrolled dual-write, cross-environment credential copy, cutover mutation, or feature expansion.
+
+### OM-69 — Production cutover and bounded WARLIST 2.0 acceptance
+
+- **Prerequisites:** Every applicable OM-A–OM-H predecessor `VERIFIED`; OM-68 approvals; exact immutable candidate.
+- **Status:** `NOT STARTED`.
+- **Acceptance criteria (2/2):**
+  1. The approved candidate migrates/cuts over once at `warlist.fun`; bounded counts/invariants plus approved Web, Android-browser, admin, bot, auth/onboarding, Saweria, repair, readiness, and observability checks decide acceptance.
+  2. Any failed abort threshold immediately stops rollout and executes/verifies previous-good rollback; successful acceptance records exact evidence, residual risk, recovery state, and owner sign-off.
+- **Explicit exclusions:** No dev/staging publication, feature expansion, implicit approval, uncontrolled dual-write, cross-environment credential copy, unbounded acceptance, or continued rollout after failure.
+
+### OM-H exit criteria
+
+- Artifact provenance, runtime isolation, preflight, candidate smoke, previous-good rollback, actual Production mapping, migration backup/abort, approvals, and cutover evidence agree.
+- Required Web (including Android-browser usability) and optional approved PWA product, Google/WhatsApp auth, onboarding, bot, Saweria, admin, recovery, and observability outcomes work through canonical state.
+- WARLIST 2.0 is accepted only from bounded business evidence and explicit owner sign-off, never from process state or HTTP `200` alone.
+
+## 11. Explicitly unscheduled product ideas
+
+These are not hidden post-migration phases and are not required for WARLIST 2.0 unless a later owner decision amends this authority:
+
+- native Android APK/Play Store client;
+- passkeys/WebAuthn;
 - Google Sheets/Contacts projections;
-- Saweria adapter/cutover;
-- native mobile application;
-- frontend/admin visual redesign;
-- unrelated product expansion.
+- WhatsApp notification campaigns;
+- customer-service AI agent;
+- multi-group/rule-set expansion;
+- analytics expansion;
+- microservices, Kubernetes, broker, replicas, or multi-region operation.
 
-## Per-slice closure rule
+Historical Markdown may remain as provenance. It does not authorize these ideas.
 
-Every slice keeps the existing sequence:
+## 12. Per-slice closure rule
 
 ```text
-one owner-authorized Issue with at most 2 AC
-  -> legacy/V2 parity matrix
+one owner-authorized Issue with <= 2 AC
+  -> provenance + prior/V2 evidence matrix
   -> RED-GREEN minimum implementation
-  -> proportional verification
-  -> bounded review when risk requires it
-  -> PR + green CI + squash merge
+  -> focused/proportional verification
+  -> bounded review when concrete risk requires it
+  -> PR + remote CI + squash merge
   -> Issue/ref/tree/cleanup parity
   -> durable local checkpoint
   -> exactly one next-slice recommendation + prerequisites + exact /new
   -> stop
 ```
 
-The checkpoint format and required fields remain defined in [`operational-migration-master.md`](operational-migration-master.md). Recommendation never equals authorization.
+A recommendation is not authorization. External/account/hosted/financial/customer-data/deployment/Production effects require explicit approval at the exact owning slice.
 
-## Recommendation rule
+## 13. Current recommendation
 
-Normally recommend the next numerical slice after all prerequisites are `VERIFIED`. If it is blocked, recommend the smallest prerequisite or immediate blocker resolution and explain why. Never jump to a deferred enhancement while a correctness, security, data-integrity, worker, migration, backup/restore, or rollback blocker remains on the active path.
+**Recommended next slice:** `OM-15 — Runnable application and HTTP adapter composition`.
+
+**Ready because:** OM-01–OM-14 are landed bounded foundations, and integrated auth/frontend/payment work depends on a runnable server boundary.
+
+**Still excluded:** OM-15 implementation until explicitly authorized; real account/provider, Supabase project, customer data, financial action, deployment, and Production effects.
+
+Stop after this roadmap reconciliation is merged and checkpointed. Do not open OM-15 in the same session.
