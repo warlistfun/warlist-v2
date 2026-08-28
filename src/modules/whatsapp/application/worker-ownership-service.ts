@@ -61,7 +61,12 @@ export interface WorkerOwnershipService {
   startWorker(input: StartWorkerInput): Promise<WorkerCommandResult>;
   applyConfig(input: ApplyConfigInput): Promise<WorkerCommandResult>;
   stopWorker(input: StopWorkerInput): Promise<WorkerCommandResult>;
-  recordChildExit(tenantId: string, generation: number, childId: string, correlationId: string): void;
+  recordChildExit(
+    tenantId: string,
+    generation: number,
+    childId: string,
+    correlationId: string,
+  ): void;
   getState(tenantId: string): WorkerOwnershipState;
 }
 
