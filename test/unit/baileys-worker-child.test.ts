@@ -401,6 +401,68 @@ void test('child stop waits for credential ownership release', async (t) => {
   assert.equal(stopSettled, true);
 });
 
+void test('accepts only a higher current-owner config revision and recovers it from start', async () => {
+  const messages: ChildMessage[] = [];
+  const child = createBaileysWorkerChild({
+    credentialDirectory: {
+      acquire: () =>
+        Promise.resolve({
+          use: <T>(operation: (directory: string) => T | PromiseLike<T>) =>
+            Promise.resolve(operation('synthetic')),
+          reset: () => Promise.resolve(),
+          release: () => Promise.resolve(),
+        }),
+    },
+    socketFactory: new FakeBaileysSocketFactory(),
+    scheduler: new ManualScheduler(),
+    reconnectDelayMs: 2_000,
+    send(message) {
+      messages.push(message);
+    },
+  });
+  const command = (
+    type: 'START_WORKER' | 'APPLY_CONFIG',
+    configVersion: number,
+    requestId: string,
+  ) => ({
+    protocolVersion: 1 as const,
+    requestId,
+    correlationId: worker.correlationId,
+    tenantId,
+    generation: worker.generation,
+    childId: worker.childId,
+    type,
+    payload: { configVersion },
+  });
+
+  await child.handle(command('START_WORKER', 3, 'req_start'));
+  await child.handle(command('APPLY_CONFIG', 3, 'req_equal'));
+  await child.handle(command('APPLY_CONFIG', 2, 'req_stale'));
+  await child.handle({ ...command('APPLY_CONFIG', 4, 'req_wrong_owner'), childId: 'child_other' });
+  await child.handle(command('APPLY_CONFIG', 4, 'req_higher'));
+
+  assert.deepEqual(
+    messages
+      .filter((message) => message.type === 'COMMAND_ACK' || message.type === 'COMMAND_ERROR')
+      .map((message) =>
+        message.type === 'COMMAND_ACK'
+          ? [
+              message.type,
+              message.requestId,
+              (message.payload as { readonly configVersion: number }).configVersion,
+            ]
+          : [message.type, message.requestId],
+      ),
+    [
+      ['COMMAND_ACK', 'req_start', 3],
+      ['COMMAND_ERROR', 'req_equal'],
+      ['COMMAND_ERROR', 'req_stale'],
+      ['COMMAND_ERROR', 'req_wrong_owner'],
+      ['COMMAND_ACK', 'req_higher', 4],
+    ],
+  );
+});
+
 async function createFixture(t: test.TestContext) {
   const sandbox = await mkdtemp(join(tmpdir(), 'warlist-v2-om-01-'));
   t.after(() => rm(sandbox, { recursive: true, force: true }));
