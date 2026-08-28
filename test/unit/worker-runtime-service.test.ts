@@ -351,6 +351,39 @@ void test('deduplicates identical pending commands and serializes commands for o
   await service.stop();
 });
 
+void test('keeps distinct correlation identities on separate serialized commands', async () => {
+  const { service, transport } = fixture();
+  await service.start();
+
+  const first = service.requestPairing({ ...worker, pairingTarget: 'synthetic_target_1' });
+  const second = service.requestPairing({
+    ...worker,
+    correlationId: 'corr_example_2',
+    pairingTarget: 'synthetic_target_1',
+  });
+
+  assert.notEqual(first, second);
+  await flushCommands();
+  assert.equal(transport.sent.length, 1);
+
+  acknowledge(transport, transport.sent[0]!, { commandType: 'REQUEST_PAIRING' });
+  assert.deepEqual(await first, { ok: true });
+  await flushCommands();
+  assert.equal(transport.sent.length, 2);
+
+  acknowledge(
+    transport,
+    { ...transport.sent[1]!, correlationId: worker.correlationId },
+    { commandType: 'REQUEST_PAIRING' },
+  );
+  await flushCommands();
+  assert.equal(service.getDebugSnapshot().pendingCommands.length, 1);
+
+  acknowledge(transport, transport.sent[1]!, { commandType: 'REQUEST_PAIRING' });
+  assert.deepEqual(await second, { ok: true });
+  await service.stop();
+});
+
 void test('child invalidation prevents an already queued command from sending', async () => {
   const { service, transport } = fixture();
   await service.start();
@@ -785,7 +818,7 @@ function acknowledge(
   sent: ParentMessage,
   payload:
     | { commandType: 'START_WORKER' | 'APPLY_CONFIG'; configVersion: number }
-    | { commandType: 'STOP_WORKER' | 'RESET_WORKER' },
+    | { commandType: 'REQUEST_PAIRING' | 'STOP_WORKER' | 'RESET_WORKER' },
 ): void {
   transport.receive({ ...identity(sent), type: 'COMMAND_ACK', payload });
 }
