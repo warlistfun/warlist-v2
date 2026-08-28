@@ -68,6 +68,7 @@ interface ActivePairing {
 
 interface ActiveWorker {
   readonly start: Extract<ParentMessage, { type: 'START_WORKER' }>;
+  acceptedConfigVersion: number;
   readonly credentials: LocalCredentialDirectoryHandle;
   epoch: number;
   socket: BaileysSocketPort | undefined;
@@ -176,6 +177,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
         });
         const worker: ActiveWorker = {
           start: message,
+          acceptedConfigVersion: message.payload.configVersion,
           credentials,
           epoch: 0,
           socket: undefined,
@@ -203,7 +205,12 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     }
 
     if (message.type === 'APPLY_CONFIG') {
-      sendError(message, 'WORKER_COMMAND_REJECTED');
+      if (message.payload.configVersion <= active.acceptedConfigVersion) {
+        sendError(message, 'WORKER_COMMAND_REJECTED');
+        return;
+      }
+      active.acceptedConfigVersion = message.payload.configVersion;
+      sendAcknowledgement(message);
       return;
     }
 
