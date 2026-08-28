@@ -32,6 +32,14 @@ export function createAutomationConfigSyncDispatcher(dependencies: {
       if (!claimed) return undefined;
 
       try {
+        const current = await dependencies.repository.loadConfig(claimed.tenantId);
+        if (current?.revision !== claimed.configRevision) {
+          throw new WorkerRuntimeError(
+            'WORKER_COMMAND_REJECTED',
+            'Worker command was rejected',
+            false,
+          );
+        }
         await dependencies.worker.applyConfig({
           tenantId: claimed.tenantId,
           correlationId: claimToken,

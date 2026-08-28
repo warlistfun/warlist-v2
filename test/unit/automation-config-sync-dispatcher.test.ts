@@ -46,6 +46,43 @@ void test('dispatches the exact committed revision and applies only its matching
   );
 });
 
+void test('fails closed without applying a claimed revision superseded before dispatch', async () => {
+  const repository = await createRepository();
+  await repository.compareAndSaveConfigWithSync(
+    { tenantId, configuration: { automation: { enabled: true } } },
+    null,
+  );
+  const staleClaimRepository: BusinessRepositoryPort = {
+    ...repository,
+    async claimDueAutomationConfigSyncs(input) {
+      const claimed = await repository.claimDueAutomationConfigSyncs(input);
+      await repository.compareAndSaveConfigWithSync(
+        { tenantId, configuration: { automation: { enabled: false } } },
+        1,
+      );
+      return claimed;
+    },
+  };
+  const updates: unknown[] = [];
+  const dispatcher = createAutomationConfigSyncDispatcher({
+    repository: staleClaimRepository,
+    worker: {
+      applyConfig(input) {
+        updates.push(input);
+        return Promise.resolve({ ok: true });
+      },
+    },
+    clock: new FixedClock(now),
+    idGenerator: new SequenceIdGenerator('stale'),
+  });
+
+  const result = await dispatcher.dispatchOne();
+
+  assert.equal(result?.status, 'NON_RETRYABLE_FAILURE');
+  assert.equal(result?.failureCode, 'WORKER_COMMAND_REJECTED');
+  assert.deepEqual(updates, []);
+});
+
 void test('preserves canonical config and schedules retry when worker is unavailable', async () => {
   const repository = await createRepository();
   const committed = await repository.compareAndSaveConfigWithSync(
