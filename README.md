@@ -1,8 +1,8 @@
 # WARLIST 2.0
 
-WARLIST 2.0 is a clean, backend-first migration of WARLIST. It currently contains a substantial but non-operational backend foundation and a public frontend foundation.
+WARLIST 2.0 is a clean, backend-first migration of WARLIST. It currently contains a substantial backend foundation, a bounded loopback-only runnable composition, and a public frontend foundation.
 
-**Status:** The [execution roadmap](docs/execution-roadmap.md) is the active authority for one unified, backend-first Operational Migration. Backend Foundation remains `PARTIALLY VERIFIED` and non-operational after its [as-built audit](docs/backend-foundation-as-built-audit.md). The [master contract](docs/operational-migration-master.md) and [slice roadmap](docs/operational-migration-roadmap.md) preserve `OM-01`–`OM-14` as bounded verified evidence and sequence unstarted `OM-15`–`OM-69` toward a directly usable WARLIST 2.0; no new implementation slice is active. No hosted Supabase runtime, application runtime composition, Production behavior, legacy/runtime/customer-data access, real credential/account acceptance, deployment, cutover, live WhatsApp/provider network send, or public automation API has been configured or verified.
+**Status:** The [execution roadmap](docs/execution-roadmap.md) is the active authority for one unified, backend-first Operational Migration. Backend Foundation remains `PARTIALLY VERIFIED` after its [as-built audit](docs/backend-foundation-as-built-audit.md). OM-15 adds only an import-safe composition root and native loopback listener over injected repository/worker boundaries and the built Web; it is not a deployed or Production runtime. No hosted Supabase runtime, Production behavior, legacy/runtime/customer-data access, real credential/account acceptance, deployment, cutover, live WhatsApp/provider network send, or public automation API has been configured or verified.
 
 ## Requirements
 

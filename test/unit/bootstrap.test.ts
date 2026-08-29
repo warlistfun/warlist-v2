@@ -8,11 +8,15 @@ import { FixedClock, NoopLogger, NoopMetrics, SequenceIdGenerator } from '../sup
 class InMemorySignals implements ShutdownSignalPort {
   private handlers = new Map<'SIGINT' | 'SIGTERM', () => void>();
   failRegistrationFor?: 'SIGINT' | 'SIGTERM';
+  failRegistrationAfterEffectFor?: 'SIGINT' | 'SIGTERM';
   failUnregistrationFor: 'SIGINT' | 'SIGTERM' | undefined;
 
   register(signal: 'SIGINT' | 'SIGTERM', handler: () => void): void {
     if (signal === this.failRegistrationFor) throw new Error('signal registration failed');
     this.handlers.set(signal, handler);
+    if (signal === this.failRegistrationAfterEffectFor) {
+      throw new Error('signal registration failed after effect');
+    }
   }
 
   unregister(signal: 'SIGINT' | 'SIGTERM', handler: () => void): void {
@@ -68,6 +72,7 @@ function dependencies(
     repository,
     workerRuntime,
     signals,
+    createHttpServer: () => new ControlledRuntime(),
   };
 }
 
@@ -144,6 +149,20 @@ void test('partial signal registration failure unregisters handlers and stops th
   const bootstrap = createBootstrap(dependencies(repository, workerRuntime, signals));
 
   await assert.rejects(bootstrap.start(), /signal registration failed/);
+
+  assert.equal(signals.size, 0);
+  assert.equal(repository.stopCalls, 1);
+  assert.equal(workerRuntime.stopCalls, 1);
+});
+
+void test('registration failure after installing a signal handler still unwinds it', async () => {
+  const repository = new ControlledRuntime();
+  const workerRuntime = new ControlledRuntime();
+  const signals = new InMemorySignals();
+  signals.failRegistrationAfterEffectFor = 'SIGTERM';
+  const bootstrap = createBootstrap(dependencies(repository, workerRuntime, signals));
+
+  await assert.rejects(bootstrap.start(), /signal registration failed after effect/);
 
   assert.equal(signals.size, 0);
   assert.equal(repository.stopCalls, 1);
