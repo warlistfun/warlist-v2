@@ -118,8 +118,8 @@ export function createBootstrap(dependencies: BootstrapDependencies): Bootstrap 
           httpServerCleanupNeeded = true;
           await httpServer.start();
           for (const signal of shutdownSignals) {
-            dependencies.signals.register(signal, handleSignal);
             registeredSignals.add(signal);
+            dependencies.signals.register(signal, handleSignal);
           }
           running = true;
         } catch (error) {
