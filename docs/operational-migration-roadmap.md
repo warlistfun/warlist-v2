@@ -1,6 +1,6 @@
 # WARLIST V2 Unified Operational Migration Roadmap
 
-> **Status:** `OM-01`–`OM-14` are landed bounded slices at their recorded evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-14` landed. `OM-15`–`OM-69` are `NOT STARTED`. Operational Migration as a whole remains `PARTIALLY VERIFIED`. No implementation Issue is active or authorized by this document alone.
+> **Status:** `OM-01`–`OM-15` are landed bounded slices at their recorded evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-15` landed. `OM-16`–`OM-69` are `NOT STARTED`. Operational Migration as a whole remains `PARTIALLY VERIFIED`. No implementation Issue is active or authorized by this document alone.
 >
 > **Governing contract:** [`operational-migration-master.md`](operational-migration-master.md). Active authorization: [`execution-roadmap.md`](execution-roadmap.md).
 
@@ -24,7 +24,7 @@ Every new implementation Issue has one bounded outcome and at most two independe
 ## 2. Status and supersession
 
 - `OM-01–OM-11` retain their original numbers, landed implementation, Issue/PR evidence, and bounded evidence ceilings; OM-A remains closed only at that boundary.
-- `OM-12–OM-14` retain their original numbers and landed implementation as partially verified OM-B subsets; they do not close OM-B or the whole migration.
+- `OM-12–OM-15` retain their original numbers and landed implementation as partially verified OM-B subsets; they do not close OM-B or the whole migration.
 - The former planning-only `OM-15–OM-44` rows never started. They are superseded by the `OM-15–OM-69` board below; no implementation history is rewritten.
 - The former Pakasir slices are replaced by Saweria slices. Provider-neutral financial safety invariants are preserved.
 - OPS ID + PIN, deferred customer UI, and a separate post-migration roadmap are superseded by the owner-approved Google/WhatsApp auth, usable product, Android, and Saweria direction.
@@ -73,7 +73,7 @@ A slice never closes its parent phase automatically.
 ## 4. Phase OM-B — Runtime seams, runnable backend, and disposable Baileys acceptance
 
 **Range:** `OM-12–OM-20`
-**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-14` landed; `OM-15`–`OM-20` not started
+**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-15` landed; `OM-16`–`OM-20` not started
 **Objective:** Compose the preserved backend/bot seams into one runnable non-Production path, then prove the core automation outcome with an explicitly approved disposable WhatsApp account before auth/product work consumes it.
 
 ### Landed OM-B baseline — preserved, not reopened
@@ -83,13 +83,14 @@ A slice never closes its parent phase automatically.
 | `OM-12` | Canonical active-tenant discovery                | Issue #164 / PR #165 / `d5dc513e` | Synthetic/local; no composed boot      |
 | `OM-13` | Current worker ownership and restart fencing     | Issue #166 / PR #167 / `fc54dddb` | Synthetic/local; no provider authority |
 | `OM-14` | Monotonic worker config application and recovery | Issue #168 / PR #170 / `bcc41dfa` | Synthetic/local; no hosted config      |
+| `OM-15` | Runnable application and loopback HTTP adapter   | Issue #173 / PR #174 / `2b8b45dd` | Local loopback; injected worker/repo   |
 
-These three landed slices are evidence for OM-B, not phase closure. They are not repeated by the unstarted contracts below.
+These four landed slices are evidence for OM-B, not phase closure.
 
 ### OM-15 — Runnable application and HTTP adapter composition
 
 - **Prerequisites:** OM-01–OM-14; freeze the exact maintained HTTP adapter choice against current Node/TypeScript/API requirements before implementation.
-- **Status:** `NOT STARTED`.
+- **Status:** `VERIFIED` at the local loopback/injected-adapter ceiling through Issue #173 / PR #174 / merge `2b8b45dda237efcd7dd612cebf6eccc9f592ad94`.
 - **Acceptance criteria (2/2):**
   1. One explicit entrypoint composes the existing repository, application, worker, HTTP, and built-Web boundaries without import-time effects or duplicate business logic.
   2. One non-public listener serves the versioned API envelope and approved static/Web routes with runtime validation and deterministic startup-failure unwind.
@@ -693,10 +694,10 @@ A recommendation is not authorization. External/account/hosted/financial/custome
 
 ## 13. Current recommendation
 
-**Recommended next slice:** `OM-15 — Runnable application and HTTP adapter composition`.
+**Recommended next slice:** `OM-16 — Concrete worker process and canonical active-tenant boot`.
 
-**Ready because:** OM-01–OM-14 are landed bounded foundations, and integrated auth/frontend/payment work depends on a runnable server boundary.
+**Ready because:** OM-15 landed the import-safe loopback application/HTTP composition, while concrete canonical active-tenant worker boot remains explicitly uncomposed.
 
-**Still excluded:** OM-15 implementation until explicitly authorized; real account/provider, Supabase project, customer data, financial action, deployment, and Production effects.
+**Still excluded:** OM-16 implementation until explicitly authorized; real account/provider, credential, customer/runtime data, hosted deployment, financial action, and Production effects.
 
-Stop after this roadmap reconciliation is merged and checkpointed. Do not open OM-15 in the same session.
+Stop after this OM-15 closure correction is merged and checkpointed. Do not open OM-16 in the same session.

@@ -129,7 +129,7 @@ They do not require a second roadmap now.
 
 ## 4. Preserved behavior baseline
 
-OM-01–OM-14 are landed bounded subsets. OM-A is closed only through OM-11; OM-12–OM-14 are landed subsets of OM-B, which remains open. Reconciliation may correct their status documentation, but it must not reopen, renumber, diminish, or rewrite their implementation history without a separately evidenced defect.
+OM-01–OM-15 are landed bounded subsets. OM-A is closed only through OM-11; OM-12–OM-15 are landed subsets of OM-B, which remains open. Reconciliation may correct their status documentation, but it must not reopen, renumber, diminish, or rewrite their implementation history without a separately evidenced defect.
 
 The core path remains:
 

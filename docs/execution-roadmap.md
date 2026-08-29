@@ -27,18 +27,19 @@ Backend and bot correctness remain first. Frontend, auth, payment, Android, and 
 
 ### Backend Foundation
 
-**Status:** `PARTIALLY VERIFIED` and non-operational.
+**Status:** `PARTIALLY VERIFIED`; not hosted or Production-operational.
 
-The frozen PR #100 foundation plus later bounded overlays provide reusable TypeScript, PostgreSQL, automation, delivery/entitlement, identity, frontend, and worker seams. They do not prove one runnable product, hosted operation, provider acceptance, deployment, or Production readiness.
+The frozen PR #100 foundation plus later bounded overlays provide reusable TypeScript, PostgreSQL, automation, delivery/entitlement, identity, frontend, and worker seams. OM-15 adds one import-safe loopback runnable composition over injected repository/worker boundaries and the built Web. It does not prove concrete active-tenant boot, hosted operation, provider acceptance, deployment, or Production readiness.
 
 ### Operational Migration
 
-**Status:** `OM-01`–`OM-14` are landed bounded slices at their recorded synthetic/local/disposable evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-14` landed. Operational Migration as a whole remains `PARTIALLY VERIFIED`.
+**Status:** `OM-01`–`OM-15` are landed bounded slices at their recorded synthetic/local/disposable evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-15` landed. Operational Migration as a whole remains `PARTIALLY VERIFIED`.
 
 - `OM-01`–`OM-11`: Issues #132, #136, #140, #142, #146, #148, #150, #152, #154, #156, and #158.
 - `OM-12`: Issue #164 / PR #165 / merge `d5dc513e81ab325203c60087f4b1bcdc4a9b09a6`.
 - `OM-13`: Issue #166 / PR #167 / merge `fc54dddbce29aee01b5c3afe97ed55b7384ee75e`.
 - `OM-14`: Issue #168 / PR #170 / merge `bcc41dfa2f73f75525b06a1feb2f09057e10e195`.
+- `OM-15`: Issue #173 / PR #174 / merge `2b8b45dda237efcd7dd612cebf6eccc9f592ad94`.
 
 These are valid landed subsets and are not reopened or rewritten by this roadmap reconciliation. They still do not prove a real account, hosted environment, customer migration, deployment, financial effect, or Production operation.
 
@@ -96,9 +97,9 @@ Native Android APK/Play Store packaging, passkeys, Google Sheets/Contacts, notif
 
 ## 6. Current decision point
 
-No implementation slice is active or authorized by this documentation reconciliation.
+No implementation slice is active or authorized by this closure reconciliation.
 
-**Exactly one next recommendation:** `OM-15 — Runnable application and HTTP adapter composition` after this roadmap correction is landed and canonical refs are reconciled.
+**Exactly one next recommendation:** `OM-16 — Concrete worker process and canonical active-tenant boot` after this closure correction is landed and canonical refs are reconciled.
 
 A recommendation is not authorization. Every implementation Issue remains bounded to at most two independently testable acceptance criteria. Real account/provider, hosted project, financial, customer-data, deployment, migration, rollback, or Production effects still require their explicit scope and approval at the slice where they occur.
 
