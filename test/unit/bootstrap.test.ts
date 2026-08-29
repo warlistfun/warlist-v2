@@ -68,6 +68,7 @@ function dependencies(
     repository,
     workerRuntime,
     signals,
+    createHttpServer: () => new ControlledRuntime(),
   };
 }
 

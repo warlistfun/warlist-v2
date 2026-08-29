@@ -9,6 +9,7 @@ import type {
   RepositoryPort,
   ShutdownSignal,
   ShutdownSignalPort,
+  ApplicationLifecycle,
   WorkerRuntimePort,
 } from './ports';
 
@@ -21,6 +22,7 @@ export interface BootstrapDependencies {
   repository: RepositoryPort;
   workerRuntime: WorkerRuntimePort;
   signals: ShutdownSignalPort;
+  createHttpServer(app: HttpApp): ApplicationLifecycle;
 }
 
 export interface Bootstrap {
@@ -34,8 +36,10 @@ const shutdownSignals: readonly ShutdownSignal[] = ['SIGINT', 'SIGTERM'];
 export function createBootstrap(dependencies: BootstrapDependencies): Bootstrap {
   const application = createApplication(dependencies);
   const httpApp = createHttpApp(dependencies);
+  const httpServer = dependencies.createHttpServer(httpApp);
   const registeredSignals = new Set<ShutdownSignal>();
   let applicationCleanupNeeded = false;
+  let httpServerCleanupNeeded = false;
   let running = false;
   let transition = Promise.resolve();
 
@@ -69,6 +73,15 @@ export function createBootstrap(dependencies: BootstrapDependencies): Bootstrap 
   async function cleanup(): Promise<void> {
     const failures = unregisterSignals();
 
+    if (httpServerCleanupNeeded) {
+      try {
+        await httpServer.stop();
+        httpServerCleanupNeeded = false;
+      } catch (error) {
+        failures.push(error);
+      }
+    }
+
     if (applicationCleanupNeeded) {
       try {
         await application.stop();
@@ -95,13 +108,15 @@ export function createBootstrap(dependencies: BootstrapDependencies): Bootstrap 
     start(): Promise<void> {
       return enqueue(async () => {
         if (running) return;
-        if (applicationCleanupNeeded || registeredSignals.size > 0) {
+        if (applicationCleanupNeeded || httpServerCleanupNeeded || registeredSignals.size > 0) {
           throw new Error('Bootstrap cleanup is incomplete');
         }
 
         applicationCleanupNeeded = true;
         try {
           await application.start();
+          httpServerCleanupNeeded = true;
+          await httpServer.start();
           for (const signal of shutdownSignals) {
             dependencies.signals.register(signal, handleSignal);
             registeredSignals.add(signal);
