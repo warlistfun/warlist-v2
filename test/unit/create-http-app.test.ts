@@ -57,6 +57,63 @@ void test('readiness endpoint reflects application dependencies', async () => {
   });
 });
 
+void test('readiness reports an explicitly unobserved provider ceiling without provider material', async () => {
+  const repository = new InMemoryRepository();
+  const workerRuntime = new InMemoryWorkerRuntime();
+  const httpApp = createHttpApp({
+    idGenerator: new SequenceIdGenerator('req'),
+    repository,
+    workerRuntime: Object.assign(workerRuntime, {
+      providerDiagnostic(): Promise<'NOT_OBSERVED'> {
+        return Promise.resolve('NOT_OBSERVED');
+      },
+    }),
+  });
+
+  await repository.start();
+  await workerRuntime.start();
+
+  assert.deepEqual(await httpApp.handle({ method: 'GET', path: '/api/v1/ready' }), {
+    status: 200,
+    body: {
+      ok: true,
+      data: { status: 'ready', provider: 'not_observed' },
+      meta: {},
+      requestId: 'req-1',
+    },
+  });
+});
+
+void test('readiness reports provider degradation as a safe correlated retryable failure', async () => {
+  const repository = new InMemoryRepository();
+  const workerRuntime = Object.assign(new InMemoryWorkerRuntime(), {
+    providerDiagnostic(): Promise<'DEGRADED'> {
+      return Promise.resolve('DEGRADED');
+    },
+  });
+  const httpApp = createHttpApp({
+    idGenerator: new SequenceIdGenerator('req'),
+    repository,
+    workerRuntime,
+  });
+
+  await repository.start();
+  await workerRuntime.start();
+
+  assert.deepEqual(await httpApp.handle({ method: 'GET', path: '/api/v1/ready' }), {
+    status: 503,
+    body: {
+      ok: false,
+      error: {
+        code: 'PROVIDER_DEGRADED',
+        message: 'Provider degraded',
+        retryable: true,
+      },
+      requestId: 'req-1',
+    },
+  });
+});
+
 void test('unknown routes return a stable safe failure envelope', async () => {
   const httpApp = createTestHttpApp();
 
