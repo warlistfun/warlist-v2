@@ -81,6 +81,9 @@ export function createConcreteWorkerRuntime(dependencies: {
     isReady(): Promise<boolean> {
       return runtime.isReady();
     },
+    providerDiagnostic(): Promise<'NOT_OBSERVED'> {
+      return Promise.resolve('NOT_OBSERVED');
+    },
   };
 }
 

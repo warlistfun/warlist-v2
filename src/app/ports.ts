@@ -33,6 +33,9 @@ export interface RepositoryPort extends ApplicationLifecycle {
   isReady(): Promise<boolean>;
 }
 
+export type ProviderDiagnostic = 'NOT_OBSERVED' | 'READY' | 'DEGRADED';
+
 export interface WorkerRuntimePort extends ApplicationLifecycle {
   isReady(): Promise<boolean>;
+  providerDiagnostic?(): Promise<ProviderDiagnostic>;
 }

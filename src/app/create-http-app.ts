@@ -70,7 +70,14 @@ export function createHttpApp(dependencies: HttpAppDependencies): HttpApp {
           return failure(503, requestId, 'APPLICATION_NOT_READY', 'Application not ready', true);
         }
 
-        return success(requestId, { status: 'ready' });
+        const provider = await dependencies.workerRuntime.providerDiagnostic?.();
+        if (provider === 'DEGRADED') {
+          return failure(503, requestId, 'PROVIDER_DEGRADED', 'Provider degraded', true);
+        }
+        return success(requestId, {
+          status: 'ready',
+          ...(provider ? { provider: provider.toLowerCase() } : {}),
+        });
       } catch {
         return failure(503, requestId, 'READINESS_CHECK_FAILED', 'Readiness check failed', true);
       }

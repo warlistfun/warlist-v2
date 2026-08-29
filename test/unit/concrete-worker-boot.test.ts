@@ -56,6 +56,15 @@ void test('runnable entrypoint boots every canonical active tenant through concr
 
   await entrypoint.start();
 
+  assert.deepEqual(await entrypoint.httpApp.handle({ method: 'GET', path: '/api/v1/ready' }), {
+    status: 200,
+    body: {
+      ok: true,
+      data: { status: 'ready', provider: 'not_observed' },
+      meta: {},
+      requestId: 'worker-7',
+    },
+  });
   assert.deepEqual(repository.loads, [tenantOne, tenantTwo]);
   assert.deepEqual(
     children.map(({ messages }) => {
