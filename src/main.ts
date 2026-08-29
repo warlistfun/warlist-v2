@@ -1,5 +1,6 @@
 import { parseApplicationConfig } from './app/config';
 import { createBootstrap, type Bootstrap } from './app/bootstrap';
+import type { BusinessRepositoryPort } from './app/business-repository';
 import type { HttpApp } from './app/create-http-app';
 import type {
   ApplicationLifecycle,
@@ -12,6 +13,8 @@ import type {
   WorkerRuntimePort,
 } from './app/ports';
 import { createNodeHttpServer } from './infrastructure/http/node-http-server';
+import { createConcreteWorkerRuntime } from './modules/whatsapp/infrastructure/concrete-worker-runtime';
+import type { SpawnWorkerChildPort } from './modules/whatsapp/infrastructure/node-worker-command-transport';
 
 type EntrypointConfig = Readonly<{
   application: unknown;
@@ -26,8 +29,11 @@ export interface EntrypointAdapters {
   readonly clock: ClockPort;
   readonly idGenerator: IdGeneratorPort;
   readonly signals: ShutdownSignalPort;
-  createRepository(config: unknown): RepositoryPort;
-  createWorkerRuntime(config: unknown): WorkerRuntimePort;
+  createRepository(
+    config: unknown,
+  ): RepositoryPort & Partial<Pick<BusinessRepositoryPort, 'loadTenant'>>;
+  createWorkerRuntime?(config: unknown): WorkerRuntimePort;
+  spawnWorker?: SpawnWorkerChildPort;
   createHttpServer?(input: Readonly<{ config: unknown; app: HttpApp }>): ApplicationLifecycle;
 }
 
@@ -35,7 +41,14 @@ export function createEntrypoint(input: unknown, adapters: EntrypointAdapters): 
   const config = parseEntrypointConfig(input);
   const applicationConfig = parseApplicationConfig(config.application);
   const repository = adapters.createRepository(config.database);
-  const workerRuntime = adapters.createWorkerRuntime(config.worker);
+  const workerRuntime = adapters.createWorkerRuntime
+    ? adapters.createWorkerRuntime(config.worker)
+    : createConcreteWorkerRuntime({
+        config: config.worker,
+        repository,
+        idGenerator: adapters.idGenerator,
+        ...(adapters.spawnWorker ? { spawn: adapters.spawnWorker } : {}),
+      });
   const createHttpServer = (input: Readonly<{ config: unknown; app: HttpApp }>) =>
     adapters.createHttpServer ? adapters.createHttpServer(input) : createNodeHttpServer(input);
 

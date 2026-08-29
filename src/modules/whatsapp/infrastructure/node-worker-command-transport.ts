@@ -36,6 +36,14 @@ export function createNodeWorkerCommandTransport(dependencies: {
   readonly modulePath: string;
   readonly credentialRoot: string;
   readonly spawn?: SpawnWorkerChildPort;
+  readonly onChildExit?: (
+    identity: Readonly<{
+      tenantId: string;
+      generation: number;
+      childId: string;
+      correlationId: string;
+    }>,
+  ) => void;
 }): WorkerCommandTransportPort {
   if (!isAbsolute(dependencies.modulePath) || !isAbsolute(dependencies.credentialRoot)) {
     throw new Error('Worker module and credential root must be absolute paths');
@@ -44,18 +52,27 @@ export function createNodeWorkerCommandTransport(dependencies: {
   const spawn = dependencies.spawn ?? defaultSpawn;
   let ready = false;
   let handler: ((message: unknown) => void) | undefined;
-  let active: ActiveChild | undefined;
+  const active = new Map<string, ActiveChild>();
 
   function detach(child: ActiveChild): void {
     child.process.off('message', child.onMessage);
     child.process.off('exit', child.onExit);
     child.process.off('error', child.onError);
-    if (active === child) active = undefined;
+    if (active.get(child.start.tenantId) === child) active.delete(child.start.tenantId);
   }
 
   function unavailable(child: ActiveChild): void {
-    if (active !== child) return;
+    if (active.get(child.start.tenantId) !== child) return;
     detach(child);
+    dependencies.onChildExit?.({
+      tenantId: child.start.tenantId,
+      generation: child.start.generation,
+      childId: child.start.childId,
+      correlationId:
+        child.lastCommand.type === 'STOP_WORKER'
+          ? child.lastCommand.correlationId
+          : child.start.correlationId,
+    });
     handler?.(commandError(child.lastCommand));
   }
 
@@ -66,7 +83,7 @@ export function createNodeWorkerCommandTransport(dependencies: {
       start: message,
       lastCommand: message,
       onMessage(input?: unknown): void {
-        if (active !== child) return;
+        if (active.get(child.start.tenantId) !== child) return;
         let decoded: ChildMessage;
         try {
           decoded = decodeChildMessage(input);
@@ -96,13 +113,15 @@ export function createNodeWorkerCommandTransport(dependencies: {
         unavailable(child);
       },
       onError(): void {
-        unavailable(child);
+        if (active.get(child.start.tenantId) !== child) return;
+        handler?.(commandError(child.lastCommand));
+        child.process.kill();
       },
     };
     process.on('message', child.onMessage);
     process.on('exit', child.onExit);
     process.on('error', child.onError);
-    active = child;
+    active.set(message.tenantId, child);
     return child;
   }
 
@@ -130,24 +149,26 @@ export function createNodeWorkerCommandTransport(dependencies: {
     stop(signal): Promise<void> {
       ready = false;
       handler = undefined;
-      const child = active;
-      if (!child) return Promise.resolve();
-
-      return new Promise<void>((resolve) => {
-        const complete = (): void => {
-          signal.removeEventListener('abort', abort);
-          child.process.off('exit', complete);
-          detach(child);
-          resolve();
-        };
-        const abort = (): void => {
-          child.process.kill();
-        };
-        signal.addEventListener('abort', abort, { once: true });
-        child.process.on('exit', complete);
-        if (child.process.connected) child.process.disconnect();
-        else child.process.kill();
-      });
+      return Promise.all(
+        [...active.values()].map(
+          (child) =>
+            new Promise<void>((resolve) => {
+              const complete = (): void => {
+                signal.removeEventListener('abort', abort);
+                child.process.off('exit', complete);
+                detach(child);
+                resolve();
+              };
+              const abort = (): void => {
+                child.process.kill();
+              };
+              signal.addEventListener('abort', abort, { once: true });
+              child.process.on('exit', complete);
+              if (child.process.connected) child.process.disconnect();
+              else child.process.kill();
+            }),
+        ),
+      ).then(() => undefined);
     },
     isReady(): Promise<boolean> {
       return Promise.resolve(ready);
@@ -162,13 +183,16 @@ export function createNodeWorkerCommandTransport(dependencies: {
       }
 
       if (message.type === 'START_WORKER') {
-        if (active) return Promise.reject(new Error('Worker child is already active'));
+        if (active.has(message.tenantId)) {
+          return Promise.reject(new Error('Worker child is already active'));
+        }
         return sendToChild(spawnChild(message), message);
       }
-      if (!active || !sameWorker(active.start, message)) {
+      const child = active.get(message.tenantId);
+      if (!child || !sameWorker(child.start, message)) {
         return Promise.reject(new Error('Worker child identity does not match'));
       }
-      return sendToChild(active, message);
+      return sendToChild(child, message);
     },
   };
 }
