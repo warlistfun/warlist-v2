@@ -53,7 +53,9 @@ interface Dependencies {
   readonly reconnectDelayMs: number;
   readonly send: (message: ChildMessage) => void;
   readonly now?: () => number;
-  readonly pairingConsole?: (input: { readonly requestCode: (target: string) => Promise<string> }) => LocalPairingConsole;
+  readonly pairingConsole?: (input: {
+    readonly requestCode: (target: string) => Promise<string>;
+  }) => LocalPairingConsole;
 }
 
 export interface BaileysWorkerChild {
@@ -197,7 +199,9 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
         worker.pairingConsole = (dependencies.pairingConsole ?? createLocalPairingConsole)({
           requestCode(target) {
             const socket = worker.socket;
-            return socket && !worker.stopped ? socket.requestPairingCode(target) : Promise.reject(new Error());
+            return socket && !worker.stopped
+              ? socket.requestPairingCode(target)
+              : Promise.reject(new Error());
           },
         });
         await worker.pairingConsole.start();

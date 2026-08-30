@@ -21,21 +21,27 @@ export function createLocalPairingConsole(dependencies: {
       if (!server) {
         server = createServer((request, response) => {
           void handle(request).then(({ status, body }) => {
-            response.writeHead(status, { 'content-type': 'text/html; charset=utf-8', 'cache-control': 'no-store' });
+            response.writeHead(status, {
+              'content-type': 'text/html; charset=utf-8',
+              'cache-control': 'no-store',
+            });
             response.end(body);
           });
         });
         await listen(server);
       }
       const address = server.address();
-      if (!address || typeof address === 'string') throw new Error('Local pairing console address is unavailable');
+      if (!address || typeof address === 'string')
+        throw new Error('Local pairing console address is unavailable');
       return Object.freeze({ host, port: address.port });
     },
     async stop() {
       if (!server) return;
       const current = server;
       server = undefined;
-      await new Promise<void>((resolve, reject) => current.close((error) => (error ? reject(error) : resolve())));
+      await new Promise<void>((resolve, reject) =>
+        current.close((error) => (error ? reject(error) : resolve())),
+      );
     },
     status() {
       return Object.freeze({ state });
@@ -62,7 +68,10 @@ export function createLocalPairingConsole(dependencies: {
 function listen(server: Server): Promise<void> {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
-    server.once('listening', () => { server.off('error', reject); resolve(); });
+    server.once('listening', () => {
+      server.off('error', reject);
+      resolve();
+    });
     server.listen({ host, port: 0, exclusive: true });
   });
 }
@@ -86,6 +95,13 @@ function readBody(request: IncomingMessage): Promise<string> {
 }
 
 function page(status: 200 | 400 | 405, message?: string, code?: string) {
-  const detail = code ? `<p id="pairing-code">${code}</p>` : message ? `<p role="alert">${message}</p>` : '';
-  return { status, body: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WARLIST disposable pairing</title><main><h1>Disposable pairing</h1><form method="post"><label for="target">Disposable account number</label><input id="target" name="target" inputmode="numeric" autocomplete="off" required pattern="[1-9][0-9]{7,14}"><button type="submit">Request pairing code</button></form>${detail}</main>` };
+  const detail = code
+    ? `<p id="pairing-code">${code}</p>`
+    : message
+      ? `<p role="alert">${message}</p>`
+      : '';
+  return {
+    status,
+    body: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WARLIST disposable pairing</title><main><h1>Disposable pairing</h1><form method="post"><label for="target">Disposable account number</label><input id="target" name="target" inputmode="numeric" autocomplete="off" required pattern="[1-9][0-9]{7,14}"><button type="submit">Request pairing code</button></form>${detail}</main>`,
+  };
 }
