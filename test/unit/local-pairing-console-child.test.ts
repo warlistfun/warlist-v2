@@ -24,18 +24,21 @@ void test('opens a child-owned loopback console and keeps its raw pairing materi
   let address: Readonly<{ host: '127.0.0.1'; port: number }> | undefined;
   const child = createBaileysWorkerChild({
     credentialDirectory: {
-      acquire: async () => ({
-        use: async (operation) => operation('/tmp/om-18-5'),
-        reset: async () => undefined,
-        release: async () => undefined,
-      }),
+      acquire: () =>
+        Promise.resolve({
+          use: <T>(operation: (directory: string) => T | PromiseLike<T>) =>
+            Promise.resolve(operation('/tmp/om-18-5')),
+          reset: () => Promise.resolve(),
+          release: () => Promise.resolve(),
+        }),
     },
     socketFactory: {
-      create: async () => ({
-        socket,
-        saveCredentials: async () => undefined,
-        loggedOutStatusCode: 401,
-      }),
+      create: () =>
+        Promise.resolve({
+          socket,
+          saveCredentials: () => Promise.resolve(),
+          loggedOutStatusCode: 401,
+        }),
     },
     scheduler: { schedule: () => () => undefined },
     reconnectDelayMs: 1,
