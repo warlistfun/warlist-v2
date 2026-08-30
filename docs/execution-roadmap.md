@@ -44,7 +44,7 @@ The frozen PR #100 foundation plus later bounded overlays provide reusable TypeS
 - `OM-17`: Issue #178 / PR #179 / merge `98f9978a1649d4175b9cb7aa4d51f94772483ded`.
 - `OM-18`: Issue #184 / PR #187 / merge `b2ba561339a07a2f10d0861274a85a9b3cc37834`.
 
-These are valid landed subsets and are not reopened or rewritten by this roadmap reconciliation. OM-18 proves one approved disposable-account lifecycle only; they still do not prove customer accounts, broader provider compatibility, hosted operation, customer migration, deployment, financial effect, or Production operation.
+These are valid landed subsets and are not reopened or rewritten by this roadmap reconciliation. OM-18 proves one approved disposable pairing-code lifecycle only. Real QR generation and scan remain unverified and are assigned to planned slice OM-18.7; the landed slices still do not prove customer accounts, broader provider compatibility, hosted operation, customer migration, deployment, financial effect, or Production operation.
 
 The public frontend foundation also exists through PR #124 and PR #130. It is preserved as landed foundation, not counted as integrated customer-product completion.
 
@@ -102,7 +102,7 @@ Native Android APK/Play Store packaging, passkeys, Google Sheets/Contacts, notif
 
 No implementation slice is active or authorized by this closure reconciliation.
 
-**Exactly one next recommendation:** `OM-19 — Disposable live inbound-to-decision acceptance` after explicit approval for disposable group/admin/message fixtures and a fresh isolated credential root are available.
+**Exactly one next recommendation:** `OM-18.7 — Disposable QR pairing acceptance` after explicit approval for one disposable QR scan and a fresh isolated credential root are available.
 
 A recommendation is not authorization. Every implementation Issue remains bounded to at most two independently testable acceptance criteria. Real account/provider, hosted project, financial, customer-data, deployment, migration, rollback, or Production effects still require their explicit scope and approval at the slice where they occur.
 
