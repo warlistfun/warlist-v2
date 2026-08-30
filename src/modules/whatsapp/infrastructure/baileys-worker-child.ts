@@ -15,6 +15,7 @@ import type {
 import type { CancelScheduledTask, ScheduleTaskPort } from '../application/worker-runtime-service';
 import type { LocalCredentialDirectoryHandle } from './local-whatsapp-credential-directory';
 import { createLocalWhatsAppCredentialDirectory } from './local-whatsapp-credential-directory';
+import { createLocalPairingConsole, type LocalPairingConsole } from './local-pairing-console';
 
 export interface BaileysSocketPort {
   readonly ev: {
@@ -52,6 +53,9 @@ interface Dependencies {
   readonly reconnectDelayMs: number;
   readonly send: (message: ChildMessage) => void;
   readonly now?: () => number;
+  readonly pairingConsole?: (input: {
+    readonly requestCode: (target: string) => Promise<string>;
+  }) => LocalPairingConsole;
 }
 
 export interface BaileysWorkerChild {
@@ -78,6 +82,7 @@ interface ActiveWorker {
   pairingSignalReady: boolean;
   stopped: boolean;
   resetRequested: boolean;
+  pairingConsole: LocalPairingConsole | undefined;
 }
 
 export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWorkerChild {
@@ -187,9 +192,19 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
           pairingSignalReady: false,
           stopped: false,
           resetRequested: false,
+          pairingConsole: undefined,
         };
         active = worker;
         await connect(worker);
+        worker.pairingConsole = (dependencies.pairingConsole ?? createLocalPairingConsole)({
+          requestCode(target) {
+            const socket = worker.socket;
+            return socket && !worker.stopped
+              ? socket.requestPairingCode(target)
+              : Promise.reject(new Error());
+          },
+        });
+        await worker.pairingConsole.start();
         if (active !== worker || worker.stopped) throw new Error('worker start was superseded');
         sendAcknowledgement(message);
       } catch {
@@ -262,6 +277,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       worker.cancelReconnect = undefined;
       disposeSocket(worker);
     }
+    await worker.pairingConsole?.stop();
     if (reset) await worker.credentials.reset();
     await worker.credentials.release();
     if (active === worker) active = undefined;
