@@ -15,6 +15,7 @@ void test('binds only loopback and keeps pairing material out of status', async 
   t.after(() => console_.stop());
 
   assert.deepEqual(address.host, '127.0.0.1');
+  assert.equal(address.port, 3005);
   const page = await fetchText(address.port, 'GET', '/');
   assert.equal(page.body.includes(code), false);
   const paired = await fetchText(address.port, 'POST', '/', `target=${target}`);
@@ -27,7 +28,10 @@ void test('binds only loopback and keeps pairing material out of status', async 
 
 void test('rejects an unsafe local pairing target without reflecting it', async (t) => {
   const unsafe = '<unsafe-target>';
-  const console_ = createLocalPairingConsole({ requestCode: () => Promise.resolve('unused') });
+  const console_ = createLocalPairingConsole({
+    port: 0,
+    requestCode: () => Promise.resolve('unused'),
+  });
   const address = await console_.start();
   t.after(() => console_.stop());
 
@@ -43,7 +47,10 @@ void test('rejects an unsafe local pairing target without reflecting it', async 
 
 void test('renders a provider pairing code as text rather than markup', async (t) => {
   const code = '<unsafe-code&>';
-  const console_ = createLocalPairingConsole({ requestCode: () => Promise.resolve(code) });
+  const console_ = createLocalPairingConsole({
+    port: 0,
+    requestCode: () => Promise.resolve(code),
+  });
   const address = await console_.start();
   t.after(() => console_.stop());
 
@@ -62,7 +69,7 @@ void test('does not keep a standalone process alive after the console starts', a
         '--import',
         'tsx',
         '--eval',
-        "const { createLocalPairingConsole } = require('./src/modules/whatsapp/infrastructure/local-pairing-console.ts'); createLocalPairingConsole({ requestCode: () => Promise.resolve('unused') }).start();",
+        "const { createLocalPairingConsole } = require('./src/modules/whatsapp/infrastructure/local-pairing-console.ts'); createLocalPairingConsole({ port: 0, requestCode: () => Promise.resolve('unused') }).start();",
       ],
       { cwd: process.cwd(), timeout: 5_000 },
       (error) => (error instanceof Error ? reject(error) : resolve()),

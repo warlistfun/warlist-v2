@@ -719,7 +719,9 @@ function safeHash(tenantId: string, kind: 'message' | 'group' | 'sender', input:
 
 const concreteSocketFactory: BaileysSocketFactoryPort = {
   async create(credentials) {
+    // Baileys is ESM-only while this package compiles to CommonJS.
     const baileys = await import('@whiskeysockets/baileys');
+    const { version } = await baileys.fetchLatestBaileysVersion();
     const { state, saveCreds } = await credentials.use((directory) =>
       baileys.useMultiFileAuthState(directory),
     );
@@ -733,6 +735,7 @@ const concreteSocketFactory: BaileysSocketFactoryPort = {
       },
     };
     const socket = baileys.default({
+      version,
       auth: { creds: state.creds, keys: fencedKeys },
       markOnlineOnConnect: false,
       printQRInTerminal: false,

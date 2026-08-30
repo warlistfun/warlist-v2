@@ -44,7 +44,7 @@ void test('opens a child-owned loopback console and keeps its raw pairing materi
     reconnectDelayMs: 1,
     send: (message) => sent.push(message),
     pairingConsole({ requestCode }) {
-      const console_ = createLocalPairingConsole({ requestCode });
+      const console_ = createLocalPairingConsole({ port: 0, requestCode });
       return {
         ...console_,
         async start() {
