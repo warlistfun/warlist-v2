@@ -23,7 +23,7 @@ Backend and bot correctness remain first. Frontend, auth, payment, Android, and 
 
 ## 2. Current verified baseline
 
-**Canonical snapshot before this reconciliation:** `origin/main@bcc41dfa2f73f75525b06a1feb2f09057e10e195`.
+**Canonical snapshot before this reconciliation:** `origin/main@6282f1a8455a3ec8c1f68032d5b09d483924583e`.
 
 ### Backend Foundation
 
@@ -33,13 +33,15 @@ The frozen PR #100 foundation plus later bounded overlays provide reusable TypeS
 
 ### Operational Migration
 
-**Status:** `OM-01`–`OM-15` are landed bounded slices at their recorded synthetic/local/disposable evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-15` landed. Operational Migration as a whole remains `PARTIALLY VERIFIED`.
+**Status:** `OM-01`–`OM-17` are landed bounded slices at their recorded synthetic/local/disposable evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-17` landed. Operational Migration as a whole remains `PARTIALLY VERIFIED`.
 
 - `OM-01`–`OM-11`: Issues #132, #136, #140, #142, #146, #148, #150, #152, #154, #156, and #158.
 - `OM-12`: Issue #164 / PR #165 / merge `d5dc513e81ab325203c60087f4b1bcdc4a9b09a6`.
 - `OM-13`: Issue #166 / PR #167 / merge `fc54dddbce29aee01b5c3afe97ed55b7384ee75e`.
 - `OM-14`: Issue #168 / PR #170 / merge `bcc41dfa2f73f75525b06a1feb2f09057e10e195`.
 - `OM-15`: Issue #173 / PR #174 / merge `2b8b45dda237efcd7dd612cebf6eccc9f592ad94`.
+- `OM-16`: Issue #176 / PR #177 / merge `42881098f466c973e9c1db571da3dbdf6eb48c94`.
+- `OM-17`: Issue #178 / PR #179 / merge `98f9978a1649d4175b9cb7aa4d51f94772483ded`.
 
 These are valid landed subsets and are not reopened or rewritten by this roadmap reconciliation. They still do not prove a real account, hosted environment, customer migration, deployment, financial effect, or Production operation.
 
@@ -99,7 +101,7 @@ Native Android APK/Play Store packaging, passkeys, Google Sheets/Contacts, notif
 
 No implementation slice is active or authorized by this closure reconciliation.
 
-**Exactly one next recommendation:** `OM-16 — Concrete worker process and canonical active-tenant boot` after this closure correction is landed and canonical refs are reconciled.
+**Exactly one next recommendation:** `OM-18 — Disposable account pairing and lifecycle acceptance` after explicit disposable-account/provider approval and an isolated credential root are available.
 
 A recommendation is not authorization. Every implementation Issue remains bounded to at most two independently testable acceptance criteria. Real account/provider, hosted project, financial, customer-data, deployment, migration, rollback, or Production effects still require their explicit scope and approval at the slice where they occur.
 
