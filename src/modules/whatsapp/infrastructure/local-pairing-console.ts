@@ -11,6 +11,7 @@ export interface LocalPairingConsole {
 }
 
 export function createLocalPairingConsole(dependencies: {
+  readonly port?: number;
   readonly requestCode: (target: string) => Promise<string>;
 }): LocalPairingConsole {
   let server: Server | undefined;
@@ -28,7 +29,7 @@ export function createLocalPairingConsole(dependencies: {
             response.end(body);
           });
         });
-        await listen(server);
+        await listen(server, dependencies.port ?? 0);
       }
       const address = server.address();
       if (!address || typeof address === 'string')
@@ -65,14 +66,14 @@ export function createLocalPairingConsole(dependencies: {
   }
 }
 
-function listen(server: Server): Promise<void> {
+function listen(server: Server, port: number): Promise<void> {
   return new Promise((resolve, reject) => {
     server.once('error', reject);
     server.once('listening', () => {
       server.off('error', reject);
       resolve();
     });
-    server.listen({ host, port: 0, exclusive: true });
+    server.listen({ host, port, exclusive: true });
     server.unref();
   });
 }

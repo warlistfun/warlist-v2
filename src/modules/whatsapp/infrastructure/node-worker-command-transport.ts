@@ -35,6 +35,7 @@ interface ActiveChild {
 export function createNodeWorkerCommandTransport(dependencies: {
   readonly modulePath: string;
   readonly credentialRoot: string;
+  readonly pairingConsolePort?: number;
   readonly spawn?: SpawnWorkerChildPort;
   readonly onChildExit?: (
     identity: Readonly<{
@@ -47,6 +48,14 @@ export function createNodeWorkerCommandTransport(dependencies: {
 }): WorkerCommandTransportPort {
   if (!isAbsolute(dependencies.modulePath) || !isAbsolute(dependencies.credentialRoot)) {
     throw new Error('Worker module and credential root must be absolute paths');
+  }
+  if (
+    dependencies.pairingConsolePort !== undefined &&
+    (!Number.isSafeInteger(dependencies.pairingConsolePort) ||
+      dependencies.pairingConsolePort < 0 ||
+      dependencies.pairingConsolePort > 65_535)
+  ) {
+    throw new Error('Pairing console port must be a valid TCP port');
   }
 
   const spawn = dependencies.spawn ?? defaultSpawn;
@@ -77,7 +86,11 @@ export function createNodeWorkerCommandTransport(dependencies: {
   }
 
   function spawnChild(message: Extract<ParentMessage, { type: 'START_WORKER' }>): ActiveChild {
-    const process = spawn(dependencies.modulePath, [dependencies.credentialRoot]);
+    const arguments_ = [dependencies.credentialRoot];
+    if (dependencies.pairingConsolePort !== undefined) {
+      arguments_.push(String(dependencies.pairingConsolePort));
+    }
+    const process = spawn(dependencies.modulePath, arguments_);
     const child: ActiveChild = {
       process,
       start: message,
