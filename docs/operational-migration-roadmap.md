@@ -138,7 +138,7 @@ These four landed slices are evidence for OM-B, not phase closure.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
   1. One accepted disposable inbound event acquires current durable authority, performs at most one Baileys send, persists truthful `SENT`/`AMBIGUOUS` evidence, and processes an approved confirmation.
-  2. Duplicate/replay/restart/stale-worker cases do not resend or double-debit, and one confirmed business date consumes entitlement atomically at most once.
+  2. Duplicate/replay/restart/stale-worker cases do not resend or double-debit; disposable evidence does not preserve a once-per-business-date eligibility rule and instead enforces the canonical timestamp ceiling of confirmed assignment plus the fixed nine-hour work duration plus configured cooldown.
 - **Explicit exclusions:** No exactly-once network claim, customer account, campaign, billing provider, public deployment, or Production traffic.
 
 ### OM-B exit criteria
@@ -230,8 +230,8 @@ These four landed slices are evidence for OM-B, not phase closure.
 - **Prerequisites:** OM-28 and a current connected disposable worker seam.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Safe group/admin directories plus target/admin/trigger/schedule writes validate current server-side provenance and exact revision before commit.
-  2. Missing/stale/forged/foreign membership, ambiguous trigger ownership, conflict, and provider unavailability preserve canonical state without partial activation or worker effect.
+  1. Safe group/admin directories plus target/admin/trigger/schedule and user-owned per-vendor cooldown writes validate current server-side provenance, bounded duration, and exact revision before commit.
+  2. Missing/stale/forged/foreign membership, ambiguous trigger ownership, invalid cooldown, conflict, and provider unavailability preserve canonical state without partial activation or worker effect; canonical projections expose the fixed nine-hour work duration and server-derived next-eligible timestamp.
 - **Explicit exclusions:** No UI, client-trusted JID/phone authority, broad provider scan, customer group, or Production effect.
 
 ### OM-30 — Atomic activation, re-pair, and onboarding closure
@@ -239,7 +239,7 @@ These four landed slices are evidence for OM-B, not phase closure.
 - **Prerequisites:** OM-28–OM-29.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Review/activation validates required committed stages and atomically reaches setup-complete, active config, entitlement eligibility, and current worker start without stale or partial state.
+  1. Review/activation validates required committed stages and atomically reaches setup-complete, active config, entitlement eligibility, and current worker start without stale or partial state; confirmed assignment atomically advances per-user/per-vendor eligibility to assignment time plus nine hours plus the committed cooldown, including across business-date boundaries.
   2. Missing/invalid/revoked Baileys state becomes `REPAIR_REQUIRED`; re-pair resumes the same user/tenant/onboarding contract without credential restore, tenant duplication, or lost config.
 - **Explicit exclusions:** No UI, mandatory cross-host credential backup, customer migration, public rollout, or Production action.
 
@@ -305,8 +305,8 @@ These four landed slices are evidence for OM-B, not phase closure.
 - **Prerequisites:** OM-28–OM-30 and OM-35.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Users configure the approved admin trigger/keyword and time window, review exact pending state, and activate only through the atomic server completion contract.
-  2. Validation, ambiguous trigger ownership, stale revision, retry, back/refresh, partial failure, and incomplete setup remain recoverable and never fabricate completion or worker success.
+  1. Users configure the approved admin trigger/keyword, time window, and their cooldown for each vendor, review exact pending state and server-derived next eligibility, and activate only through the atomic server completion contract.
+  2. Validation, ambiguous trigger ownership, invalid cooldown, stale revision, retry, back/refresh, partial failure, and incomplete setup remain recoverable and never fabricate eligibility, completion, or worker success.
 - **Explicit exclusions:** No new automation product rules, multi-rule sets, client-only validation authority, public deployment, or Production effect.
 
 ### OM-37 — Dashboard, status, settings, and bot control Web journey
