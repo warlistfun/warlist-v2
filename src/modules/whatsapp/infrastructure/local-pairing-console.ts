@@ -94,9 +94,15 @@ function readBody(request: IncomingMessage): Promise<string> {
   });
 }
 
+function escapeHtml(value: string): string {
+  return value.replace(/[&<>"']/g, (character) => {
+    return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[character]!;
+  });
+}
+
 function page(status: 200 | 400 | 405, message?: string, code?: string) {
   const detail = code
-    ? `<p id="pairing-code">${code}</p>`
+    ? `<p id="pairing-code">${escapeHtml(code)}</p>`
     : message
       ? `<p role="alert">${message}</p>`
       : '';

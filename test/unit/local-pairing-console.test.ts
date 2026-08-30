@@ -40,6 +40,19 @@ void test('rejects an unsafe local pairing target without reflecting it', async 
   assert.equal(response.body.includes(unsafe), false);
 });
 
+void test('renders a provider pairing code as text rather than markup', async (t) => {
+  const code = '<unsafe-code&>';
+  const console_ = createLocalPairingConsole({ requestCode: () => Promise.resolve(code) });
+  const address = await console_.start();
+  t.after(() => console_.stop());
+
+  const response = await fetchText(address.port, 'POST', '/', 'target=15551234567');
+
+  assert.equal(response.status, 200);
+  assert.equal(response.body.includes(code), false);
+  assert.equal(response.body.includes('&lt;unsafe-code&amp;&gt;'), true);
+});
+
 function fetchText(
   port: number,
   method: string,
