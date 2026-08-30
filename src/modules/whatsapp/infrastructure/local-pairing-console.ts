@@ -73,6 +73,7 @@ function listen(server: Server): Promise<void> {
       resolve();
     });
     server.listen({ host, port: 0, exclusive: true });
+    server.unref();
   });
 }
 

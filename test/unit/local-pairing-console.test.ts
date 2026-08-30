@@ -1,4 +1,5 @@
 import assert from 'node:assert/strict';
+import { execFile } from 'node:child_process';
 import { request } from 'node:http';
 import test from 'node:test';
 
@@ -51,6 +52,22 @@ void test('renders a provider pairing code as text rather than markup', async (t
   assert.equal(response.status, 200);
   assert.equal(response.body.includes(code), false);
   assert.equal(response.body.includes('&lt;unsafe-code&amp;&gt;'), true);
+});
+
+void test('does not keep a standalone process alive after the console starts', async () => {
+  await new Promise<void>((resolve, reject) => {
+    execFile(
+      process.execPath,
+      [
+        '--import',
+        'tsx',
+        '--eval',
+        "const { createLocalPairingConsole } = require('./src/modules/whatsapp/infrastructure/local-pairing-console.ts'); createLocalPairingConsole({ requestCode: () => Promise.resolve('unused') }).start();",
+      ],
+      { cwd: process.cwd(), timeout: 5_000 },
+      (error) => (error instanceof Error ? reject(error) : resolve()),
+    );
+  });
 });
 
 function fetchText(
