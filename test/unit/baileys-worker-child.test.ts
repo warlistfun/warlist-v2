@@ -473,7 +473,7 @@ async function createFixture(t: test.TestContext) {
 
   const spawn: SpawnWorkerChildPort = (_modulePath, arguments_) => {
     spawned += 1;
-    assert.deepEqual(arguments_, [credentialRoot]);
+    assert.deepEqual(arguments_, [credentialRoot, '3005']);
     const process = new FakeWorkerChildProcess();
     const child = createBaileysWorkerChild({
       credentialDirectory: createLocalWhatsAppCredentialDirectory({ root: credentialRoot }),
@@ -492,6 +492,7 @@ async function createFixture(t: test.TestContext) {
   const transport = createNodeWorkerCommandTransport({
     modulePath: join(sandbox, 'baileys-worker-child.js'),
     credentialRoot,
+    pairingConsolePort: 3005,
     spawn,
   });
   const runtime = createWorkerRuntimeService({

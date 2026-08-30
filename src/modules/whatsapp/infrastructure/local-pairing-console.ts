@@ -29,7 +29,7 @@ export function createLocalPairingConsole(dependencies: {
             response.end(body);
           });
         });
-        await listen(server, dependencies.port ?? 3005);
+        await listen(server, dependencies.port ?? 0);
       }
       const address = server.address();
       if (!address || typeof address === 'string')

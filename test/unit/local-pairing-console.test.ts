@@ -9,6 +9,7 @@ void test('binds only loopback and keeps pairing material out of status', async 
   const target = '15551234567';
   const code = '1234-5678';
   const console_ = createLocalPairingConsole({
+    port: 3005,
     requestCode: (value) => Promise.resolve(value === target ? code : ''),
   });
   const address = await console_.start();
@@ -24,6 +25,15 @@ void test('binds only loopback and keeps pairing material out of status', async 
   assert.deepEqual(console_.status(), { state: 'CODE_DISPLAYED' });
   assert.equal(JSON.stringify(console_.status()).includes(target), false);
   assert.equal(JSON.stringify(console_.status()).includes(code), false);
+});
+
+void test('allocates distinct ephemeral ports for concurrent tenant consoles', async (t) => {
+  const first = createLocalPairingConsole({ requestCode: () => Promise.resolve('unused') });
+  const second = createLocalPairingConsole({ requestCode: () => Promise.resolve('unused') });
+  const [firstAddress, secondAddress] = await Promise.all([first.start(), second.start()]);
+  t.after(() => Promise.all([first.stop(), second.stop()]));
+
+  assert.notEqual(firstAddress.port, secondAddress.port);
 });
 
 void test('rejects an unsafe local pairing target without reflecting it', async (t) => {

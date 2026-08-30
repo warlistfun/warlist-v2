@@ -776,13 +776,15 @@ const reconnectScheduler: ScheduleTaskPort = {
   },
 };
 
-export function runBaileysWorkerChildProcess(credentialRoot: string): void {
+export function runBaileysWorkerChildProcess(credentialRoot: string, pairingConsolePort = 0): void {
   if (typeof process.send !== 'function') throw new Error('Worker IPC channel is unavailable');
   const child = createBaileysWorkerChild({
     credentialDirectory: createLocalWhatsAppCredentialDirectory({ root: credentialRoot }),
     socketFactory: concreteSocketFactory,
     scheduler: reconnectScheduler,
     reconnectDelayMs: 2_000,
+    pairingConsole: ({ requestCode }) =>
+      createLocalPairingConsole({ port: pairingConsolePort, requestCode }),
     send(message) {
       if (process.connected) process.send?.(message);
     },
@@ -797,6 +799,14 @@ export function runBaileysWorkerChildProcess(credentialRoot: string): void {
 
 if (require.main === module) {
   const credentialRoot = process.argv[2];
+  const pairingConsolePort = Number(process.argv[3] ?? 0);
   if (!credentialRoot) throw new Error('Credential root is required');
-  runBaileysWorkerChildProcess(credentialRoot);
+  if (
+    !Number.isSafeInteger(pairingConsolePort) ||
+    pairingConsolePort < 0 ||
+    pairingConsolePort > 65_535
+  ) {
+    throw new Error('Pairing console port must be a valid TCP port');
+  }
+  runBaileysWorkerChildProcess(credentialRoot, pairingConsolePort);
 }
