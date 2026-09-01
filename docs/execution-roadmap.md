@@ -23,7 +23,7 @@ Backend and bot correctness remain first. Frontend, auth, payment, Android, and 
 
 ## 2. Current verified baseline
 
-**Canonical snapshot before this reconciliation:** `origin/main@6282f1a8455a3ec8c1f68032d5b09d483924583e`.
+**Canonical snapshot before this reconciliation:** `origin/main@80238506afac9824082fa81dd8cf8f406baf621b`.
 
 ### Backend Foundation
 
@@ -33,7 +33,7 @@ The frozen PR #100 foundation plus later bounded overlays provide reusable TypeS
 
 ### Operational Migration
 
-**Status:** `OM-01`–`OM-18` are landed bounded slices at their recorded synthetic/local/disposable evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-18` landed. Operational Migration as a whole remains `PARTIALLY VERIFIED`.
+**Status:** `OM-01`–`OM-18.8` are landed bounded slices at their recorded synthetic/local/disposable evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-18.8` landed. Operational Migration as a whole remains `PARTIALLY VERIFIED`.
 
 - `OM-01`–`OM-11`: Issues #132, #136, #140, #142, #146, #148, #150, #152, #154, #156, and #158.
 - `OM-12`: Issue #164 / PR #165 / merge `d5dc513e81ab325203c60087f4b1bcdc4a9b09a6`.
@@ -43,8 +43,10 @@ The frozen PR #100 foundation plus later bounded overlays provide reusable TypeS
 - `OM-16`: Issue #176 / PR #177 / merge `42881098f466c973e9c1db571da3dbdf6eb48c94`.
 - `OM-17`: Issue #178 / PR #179 / merge `98f9978a1649d4175b9cb7aa4d51f94772483ded`.
 - `OM-18`: Issue #184 / PR #187 / merge `b2ba561339a07a2f10d0861274a85a9b3cc37834`.
+- `OM-18.7`: Issue #192 / PR #193 / merge `35a1b95625151343ebc990f5d091c6e65411c91c`.
+- `OM-18.8`: Issue #194 / PR #195 / merge `80238506afac9824082fa81dd8cf8f406baf621b`.
 
-These are valid landed subsets and are not reopened or rewritten by this roadmap reconciliation. OM-18 proves one approved disposable pairing-code lifecycle only. Real QR generation and scan remain unverified and are assigned to planned slice OM-18.7; the landed slices still do not prove customer accounts, broader provider compatibility, hosted operation, customer migration, deployment, financial effect, or Production operation.
+These are valid landed subsets and are not reopened or rewritten by this roadmap reconciliation. OM-18 proves one approved disposable pairing-code lifecycle; OM-18.7 proves one approved disposable QR scan to `OPEN`; OM-18.8 proves one approved isolated QR credential root resumes to `OPEN` after one controlled worker restart without another QR. These slices do not prove customer accounts, broader provider compatibility, hosted operation, customer migration, deployment, financial effect, or Production operation.
 
 The public frontend foundation also exists through PR #124 and PR #130. It is preserved as landed foundation, not counted as integrated customer-product completion.
 
@@ -102,7 +104,7 @@ Native Android APK/Play Store packaging, passkeys, Google Sheets/Contacts, notif
 
 No implementation slice is active or authorized by this closure reconciliation.
 
-**Exactly one next recommendation:** `OM-18.7 — Disposable QR pairing acceptance` after explicit approval for one disposable QR scan and a fresh isolated credential root are available.
+**Exactly one next recommendation:** `OM-19 — Disposable live inbound-to-decision acceptance` after explicit approval for disposable group, admin, and message fixtures. Provider/account action and any isolated credential root still require specific approval in the authorized OM-19 Issue.
 
 A recommendation is not authorization. Every implementation Issue remains bounded to at most two independently testable acceptance criteria. Real account/provider, hosted project, financial, customer-data, deployment, migration, rollback, or Production effects still require their explicit scope and approval at the slice where they occur.
 
