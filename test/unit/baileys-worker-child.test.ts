@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
-import { access, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
+import { access, lstat, mkdtemp, readdir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import test from 'node:test';
@@ -100,6 +100,87 @@ void test('runs start, credential save, retry, and terminal stop through one con
     ['CONNECTION', 'STOPPED'],
     ['COMMAND', 'STOP_WORKER', 'ACKNOWLEDGED'],
   ]);
+});
+
+void test('resumes a synthetic QR-authenticated credential root without offering a second QR', async (t) => {
+  const sandbox = await mkdtemp(join(tmpdir(), 'warlist-v2-om-18-8-resume-'));
+  t.after(() => rm(sandbox, { recursive: true, force: true }));
+  const credentialRoot = join(sandbox, 'credentials');
+  const marker = join(credentialRoot, tenantId, 'synthetic-authenticated');
+  const messages: ChildMessage[] = [];
+  const sockets = new ResumeSocketFactory(marker);
+  const first = createBaileysWorkerChild({
+    credentialDirectory: createLocalWhatsAppCredentialDirectory({ root: credentialRoot }),
+    socketFactory: sockets,
+    scheduler: new ManualScheduler(),
+    reconnectDelayMs: 1,
+    send: (message) => messages.push(message),
+  });
+  const firstStart = {
+    protocolVersion: 1 as const,
+    requestId: 'req_om_18_8_first',
+    correlationId: worker.correlationId,
+    tenantId,
+    generation: 1,
+    childId: 'child_example_18_8_first',
+    type: 'START_WORKER' as const,
+    payload: { configVersion: 1 },
+  };
+
+  await first.handle(firstStart);
+  await flush();
+  assert.equal(sockets.qrOffered, 1);
+  sockets.created[0]!.events.emit('creds.update');
+  await sockets.saved;
+  sockets.created[0]!.events.emit('connection.update', { connection: 'open' });
+  await flush();
+  await first.handle({
+    ...firstStart,
+    requestId: 'req_om_18_8_first_stop',
+    type: 'STOP_WORKER',
+    payload: {},
+  });
+
+  const second = createBaileysWorkerChild({
+    credentialDirectory: createLocalWhatsAppCredentialDirectory({ root: credentialRoot }),
+    socketFactory: sockets,
+    scheduler: new ManualScheduler(),
+    reconnectDelayMs: 1,
+    send: (message) => messages.push(message),
+  });
+  const secondStart = {
+    ...firstStart,
+    requestId: 'req_om_18_8_second',
+    generation: 2,
+    childId: 'child_example_18_8_second',
+  };
+  await second.handle(secondStart);
+  await flush();
+  assert.equal(sockets.resumed, true);
+  assert.equal(sockets.qrOffered, 1);
+  sockets.created[1]!.events.emit('connection.update', { connection: 'open' });
+  await flush();
+  await second.handle({
+    ...secondStart,
+    requestId: 'req_om_18_8_second_stop',
+    type: 'STOP_WORKER',
+    payload: {},
+  });
+
+  assert.deepEqual(
+    messages
+      .filter((message) => message.type === 'CONNECTION_UPDATE' && message.payload.state === 'OPEN')
+      .map((message) => [message.generation, message.childId]),
+    [
+      [1, 'child_example_18_8_first'],
+      [2, 'child_example_18_8_second'],
+    ],
+  );
+
+  assert.equal(JSON.stringify(messages).includes('synthetic-qr'), false);
+  assert.equal(JSON.stringify(messages).includes(credentialRoot), false);
+  await rm(credentialRoot, { recursive: true, force: true });
+  await assert.rejects(lstat(credentialRoot), (error: unknown) => hasFileCode(error, 'ENOENT'));
 });
 
 void test('keeps credential failures and logged-out provider payloads behind safe diagnostics', async (t) => {
@@ -548,6 +629,48 @@ class ManualScheduler implements ScheduleTaskPort {
       scheduled.active = false;
       scheduled.task();
     }
+  }
+}
+
+class ResumeSocketFactory implements BaileysSocketFactoryPort {
+  readonly created: FakeBaileysSocket[] = [];
+  readonly saved: Promise<void>;
+  qrOffered = 0;
+  resumed = false;
+  private readonly resolveSaved: () => void;
+
+  constructor(private readonly marker: string) {
+    let resolveSaved!: () => void;
+    this.saved = new Promise<void>((resolve) => {
+      resolveSaved = resolve;
+    });
+    this.resolveSaved = resolveSaved;
+  }
+
+  async create(credentials: Parameters<BaileysSocketFactoryPort['create']>[0]) {
+    const authenticated = await credentials.use(async () =>
+      access(this.marker).then(
+        () => true,
+        () => false,
+      ),
+    );
+    this.resumed ||= authenticated;
+    const socket = new FakeBaileysSocket();
+    if (!authenticated) {
+      queueMicrotask(() => {
+        this.qrOffered += 1;
+        socket.events.emit('connection.update', { qr: 'synthetic-qr' });
+      });
+    }
+    this.created.push(socket);
+    return {
+      socket,
+      loggedOutStatusCode: 401,
+      saveCredentials: async () => {
+        await writeFile(this.marker, 'invented authenticated state', { mode: 0o600 });
+        this.resolveSaved();
+      },
+    };
   }
 }
 
