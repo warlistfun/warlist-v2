@@ -128,6 +128,10 @@ void test('renders an ephemeral QR only on the child-owned loopback console', as
   assert.equal(response.body.includes(rawQr), false);
   assert.equal(JSON.stringify(sent).includes(rawQr), false);
 
+  socket.events.emit('connection.update', { qr: undefined });
+  const afterWithdrawal = await fetchText(address.port, 'GET', '/');
+  assert.equal(afterWithdrawal.body.includes('synthetic-png'), false);
+
   socket.events.emit('connection.update', { connection: 'open' });
   const afterOpen = await fetchText(address.port, 'GET', '/');
   assert.equal(afterOpen.body.includes(rawQr), false);

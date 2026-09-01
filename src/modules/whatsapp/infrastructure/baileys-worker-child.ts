@@ -300,14 +300,9 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       typeof input === 'object' && input !== null && !Array.isArray(input)
         ? Object.getOwnPropertyDescriptor(input, 'qr')
         : undefined;
-    if (
-      descriptor &&
-      'value' in descriptor &&
-      typeof descriptor.value === 'string' &&
-      descriptor.value
-    ) {
-      worker.pairingQr = descriptor.value;
-    }
+    if (!descriptor || !('value' in descriptor)) return;
+    worker.pairingQr =
+      typeof descriptor.value === 'string' && descriptor.value ? descriptor.value : undefined;
   }
 
   function emitConnection(worker: ActiveWorker, state: WorkerConnectionState): void {
