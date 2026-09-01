@@ -1,6 +1,6 @@
 # WARLIST V2 Unified Operational Migration Roadmap
 
-> **Status:** `OM-01`–`OM-18` are landed bounded slices at their recorded evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-18` landed. `OM-18.7` and `OM-19`–`OM-69` are `NOT STARTED`. Operational Migration as a whole remains `PARTIALLY VERIFIED`. No implementation Issue is active or authorized by this document alone.
+> **Status:** `OM-01`–`OM-18.8` are landed bounded slices at their recorded evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-18.8` landed. `OM-19`–`OM-69` are `NOT STARTED`. Operational Migration as a whole remains `PARTIALLY VERIFIED`. No implementation Issue is active or authorized by this document alone.
 >
 > **Governing contract:** [`operational-migration-master.md`](operational-migration-master.md). Active authorization: [`execution-roadmap.md`](execution-roadmap.md).
 
@@ -24,7 +24,7 @@ Every new implementation Issue has one bounded outcome and at most two independe
 ## 2. Status and supersession
 
 - `OM-01–OM-11` retain their original numbers, landed implementation, Issue/PR evidence, and bounded evidence ceilings; OM-A remains closed only at that boundary.
-- `OM-12–OM-18` retain their original numbers and landed implementation as partially verified OM-B subsets; they do not close OM-B or the whole migration.
+- `OM-12–OM-18.8` retain their original numbers and landed implementation as partially verified OM-B subsets; they do not close OM-B or the whole migration.
 - The former planning-only `OM-15–OM-44` rows never started. They are superseded by the `OM-15–OM-69` board below; no implementation history is rewritten.
 - The former Pakasir slices are replaced by Saweria slices. Provider-neutral financial safety invariants are preserved.
 - OPS ID + PIN, deferred customer UI, and a separate post-migration roadmap are superseded by the owner-approved Google/WhatsApp auth, usable product, Android, and Saweria direction.
@@ -73,22 +73,24 @@ A slice never closes its parent phase automatically.
 ## 4. Phase OM-B — Runtime seams, runnable backend, and disposable Baileys acceptance
 
 **Range:** `OM-12–OM-20`
-**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-18` landed; `OM-18.7` and `OM-19`–`OM-20` not started
+**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-18.8` landed; `OM-19`–`OM-20` not started
 **Objective:** Compose the preserved backend/bot seams into one runnable non-Production path, then prove the core automation outcome with an explicitly approved disposable WhatsApp account before auth/product work consumes it.
 
 ### Landed OM-B baseline — preserved, not reopened
 
-| Slice   | Landed outcome                                   | Evidence                          | Ceiling                                |
-| ------- | ------------------------------------------------ | --------------------------------- | -------------------------------------- |
-| `OM-12` | Canonical active-tenant discovery                | Issue #164 / PR #165 / `d5dc513e` | Synthetic/local; no composed boot      |
-| `OM-13` | Current worker ownership and restart fencing     | Issue #166 / PR #167 / `fc54dddb` | Synthetic/local; no provider authority |
-| `OM-14` | Monotonic worker config application and recovery | Issue #168 / PR #170 / `bcc41dfa` | Synthetic/local; no hosted config      |
-| `OM-15` | Runnable application and loopback HTTP adapter   | Issue #173 / PR #174 / `2b8b45dd` | Local loopback; injected worker/repo   |
-| `OM-16` | Concrete worker process and active-tenant boot   | Issue #176 / PR #177 / `42881098` | Synthetic/local; no provider account   |
-| `OM-17` | Shutdown, readiness, and runtime diagnostics     | Issue #178 / PR #179 / `98f9978a` | Synthetic/local; no hosted operation   |
-| `OM-18` | Disposable pairing-code lifecycle acceptance     | Issue #184 / PR #187 / `b2ba5613` | One approved disposable account        |
+| Slice     | Landed outcome                                   | Evidence                          | Ceiling                                                       |
+| --------- | ------------------------------------------------ | --------------------------------- | ------------------------------------------------------------- |
+| `OM-12`   | Canonical active-tenant discovery                | Issue #164 / PR #165 / `d5dc513e` | Synthetic/local; no composed boot                             |
+| `OM-13`   | Current worker ownership and restart fencing     | Issue #166 / PR #167 / `fc54dddb` | Synthetic/local; no provider authority                        |
+| `OM-14`   | Monotonic worker config application and recovery | Issue #168 / PR #170 / `bcc41dfa` | Synthetic/local; no hosted config                             |
+| `OM-15`   | Runnable application and loopback HTTP adapter   | Issue #173 / PR #174 / `2b8b45dd` | Local loopback; injected worker/repo                          |
+| `OM-16`   | Concrete worker process and active-tenant boot   | Issue #176 / PR #177 / `42881098` | Synthetic/local; no provider account                          |
+| `OM-17`   | Shutdown, readiness, and runtime diagnostics     | Issue #178 / PR #179 / `98f9978a` | Synthetic/local; no hosted operation                          |
+| `OM-18`   | Disposable pairing-code lifecycle acceptance     | Issue #184 / PR #187 / `b2ba5613` | One approved disposable account                               |
+| `OM-18.7` | Disposable QR pairing acceptance                 | Issue #192 / PR #193 / `35a1b95`  | One approved disposable QR scan to `OPEN`                     |
+| `OM-18.8` | Disposable QR credential resume acceptance       | Issue #194 / PR #195 / `8023850`  | One approved root resumes after one controlled worker restart |
 
-These seven landed slices are evidence for OM-B, not phase closure.
+These nine landed slices are evidence for OM-B, not phase closure.
 
 ### OM-15 — Runnable application and HTTP adapter composition
 
@@ -124,21 +126,32 @@ These seven landed slices are evidence for OM-B, not phase closure.
 - **Acceptance criteria (2/2):**
   1. An approved disposable WhatsApp account completes pairing, credential save, open, retryable reconnect, terminal logout, and explicit reset/re-pair through the runnable path.
   2. Logs, IPC, API, diagnostics, and artifacts contain no QR, pairing material, credential payload, raw phone/JID, customer content, or unsafe provider payload.
-- **Evidence ceiling:** The live acceptance used pairing code. Real QR generation and scan remain unverified and are owned by OM-18.7.
+- **Evidence ceiling:** The live acceptance used pairing code. Real QR generation and scan are verified only at the approved disposable/local ceiling through OM-18.7.
 - **Explicit exclusions:** No customer account, Production credential, campaign, financial state, public deployment, or cross-host credential copy.
 
 ### OM-18.7 — Disposable QR pairing acceptance
 
 - **Prerequisites:** OM-18; explicit disposable-account/provider approval for one QR scan; fresh isolated credential root.
-- **Status:** `NOT STARTED`.
+- **Status:** `VERIFIED` through Issue #192 / PR #193 / merge `35a1b95625151343ebc990f5d091c6e65411c91c` at its one approved disposable-account ceiling.
 - **Acceptance criteria (2/2):**
   1. One owner-approved disposable WhatsApp account completes a live QR scan through the concrete runnable Baileys path from a fresh isolated credential root; credentials are saved and the worker reaches `OPEN`.
   2. The raw QR is ephemeral, not persisted, and confined to a loopback-only acceptance surface; it never crosses worker IPC or the primary API and never appears in diagnostics, logs, repository content, screenshots, or test/CI artifacts.
 - **Explicit exclusions:** No pairing-code retest or repeat of the OM-18 reconnect/logout/reset lifecycle; no customer/public Web, identity/onboarding, inbound/outbound message, customer/Production credential, deployment, or Production action.
 
+### OM-18.8 — Disposable QR credential resume acceptance
+
+- **Prerequisites:** OM-18.7; explicit disposable-account/provider approval for one QR scan; one fresh isolated credential root retained across exactly one controlled worker restart.
+- **Status:** `VERIFIED` through Issue #194 / PR #195 / merge `80238506afac9824082fa81dd8cf8f406baf621b` at its one approved disposable-account ceiling.
+- **Acceptance criteria (2/2):**
+  1. With one owner-approved disposable WhatsApp account and one fresh isolated credential root, complete exactly one live QR scan through the concrete runnable Baileys path; stop the first worker after `OPEN`, then start a new worker against the same root and observe `OPEN` without offering or scanning another QR.
+  2. During the bounded run, raw QR material remains ephemeral and loopback-only; it never crosses worker IPC, the primary API, diagnostics, logs, repository content, screenshots, or test/CI artifacts. After the resumed `OPEN`, stop the worker and remove the isolated credential root; verify cleanup without reading or retaining credential contents.
+- **Provider/credential approval boundary:** Do not generate or scan a live QR, create credentials, or retain the root through the controlled restart without explicit owner approval naming that disposable-account/provider action and root scope.
+- **Explicit exclusions:** No pairing-code retest; no reconnect/logout/reset/re-pair matrix; no inbound/outbound message, group fixture, customer account, public/hosted listener, Production credential, deployment, financial effect, customer data, or Production action.
+- **Recovery/cleanup boundary:** On failure, stop the isolated worker and remove only the approved root. Never inspect, copy, restore, or retain credential contents; any retry needs fresh owner approval and a new root.
+
 ### OM-19 — Disposable live inbound-to-decision acceptance
 
-- **Prerequisites:** OM-18.7; approved disposable group/admin/message fixtures.
+- **Prerequisites:** OM-18.7–OM-18.8; explicit approval of disposable group, admin, and message fixtures.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
   1. One approved disposable live inbound event traverses transport guards, normalization, and the characterized automation gates to one correlated accepted/rejected result.
@@ -708,10 +721,10 @@ A recommendation is not authorization. External/account/hosted/financial/custome
 
 ## 13. Current recommendation
 
-**Recommended next slice:** `OM-18.7 — Disposable QR pairing acceptance`.
+**Recommended next slice:** `OM-19 — Disposable live inbound-to-decision acceptance`.
 
-**Ready because:** OM-18 verified the disposable lifecycle through pairing code, while real QR generation and scan remain explicitly unverified.
+**Ready because:** OM-18.7 proved one approved disposable QR scan to `OPEN`; OM-18.8 proved that root resumes to `OPEN` once after a controlled restart without another QR.
 
-**Still excluded:** OM-18.7 implementation and disposable provider/account action until explicitly authorized; customer/runtime data, hosted deployment, financial action, and Production effects.
+**Still excluded:** OM-19 implementation and disposable group/admin/message/provider fixtures until explicitly authorized; outbound send, customer/runtime data, hosted deployment, financial action, and Production effects.
 
-Stop after this roadmap amendment is checkpointed. Do not open OM-18.7 in the same session.
+Stop after this roadmap amendment is checkpointed. Do not open OM-19 in the same session.
