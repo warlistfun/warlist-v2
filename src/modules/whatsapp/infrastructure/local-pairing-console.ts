@@ -13,6 +13,8 @@ export interface LocalPairingConsole {
 export function createLocalPairingConsole(dependencies: {
   readonly port?: number;
   readonly requestCode: (target: string) => Promise<string>;
+  readonly getQr?: () => string | undefined;
+  readonly renderQr?: (value: string) => Promise<string>;
 }): LocalPairingConsole {
   let server: Server | undefined;
   let state: State = 'IDLE';
@@ -50,7 +52,7 @@ export function createLocalPairingConsole(dependencies: {
   };
 
   async function handle(request: IncomingMessage) {
-    if (request.method === 'GET') return page(200);
+    if (request.method === 'GET') return page(200, undefined, undefined, await qrImage());
     if (request.method !== 'POST') return page(405, 'Method not allowed');
     const target = parseTarget(await readBody(request));
     if (!target) return page(400, 'Enter a valid disposable account number');
@@ -58,11 +60,16 @@ export function createLocalPairingConsole(dependencies: {
       const code = await dependencies.requestCode(target);
       if (!code) throw new Error();
       state = 'CODE_DISPLAYED';
-      return page(200, undefined, code);
+      return page(200, undefined, code, await qrImage());
     } catch {
       state = 'FAILED';
       return page(400, 'Pairing code is unavailable. Try again.');
     }
+  }
+
+  async function qrImage(): Promise<string | undefined> {
+    const qr = dependencies.getQr?.();
+    return qr ? dependencies.renderQr?.(qr) : undefined;
   }
 }
 
@@ -102,14 +109,15 @@ function escapeHtml(value: string): string {
   });
 }
 
-function page(status: 200 | 400 | 405, message?: string, code?: string) {
+function page(status: 200 | 400 | 405, message?: string, code?: string, qrImage?: string) {
   const detail = code
     ? `<p id="pairing-code">${escapeHtml(code)}</p>`
     : message
       ? `<p role="alert">${message}</p>`
       : '';
+  const qr = qrImage ? `<img id="pairing-qr" alt="Scan QR" src="${escapeHtml(qrImage)}">` : '';
   return {
     status,
-    body: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WARLIST disposable pairing</title><main><h1>Disposable pairing</h1><form method="post"><label for="target">Disposable account number</label><input id="target" name="target" inputmode="numeric" autocomplete="off" required pattern="[1-9][0-9]{7,14}"><button type="submit">Request pairing code</button></form>${detail}</main>`,
+    body: `<!doctype html><html lang="en"><meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1"><title>WARLIST disposable pairing</title><main><h1>Disposable pairing</h1>${qr}<form method="post"><label for="target">Disposable account number</label><input id="target" name="target" inputmode="numeric" autocomplete="off" required pattern="[1-9][0-9]{7,14}"><button type="submit">Request pairing code</button></form>${detail}</main>`,
   };
 }

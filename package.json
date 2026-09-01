@@ -38,6 +38,7 @@
     "@testing-library/react": "16.3.2",
     "@types/node": "22.20.1",
     "@types/pg": "8.15.5",
+    "@types/qrcode": "1.5.6",
     "@types/react": "19.2.18",
     "@types/react-dom": "19.2.5",
     "@vitejs/plugin-react": "6.1.0",
@@ -53,6 +54,7 @@
   "dependencies": {
     "@whiskeysockets/baileys": "6.7.23",
     "pg": "8.16.3",
+    "qrcode": "1.5.4",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "react-router-dom": "7.18.2"
