@@ -74,6 +74,68 @@ void test('opens a child-owned loopback console and keeps its raw pairing materi
   });
   await assert.rejects(fetchText(address.port, 'GET', '/'));
 });
+void test('renders an ephemeral QR only on the child-owned loopback console', async (t) => {
+  const sent: unknown[] = [];
+  const rawQr = 'synthetic-qr-material-must-not-cross-boundary';
+  const socket = new FakeSocket();
+  let address: Readonly<{ host: '127.0.0.1'; port: number }> | undefined;
+  const child = createBaileysWorkerChild({
+    credentialDirectory: {
+      acquire: () =>
+        Promise.resolve({
+          use: <T>(operation: (directory: string) => T | PromiseLike<T>) =>
+            Promise.resolve(operation('/tmp/om-18-7')),
+          reset: () => Promise.resolve(),
+          release: () => Promise.resolve(),
+        }),
+    },
+    socketFactory: {
+      create: () =>
+        Promise.resolve({
+          socket,
+          saveCredentials: () => Promise.resolve(),
+          loggedOutStatusCode: 401,
+        }),
+    },
+    scheduler: { schedule: () => () => undefined },
+    reconnectDelayMs: 1,
+    send: (message) => sent.push(message),
+    pairingConsole({ requestCode, getQr }) {
+      const console_ = createLocalPairingConsole({
+        port: 0,
+        requestCode,
+        getQr,
+        renderQr: () => Promise.resolve('data:image/png;base64,synthetic-png'),
+      });
+      return {
+        ...console_,
+        async start() {
+          address = await console_.start();
+          return address;
+        },
+      };
+    },
+  });
+
+  await child.handle({ ...identity, type: 'START_WORKER', payload: { configVersion: 1 } });
+  assert.ok(address);
+  t.after(() => child.stop());
+
+  socket.events.emit('connection.update', { qr: rawQr });
+  const response = await fetchText(address.port, 'GET', '/');
+  assert.equal(response.status, 200, response.body);
+  assert.equal(response.body.includes('data:image/png;base64,synthetic-png'), true);
+  assert.equal(response.body.includes(rawQr), false);
+  assert.equal(JSON.stringify(sent).includes(rawQr), false);
+
+  socket.events.emit('connection.update', { qr: undefined });
+  const afterWithdrawal = await fetchText(address.port, 'GET', '/');
+  assert.equal(afterWithdrawal.body.includes('synthetic-png'), false);
+
+  socket.events.emit('connection.update', { connection: 'open' });
+  const afterOpen = await fetchText(address.port, 'GET', '/');
+  assert.equal(afterOpen.body.includes(rawQr), false);
+});
 
 class FakeSocket implements BaileysSocketPort {
   readonly events = new EventEmitter();

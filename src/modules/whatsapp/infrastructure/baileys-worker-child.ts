@@ -55,6 +55,7 @@ interface Dependencies {
   readonly now?: () => number;
   readonly pairingConsole?: (input: {
     readonly requestCode: (target: string) => Promise<string>;
+    readonly getQr: () => string | undefined;
   }) => LocalPairingConsole;
 }
 
@@ -82,6 +83,7 @@ interface ActiveWorker {
   pairingSignalReady: boolean;
   stopped: boolean;
   resetRequested: boolean;
+  pairingQr: string | undefined;
   pairingConsole: LocalPairingConsole | undefined;
 }
 
@@ -130,6 +132,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     });
     created.socket.ev.on('connection.update', (input) => {
       if (active !== worker || worker.stopped || worker.epoch !== epoch) return;
+      updatePairingQr(worker, input);
       if (hasPairingSignal(input)) worker.pairingSignalReady = true;
       requestPairingCode(worker, created.socket, epoch);
       const update = decodeConnectionUpdate(input);
@@ -193,6 +196,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
           stopped: false,
           resetRequested: false,
           pairingConsole: undefined,
+          pairingQr: undefined,
         };
         active = worker;
         await connect(worker);
@@ -202,6 +206,9 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
             return socket && !worker.stopped
               ? socket.requestPairingCode(target)
               : Promise.reject(new Error());
+          },
+          getQr() {
+            return worker.pairingQr;
           },
         });
         await worker.pairingConsole.start();
@@ -281,6 +288,21 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     if (reset) await worker.credentials.reset();
     await worker.credentials.release();
     if (active === worker) active = undefined;
+  }
+
+  function updatePairingQr(worker: ActiveWorker, input: unknown): void {
+    const connection = decodeConnectionUpdate(input).connection;
+    if (worker.openedAt !== undefined || connection === 'open' || connection === 'close') {
+      worker.pairingQr = undefined;
+      return;
+    }
+    const descriptor =
+      typeof input === 'object' && input !== null && !Array.isArray(input)
+        ? Object.getOwnPropertyDescriptor(input, 'qr')
+        : undefined;
+    if (!descriptor || !('value' in descriptor)) return;
+    worker.pairingQr =
+      typeof descriptor.value === 'string' && descriptor.value ? descriptor.value : undefined;
   }
 
   function emitConnection(worker: ActiveWorker, state: WorkerConnectionState): void {
@@ -769,6 +791,11 @@ const concreteSocketFactory: BaileysSocketFactoryPort = {
   },
 };
 
+async function renderQrPng(value: string): Promise<string> {
+  const qr = await import('qrcode');
+  return qr.toDataURL(value, { errorCorrectionLevel: 'M', margin: 1, width: 320 });
+}
+
 const reconnectScheduler: ScheduleTaskPort = {
   schedule(delayMs, task) {
     const handle = setTimeout(task, delayMs);
@@ -783,8 +810,13 @@ export function runBaileysWorkerChildProcess(credentialRoot: string, pairingCons
     socketFactory: concreteSocketFactory,
     scheduler: reconnectScheduler,
     reconnectDelayMs: 2_000,
-    pairingConsole: ({ requestCode }) =>
-      createLocalPairingConsole({ port: pairingConsolePort, requestCode }),
+    pairingConsole: ({ requestCode, getQr }) =>
+      createLocalPairingConsole({
+        port: pairingConsolePort,
+        requestCode,
+        getQr,
+        renderQr: renderQrPng,
+      }),
     send(message) {
       if (process.connected) process.send?.(message);
     },
