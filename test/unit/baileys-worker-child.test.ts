@@ -134,7 +134,12 @@ void test('resumes a synthetic QR-authenticated credential root without offering
   await sockets.saved;
   sockets.created[0]!.events.emit('connection.update', { connection: 'open' });
   await flush();
-  await first.handle({ ...firstStart, requestId: 'req_om_18_8_first_stop', type: 'STOP_WORKER', payload: {} });
+  await first.handle({
+    ...firstStart,
+    requestId: 'req_om_18_8_first_stop',
+    type: 'STOP_WORKER',
+    payload: {},
+  });
 
   const second = createBaileysWorkerChild({
     credentialDirectory: createLocalWhatsAppCredentialDirectory({ root: credentialRoot }),
@@ -155,7 +160,12 @@ void test('resumes a synthetic QR-authenticated credential root without offering
   assert.equal(sockets.qrOffered, 1);
   sockets.created[1]!.events.emit('connection.update', { connection: 'open' });
   await flush();
-  await second.handle({ ...secondStart, requestId: 'req_om_18_8_second_stop', type: 'STOP_WORKER', payload: {} });
+  await second.handle({
+    ...secondStart,
+    requestId: 'req_om_18_8_second_stop',
+    type: 'STOP_WORKER',
+    payload: {},
+  });
 
   assert.deepEqual(
     messages
