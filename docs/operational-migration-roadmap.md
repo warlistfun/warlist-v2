@@ -73,7 +73,7 @@ A slice never closes its parent phase automatically.
 ## 4. Phase OM-B — Runtime seams, runnable backend, and disposable Baileys acceptance
 
 **Range:** `OM-12–OM-20`
-**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-18.8` landed; `OM-19`–`OM-20` not started
+**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-19` landed; `OM-20` not started
 **Objective:** Compose the preserved backend/bot seams into one runnable non-Production path, then prove the core automation outcome with an explicitly approved disposable WhatsApp account before auth/product work consumes it.
 
 ### Landed OM-B baseline — preserved, not reopened
@@ -89,8 +89,9 @@ A slice never closes its parent phase automatically.
 | `OM-18`   | Disposable pairing-code lifecycle acceptance     | Issue #184 / PR #187 / `b2ba5613` | One approved disposable account                               |
 | `OM-18.7` | Disposable QR pairing acceptance                 | Issue #192 / PR #193 / `35a1b95`  | One approved disposable QR scan to `OPEN`                     |
 | `OM-18.8` | Disposable QR credential resume acceptance       | Issue #194 / PR #195 / `8023850`  | One approved root resumes after one controlled worker restart |
+| `OM-19`   | Disposable live inbound-to-decision acceptance   | Issue #198 / PR #199              | One approved disposable group/admin/message fixture           |
 
-These nine landed slices are evidence for OM-B, not phase closure.
+These ten landed slices are evidence for OM-B, not phase closure.
 
 ### OM-15 — Runnable application and HTTP adapter composition
 
@@ -152,10 +153,12 @@ These nine landed slices are evidence for OM-B, not phase closure.
 ### OM-19 — Disposable live inbound-to-decision acceptance
 
 - **Prerequisites:** OM-18.7–OM-18.8; explicit approval of disposable group, admin, and message fixtures.
-- **Status:** `NOT STARTED`.
+- **Status:** `VERIFIED` through Issue #198 / PR #199 at its one approved disposable-group/admin/message ceiling.
 - **Acceptance criteria (2/2):**
   1. One approved disposable live inbound event traverses transport guards, normalization, and the characterized automation gates to one correlated accepted/rejected result.
   2. History/replay, `fromMe`, wrong group/admin, malformed/no-text, stale/pre-connect, disabled, schedule, and no-entitlement cases produce the expected safe decision without unauthorized send.
+- **Evidence:** One approved disposable bot reached `OPEN`; bounded initial `fromMe` synchronization events stopped at the transport guard, then the sole approved admin trigger in the isolated disposable group produced one correlated `FORWARDED → WRONG_GROUP` decision at config revision `1`. No delivery/send command or provider output occurred; bounded forced termination removed the exact isolated credential root and path absence was verified.
+- **Evidence ceiling:** This proves one rejected live decision and the characterized safe guard matrix. It does not prove an accepted live decision, delivery, confirmation, entitlement mutation, graceful shutdown with an open pairing-browser connection, broader group/account compatibility, customer traffic, hosted operation, or Production.
 - **Explicit exclusions:** No customer messages, broad traffic, billing, notification campaign, public deployment, or Production operation.
 
 ### OM-20 — Disposable delivery, confirmation, and entitlement acceptance
@@ -721,10 +724,10 @@ A recommendation is not authorization. External/account/hosted/financial/custome
 
 ## 13. Current recommendation
 
-**Recommended next slice:** `OM-19 — Disposable live inbound-to-decision acceptance`.
+**Recommended next slice:** `OM-20 — Disposable delivery, confirmation, and entitlement acceptance`.
 
-**Ready because:** OM-18.7 proved one approved disposable QR scan to `OPEN`; OM-18.8 proved that root resumes to `OPEN` once after a controlled restart without another QR.
+**Ready because:** OM-19 composed canonical inbound decisions into the runnable worker path and proved one approved disposable live inbound event reaches a correlated safe rejection without delivery or send.
 
-**Still excluded:** OM-19 implementation and disposable group/admin/message/provider fixtures until explicitly authorized; outbound send, customer/runtime data, hosted deployment, financial action, and Production effects.
+**Still excluded:** OM-20 implementation and any external send until separately authorized for one bounded disposable case; customer/runtime data, hosted deployment, billing provider, public traffic, and Production effects.
 
-Stop after this roadmap amendment is checkpointed. Do not open OM-19 in the same session.
+Stop after OM-19 is checkpointed. Do not open OM-20 in the same session.
