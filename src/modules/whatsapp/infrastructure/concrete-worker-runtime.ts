@@ -1,5 +1,12 @@
 import type { BusinessRepositoryPort } from '../../../app/business-repository';
-import type { IdGeneratorPort, RepositoryPort, WorkerRuntimePort } from '../../../app/ports';
+import type {
+  ClockPort,
+  IdGeneratorPort,
+  LoggerPort,
+  RepositoryPort,
+  WorkerRuntimePort,
+} from '../../../app/ports';
+import { createActiveAutomationDecisionService } from '../../automation/application/active-automation-decision-service';
 import { createActiveTenantBootService } from '../application/active-tenant-boot-service';
 import { createActiveTenantWorkerService } from '../application/active-tenant-worker-service';
 import { createWorkerDiagnosticsService } from '../application/worker-diagnostics-service';
@@ -22,16 +29,61 @@ type ConcreteWorkerConfig = Readonly<{
 
 export function createConcreteWorkerRuntime(dependencies: {
   readonly config: unknown;
-  readonly repository: RepositoryPort & Partial<Pick<BusinessRepositoryPort, 'loadTenant'>>;
+  readonly repository: RepositoryPort &
+    Partial<
+      Pick<
+        BusinessRepositoryPort,
+        'loadTenant' | 'loadConfig' | 'readEntitlementBalance' | 'loadDeliveryByOperationKey'
+      >
+    >;
+  readonly clock: ClockPort;
   readonly idGenerator: IdGeneratorPort;
+  readonly logger: LoggerPort;
   readonly spawn?: SpawnWorkerChildPort;
 }): WorkerRuntimePort {
   const config = parseConfig(dependencies.config);
-  if (typeof dependencies.repository.loadTenant !== 'function') {
-    throw new Error('Concrete worker runtime requires canonical tenant repository');
+  if (
+    typeof dependencies.repository.loadTenant !== 'function' ||
+    typeof dependencies.repository.loadConfig !== 'function' ||
+    typeof dependencies.repository.readEntitlementBalance !== 'function' ||
+    typeof dependencies.repository.loadDeliveryByOperationKey !== 'function'
+  ) {
+    throw new Error('Concrete worker runtime requires canonical business repository');
   }
-
-  const diagnostics = createWorkerDiagnosticsService({ sink: { record() {} } });
+  const repository = dependencies.repository as RepositoryPort &
+    Pick<
+      BusinessRepositoryPort,
+      'loadTenant' | 'loadConfig' | 'readEntitlementBalance' | 'loadDeliveryByOperationKey'
+    >;
+  const decisions = new Map(
+    config.activeTenants.map(({ tenantId }) => [
+      tenantId,
+      createActiveAutomationDecisionService({
+        repository,
+        trustedTenant: { tenantId },
+        state: {
+          async load({ messageId }) {
+            const [balance, delivery] = await Promise.all([
+              repository.readEntitlementBalance(tenantId),
+              repository.loadDeliveryByOperationKey(tenantId, `automation:${messageId}`),
+            ]);
+            return Object.freeze({
+              hasEntitlement: balance.units > 0,
+              duplicateMessage: false,
+              deliveryExists: delivery !== undefined,
+            });
+          },
+        },
+      }),
+    ]),
+  );
+  const diagnostics = createWorkerDiagnosticsService({
+    sink: {
+      record(event) {
+        dependencies.logger.info('Worker diagnostic', { ...event });
+      },
+    },
+  });
   let ownership: WorkerOwnershipService | undefined = undefined;
   const runtime = createWorkerRuntimeService({
     transport: createNodeWorkerCommandTransport({
@@ -56,10 +108,20 @@ export function createConcreteWorkerRuntime(dependencies: {
     idGenerator: dependencies.idGenerator,
     commandTimeoutMs: config.commandTimeoutMs,
     diagnostics,
+    inbound: {
+      async decide(input) {
+        const service = decisions.get(input.tenantId);
+        if (!service) throw new Error('Inbound tenant is not active');
+        return service.decide(
+          { messageId: input.messageId, message: input.message },
+          minuteOfDayWib(dependencies.clock.now()),
+        );
+      },
+    },
   });
   ownership = createWorkerOwnershipService({ commands: runtime, diagnostics });
   const boot = createActiveTenantBootService({
-    repository: { loadTenant: dependencies.repository.loadTenant.bind(dependencies.repository) },
+    repository: { loadTenant: repository.loadTenant.bind(repository) },
     workers: createActiveTenantWorkerService({ lifecycle: ownership }),
   });
 
@@ -85,6 +147,12 @@ export function createConcreteWorkerRuntime(dependencies: {
       return Promise.resolve('NOT_OBSERVED');
     },
   };
+}
+
+function minuteOfDayWib(value: Date): number {
+  const timestamp = value.getTime();
+  if (!Number.isFinite(timestamp)) throw new Error('Invalid worker clock');
+  return ((value.getUTCHours() + 7) % 24) * 60 + value.getUTCMinutes();
 }
 
 function parseConfig(input: unknown): ConcreteWorkerConfig {

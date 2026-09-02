@@ -156,6 +156,10 @@ export async function verifyBusinessRepositoryContract(
       );
       assert.equal(Object.isFrozen(prepared), true);
       assert.deepEqual(await repository.loadDelivery(tenantOne, prepared.id), prepared);
+      assert.deepEqual(
+        await repository.loadDeliveryByOperationKey(tenantOne, prepared.operationKey),
+        prepared,
+      );
 
       for (const duplicate of [
         { ...prepared, id: '00000000-0000-4000-8000-000000000202' },
@@ -188,8 +192,16 @@ export async function verifyBusinessRepositoryContract(
       await assert.rejects(repository.loadDelivery(tenantDenied, prepared.id), (error: unknown) =>
         hasRepositoryCode(error, 'TENANT_ACCESS_DENIED'),
       );
+      await assert.rejects(
+        repository.loadDeliveryByOperationKey(tenantDenied, prepared.operationKey),
+        (error: unknown) => hasRepositoryCode(error, 'TENANT_ACCESS_DENIED'),
+      );
       assert.equal(
         await repository.loadDelivery(tenantTwo, '00000000-0000-4000-8000-000000000201'),
+        undefined,
+      );
+      assert.equal(
+        await repository.loadDeliveryByOperationKey(tenantTwo, prepared.operationKey),
         undefined,
       );
     },

@@ -31,7 +31,13 @@ export interface EntrypointAdapters {
   readonly signals: ShutdownSignalPort;
   createRepository(
     config: unknown,
-  ): RepositoryPort & Partial<Pick<BusinessRepositoryPort, 'loadTenant'>>;
+  ): RepositoryPort &
+    Partial<
+      Pick<
+        BusinessRepositoryPort,
+        'loadTenant' | 'loadConfig' | 'readEntitlementBalance' | 'loadDeliveryByOperationKey'
+      >
+    >;
   createWorkerRuntime?(config: unknown): WorkerRuntimePort;
   spawnWorker?: SpawnWorkerChildPort;
   createHttpServer?(input: Readonly<{ config: unknown; app: HttpApp }>): ApplicationLifecycle;
@@ -47,6 +53,8 @@ export function createEntrypoint(input: unknown, adapters: EntrypointAdapters): 
         config: config.worker,
         repository,
         idGenerator: adapters.idGenerator,
+        clock: adapters.clock,
+        logger: adapters.logger,
         ...(adapters.spawnWorker ? { spawn: adapters.spawnWorker } : {}),
       });
   const createHttpServer = (input: Readonly<{ config: unknown; app: HttpApp }>) =>

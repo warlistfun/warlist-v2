@@ -50,6 +50,7 @@ void test('records only the immutable inbound outcome projection', () => {
   diagnostics.recordInbound?.({
     transportCode: 'FORWARDED',
     decisionCode: 'ACCEPTED',
+    configRevision: 3,
     messageId: `message:${'a'.repeat(64)}`,
     correlationId: 'corr_example_1',
     tenantId: 'tenant_example_1',
@@ -64,6 +65,7 @@ void test('records only the immutable inbound outcome projection', () => {
       kind: 'INBOUND',
       transportCode: 'FORWARDED',
       decisionCode: 'ACCEPTED',
+      configRevision: 3,
       messageId: `message:${'a'.repeat(64)}`,
       correlationId: 'corr_example_1',
       tenantId: 'tenant_example_1',
@@ -86,6 +88,7 @@ void test('drops malformed inbound diagnostics', () => {
   const valid = {
     transportCode: 'FORWARDED',
     decisionCode: 'ACCEPTED',
+    configRevision: 3,
     messageId: `message:${'a'.repeat(64)}`,
     correlationId: 'corr_example_1',
     tenantId: 'tenant_example_1',

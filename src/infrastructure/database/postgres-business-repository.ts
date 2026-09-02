@@ -379,6 +379,20 @@ export function createPostgresBusinessRepository(dependencies: {
       );
       return parseOptional(result, parseDelivery);
     },
+    async loadDeliveryByOperationKey(tenantId, operationKey): Promise<DeliveryRecord | undefined> {
+      authorize(tenantId);
+      if (!isIdentifier(operationKey, false)) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const result = await query(
+        `SELECT id, tenant_id, operation_key, status, claim_owner, claim_fence,
+                claim_lease_until, worker_generation, worker_child_id, schema_version, revision,
+                created_at, updated_at
+         FROM delivery_operations WHERE tenant_id = $1 AND operation_key = $2`,
+        [tenantId, operationKey],
+      );
+      return parseOptional(result, parseDelivery);
+    },
     async createDeliveryAttempt(input): Promise<DeliveryAttemptRecord> {
       authorize(input.tenantId);
       if (
