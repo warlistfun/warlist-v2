@@ -245,6 +245,10 @@ export interface BusinessRepositoryPort extends RepositoryPort {
     input: Readonly<{ id: string; tenantId: string; operationKey: string }>,
   ): Promise<DeliveryRecord>;
   loadDelivery(tenantId: string, deliveryId: string): Promise<DeliveryRecord | undefined>;
+  loadDeliveryByOperationKey(
+    tenantId: string,
+    operationKey: string,
+  ): Promise<DeliveryRecord | undefined>;
   createDeliveryAttempt(
     input: Readonly<{ id: string; tenantId: string; operationId: string; attemptNumber: number }>,
   ): Promise<DeliveryAttemptRecord>;
@@ -550,6 +554,17 @@ export function createInMemoryBusinessRepository(dependencies: {
         delivery?.tenantId === tenantId ? freezeDelivery(delivery) : undefined,
       );
     },
+    async loadDeliveryByOperationKey(tenantId, operationKey): Promise<DeliveryRecord | undefined> {
+      await Promise.resolve();
+      requireStarted();
+      authorize(tenantId);
+      if (!isBoundedIdentifier(operationKey, false)) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const deliveryId = deliveryIdsByTenantKey.get(`${tenantId}\u0000${operationKey}`);
+      const delivery = deliveryId ? deliveries.get(deliveryId) : undefined;
+      return delivery && freezeDelivery(delivery);
+    },
     async createDeliveryAttempt(input): Promise<DeliveryAttemptRecord> {
       await Promise.resolve();
       requireStarted();
@@ -619,6 +634,7 @@ export function createInMemoryBusinessRepository(dependencies: {
         .reduce((sum, entry) => sum + entry.units, 0);
       return Object.freeze({ tenantId, units });
     },
+
     async appendAuditEvent(input): Promise<AuditEvent> {
       requireStarted();
       authorize(input.tenantId);

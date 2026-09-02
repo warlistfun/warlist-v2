@@ -53,6 +53,7 @@ export type WorkerInboundDecisionCode =
 export type WorkerInboundDiagnostic = Readonly<{
   transportCode: WorkerInboundTransportCode;
   decisionCode: WorkerInboundDecisionCode | null;
+  configRevision: number | null;
   messageId: string | null;
   correlationId: string;
   tenantId: string;
@@ -211,6 +212,7 @@ export function createWorkerDiagnosticsService(dependencies: {
         const {
           transportCode,
           decisionCode,
+          configRevision,
           messageId,
           correlationId,
           tenantId,
@@ -221,6 +223,8 @@ export function createWorkerDiagnosticsService(dependencies: {
           !isInboundTransportCode(transportCode) ||
           !isInboundDecisionCode(decisionCode) ||
           !isSafeMessageId(messageId) ||
+          (configRevision !== null &&
+            (!Number.isSafeInteger(configRevision) || configRevision < 1)) ||
           !isIdentifier(correlationId) ||
           !isIdentifier(tenantId) ||
           !Number.isSafeInteger(generation) ||
@@ -235,6 +239,7 @@ export function createWorkerDiagnosticsService(dependencies: {
             transportCode,
             decisionCode,
             messageId,
+            configRevision,
             correlationId,
             tenantId,
             generation,

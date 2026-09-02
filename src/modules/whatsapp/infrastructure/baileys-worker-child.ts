@@ -357,7 +357,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       emitInbound(worker, 'INVALID_MESSAGE', messageId);
       return;
     }
-    if (receivedAt - timestamp > 2 * 60 * 1_000) {
+    if (Math.abs(receivedAt - timestamp) > 2 * 60 * 1_000) {
       emitInbound(worker, 'STALE', messageId);
       return;
     }

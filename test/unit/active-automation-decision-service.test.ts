@@ -27,9 +27,12 @@ void test('loads canonical config and decides a normalized active inbound slice 
 
   const result = await service.decide(
     {
-      groupId: ' GROUP_EXAMPLE_ONE ',
-      senderId: ' ADMIN_EXAMPLE_ONE ',
-      text: ' Hello from active V2 ',
+      messageId: `message:${'a'.repeat(64)}`,
+      message: {
+        groupId: ' GROUP_EXAMPLE_ONE ',
+        senderId: ' ADMIN_EXAMPLE_ONE ',
+        text: ' Hello from active V2 ',
+      },
     },
     600,
   );
@@ -38,6 +41,7 @@ void test('loads canonical config and decides a normalized active inbound slice 
   assert.deepEqual(observed, [
     {
       tenantId,
+      messageId: `message:${'a'.repeat(64)}`,
       message: {
         groupId: 'group_example_one',
         senderId: 'admin_example_one',
@@ -70,9 +74,12 @@ void test('stops at an earlier evaluator gate without loading delivery state', a
   assert.deepEqual(
     await service.decide(
       {
-        groupId: 'group_example_one',
-        senderId: 'admin_example_one',
-        text: 'hello',
+        messageId: `message:${'b'.repeat(64)}`,
+        message: {
+          groupId: 'group_example_one',
+          senderId: 'admin_example_one',
+          text: 'hello',
+        },
       },
       600,
     ),

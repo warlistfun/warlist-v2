@@ -7,16 +7,22 @@ import {
 import { normalizeSyntheticInboundMessage } from './inbound-message-normalizer';
 
 export interface AutomationDecisionStatePort {
-  load(input: Readonly<{ tenantId: string; message: unknown }>): Promise<AutomationEvaluationState>;
+  load(
+    input: Readonly<{
+      tenantId: string;
+      messageId: string;
+      message: unknown;
+    }>,
+  ): Promise<AutomationEvaluationState>;
 }
 
 export function createActiveAutomationDecisionService(dependencies: {
-  readonly repository: BusinessRepositoryPort;
+  readonly repository: Pick<BusinessRepositoryPort, 'loadConfig'>;
   readonly trustedTenant: Readonly<{ tenantId: string }>;
   readonly state: AutomationDecisionStatePort;
 }): Readonly<{
   decide(
-    message: unknown,
+    input: Readonly<{ messageId: string; message: unknown }>,
     currentMinute?: unknown,
   ): Promise<
     Readonly<{
@@ -26,10 +32,10 @@ export function createActiveAutomationDecisionService(dependencies: {
   >;
 }> {
   return Object.freeze({
-    async decide(message, currentMinute) {
+    async decide(input, currentMinute) {
       const config = await dependencies.repository.loadConfig(dependencies.trustedTenant.tenantId);
       if (!config) throw new RepositoryError('CONFIG_VERSION_CONFLICT');
-      const normalized = normalizeSyntheticInboundMessage(message);
+      const normalized = normalizeSyntheticInboundMessage(input.message);
       const policy = config.configuration.automation;
       const initial = evaluateAutomation(normalized, policy, currentMinute);
       if (initial.code !== 'ACCEPTED') {
@@ -37,6 +43,7 @@ export function createActiveAutomationDecisionService(dependencies: {
       }
       const state = await dependencies.state.load({
         tenantId: dependencies.trustedTenant.tenantId,
+        messageId: input.messageId,
         message: normalized,
       });
       const decision = evaluateAutomation(normalized, policy, currentMinute, state);

@@ -76,6 +76,11 @@ export class WorkerRuntimeError extends Error {
   }
 }
 
+export type WorkerInboundDecisionResult = Readonly<{
+  revision: number;
+  decision: AutomationDecision;
+}>;
+
 export interface WorkerInboundDecisionPort {
   decide(
     input: Readonly<{
@@ -83,7 +88,7 @@ export interface WorkerInboundDecisionPort {
       messageId: string;
       message: WorkerInboundMessage;
     }>,
-  ): AutomationDecision | PromiseLike<AutomationDecision>;
+  ): WorkerInboundDecisionResult | PromiseLike<WorkerInboundDecisionResult>;
 }
 
 interface Dependencies {
@@ -122,6 +127,8 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
   const queues = new Map<string, Promise<void>>();
   const pendingByRequest = new Map<string, PendingCommand>();
   const pendingByKey = new Map<string, PendingCommand>();
+  const activeWorkers = new Map<string, WorkerIdentity>();
+
   let running = false;
   let cleanupIncomplete = false;
   let lifecycleEpoch = 0;
@@ -270,6 +277,8 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
   }
 
   function handleInboundEvent(message: Extract<ChildMessage, { type: 'INBOUND_EVENT' }>): void {
+    const activeWorker = activeWorkers.get(message.tenantId);
+    if (!activeWorker || !sameProcessIdentity(activeWorker, message)) return;
     const diagnostic = {
       transportCode: message.payload.transportCode,
       messageId: message.payload.messageId,
@@ -279,15 +288,20 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       childId: message.childId,
     } as const;
     if (message.payload.transportCode !== 'FORWARDED') {
-      recordInboundDiagnostic({ ...diagnostic, decisionCode: null });
+      recordInboundDiagnostic({ ...diagnostic, decisionCode: null, configRevision: null });
       return;
     }
     if (!dependencies.inbound) {
-      recordInboundDiagnostic({ ...diagnostic, decisionCode: 'DECISION_UNAVAILABLE' });
+      recordInboundDiagnostic({
+        ...diagnostic,
+        decisionCode: 'DECISION_UNAVAILABLE',
+        configRevision: null,
+      });
       return;
     }
 
     const eventEpoch = lifecycleEpoch;
+    const eventWorker = activeWorker;
     try {
       void Promise.resolve(
         dependencies.inbound.decide(
@@ -299,19 +313,43 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
         ),
       ).then(
         (decision) => {
-          if (running && eventEpoch === lifecycleEpoch) {
-            recordInboundDiagnostic({ ...diagnostic, decisionCode: decision.code });
+          if (
+            running &&
+            eventEpoch === lifecycleEpoch &&
+            activeWorkers.get(message.tenantId) === eventWorker
+          ) {
+            recordInboundDiagnostic({
+              ...diagnostic,
+              decisionCode: decision.decision.code,
+              configRevision: decision.revision,
+            });
           }
         },
         () => {
-          if (running && eventEpoch === lifecycleEpoch) {
-            recordInboundDiagnostic({ ...diagnostic, decisionCode: 'DECISION_FAILED' });
+          if (
+            running &&
+            eventEpoch === lifecycleEpoch &&
+            activeWorkers.get(message.tenantId) === eventWorker
+          ) {
+            recordInboundDiagnostic({
+              ...diagnostic,
+              decisionCode: 'DECISION_FAILED',
+              configRevision: null,
+            });
           }
         },
       );
     } catch {
-      if (running && eventEpoch === lifecycleEpoch) {
-        recordInboundDiagnostic({ ...diagnostic, decisionCode: 'DECISION_FAILED' });
+      if (
+        running &&
+        eventEpoch === lifecycleEpoch &&
+        activeWorkers.get(message.tenantId) === eventWorker
+      ) {
+        recordInboundDiagnostic({
+          ...diagnostic,
+          decisionCode: 'DECISION_FAILED',
+          configRevision: null,
+        });
       }
     }
   }
@@ -401,6 +439,19 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     }
   }
 
+  function invalidateActiveWorker(input: WorkerIdentity): void {
+    const worker = activeWorkers.get(input.tenantId);
+    if (worker && sameProcessIdentity(worker, input)) activeWorkers.delete(input.tenantId);
+  }
+
+  function sameProcessIdentity(left: WorkerIdentity, right: WorkerIdentity): boolean {
+    return (
+      left.tenantId === right.tenantId &&
+      left.generation === right.generation &&
+      left.childId === right.childId
+    );
+  }
+
   return {
     start(): Promise<void> {
       return enqueueLifecycle(async () => {
@@ -425,6 +476,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
         if (!running && pendingByKey.size === 0 && !cleanupIncomplete) return;
         running = false;
         lifecycleEpoch += 1;
+        activeWorkers.clear();
         for (const pending of [...pendingByKey.values()]) settle(pending, stoppedError());
         try {
           await runBoundedLifecycle(
@@ -443,7 +495,18 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       return running && !cleanupIncomplete && dependencies.transport.isReady();
     },
     startWorker(input): Promise<WorkerCommandResult> {
-      return command('START_WORKER', input, input.configVersion);
+      const worker = Object.freeze({
+        tenantId: input.tenantId,
+        generation: input.generation,
+        childId: input.childId,
+        correlationId: input.correlationId,
+      });
+      activeWorkers.set(input.tenantId, worker);
+      const result = command('START_WORKER', input, input.configVersion);
+      void result.catch(() => {
+        if (activeWorkers.get(input.tenantId) === worker) activeWorkers.delete(input.tenantId);
+      });
+      return result;
     },
     applyConfig(input): Promise<WorkerCommandResult> {
       return command('APPLY_CONFIG', input, input.configVersion);
@@ -452,12 +515,15 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       return command('REQUEST_PAIRING', input, input.pairingTarget);
     },
     stopWorker(input): Promise<WorkerCommandResult> {
+      invalidateActiveWorker(input);
       return command('STOP_WORKER', input);
     },
     resetWorker(input): Promise<WorkerCommandResult> {
+      invalidateActiveWorker(input);
       return command('RESET_WORKER', input);
     },
     invalidateWorker(input): void {
+      invalidateActiveWorker(input);
       for (const pending of [...pendingByKey.values()]) {
         if (
           pending.message.tenantId === input.tenantId &&

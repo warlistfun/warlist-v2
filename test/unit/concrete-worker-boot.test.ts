@@ -2,7 +2,13 @@ import assert from 'node:assert/strict';
 import { EventEmitter } from 'node:events';
 import test from 'node:test';
 
-import { RepositoryError, type TenantRecord } from '../../src/app/business-repository';
+import {
+  RepositoryError,
+  type ConfigRecord,
+  type DeliveryRecord,
+  type EntitlementBalance,
+  type TenantRecord,
+} from '../../src/app/business-repository';
 import type {
   ApplicationLifecycle,
   RepositoryPort,
@@ -96,6 +102,116 @@ void test('runnable entrypoint boots every canonical active tenant through concr
     ],
   );
 
+  await entrypoint.stop();
+});
+
+void test('concrete runtime evaluates the bounded inbound matrix without delivery', async () => {
+  const repository = new ControlledTenantRepository([tenantOne]);
+  const children: AckingWorkerProcess[] = [];
+  const diagnostics: Array<Readonly<Record<string, unknown>> | undefined> = [];
+  const logger = new NoopLogger();
+  logger.info = (_message, context) => diagnostics.push(context);
+  const entrypoint = createEntrypoint(
+    {
+      application: { environment: 'test', serviceName: 'warlist' },
+      database: null,
+      worker: {
+        modulePath: '/tmp/warlist-v2-example-worker.js',
+        credentialRoot: '/tmp/warlist-v2-example-credentials',
+        commandTimeoutMs: 1_000,
+        activeTenants: [{ tenantId: tenantOne, configVersion: 3 }],
+      },
+      http: null,
+    },
+    {
+      logger,
+      metrics: new NoopMetrics(),
+      clock: new FixedClock(new Date('2026-01-01T03:00:00.000Z')),
+      idGenerator: new SequenceIdGenerator('inbound'),
+      signals: new ControlledSignals(),
+      createRepository: () => repository,
+      spawnWorker() {
+        const child = new AckingWorkerProcess();
+        children.push(child);
+        return child;
+      },
+      createHttpServer: () => new ControlledHttpServer(),
+    },
+  );
+
+  await entrypoint.start();
+  const child = children[0];
+  const start = child?.messages[0];
+  assert.ok(child && start?.type === 'START_WORKER');
+  const messageId = `message:${'a'.repeat(64)}`;
+  const groupId = `group:${'b'.repeat(64)}`;
+  const senderId = `sender:${'c'.repeat(64)}`;
+  repository.policy = {
+    enabled: true,
+    opsStatus: 'active',
+    timeWindow: { enabled: true, startMinute: 540, endMinute: 1_020 },
+    targetGroupId: groupId,
+    adminIds: [senderId],
+    keyword: 'list',
+  };
+
+  const forwarded = (message: Readonly<{ groupId: string; senderId: string; text: string }>) => ({
+    ...start,
+    type: 'INBOUND_EVENT' as const,
+    payload: { transportCode: 'FORWARDED' as const, messageId, message },
+  });
+  const cases = [
+    ['ACCEPTED', { groupId, senderId, text: 'list today' }],
+    ['WRONG_GROUP', { groupId: `group:${'d'.repeat(64)}`, senderId, text: 'list today' }],
+    ['SENDER_NOT_ADMIN', { groupId, senderId: `sender:${'e'.repeat(64)}`, text: 'list today' }],
+  ] as const;
+  for (const [code, message] of cases) {
+    child.receive(forwarded(message));
+    await flush();
+    assert.deepEqual(diagnostics.at(-1), {
+      kind: 'INBOUND',
+      transportCode: 'FORWARDED',
+      decisionCode: code,
+      configRevision: 3,
+      messageId,
+      correlationId: start.correlationId,
+      tenantId: tenantOne,
+      generation: 1,
+      childId: start.childId,
+    });
+  }
+
+  repository.policy = { ...repository.policy, enabled: false };
+  child.receive(forwarded({ groupId, senderId, text: 'list today' }));
+  await flush();
+  assert.equal(diagnostics.at(-1)?.decisionCode, 'BOT_DISABLED');
+
+  repository.policy = {
+    ...repository.policy,
+    enabled: true,
+    timeWindow: { enabled: true, startMinute: 601, endMinute: 700 },
+  };
+  child.receive(forwarded({ groupId, senderId, text: 'list today' }));
+  await flush();
+  assert.equal(diagnostics.at(-1)?.decisionCode, 'OUTSIDE_SCHEDULE');
+
+  repository.policy = {
+    ...repository.policy,
+    timeWindow: { enabled: false, startMinute: 0, endMinute: 0 },
+  };
+  repository.entitlementUnits = 0;
+  child.receive(forwarded({ groupId, senderId, text: 'list today' }));
+  await flush();
+  assert.equal(diagnostics.at(-1)?.decisionCode, 'NO_ENTITLEMENT');
+
+  child.receive({
+    ...start,
+    type: 'INBOUND_EVENT',
+    payload: { transportCode: 'HISTORY_REPLAY', messageId },
+  });
+  await flush();
+  assert.equal(diagnostics.at(-1)?.decisionCode, null);
+  assert.equal(child.messages.length, 1);
   await entrypoint.stop();
 });
 
@@ -245,6 +361,14 @@ void test('child exit after config application retains the process ownership cor
 class ControlledTenantRepository implements RepositoryPort {
   readonly loads: string[] = [];
   readonly errors = new Map<string, RepositoryError>();
+  policy: Readonly<Record<string, unknown>> = {
+    enabled: true,
+    targetGroupId: 'group_example_default',
+    adminIds: ['admin_example_default'],
+    keyword: 'list',
+  };
+  entitlementUnits = 1;
+  deliveryLookups = 0;
   private readonly tenants: Map<string, TenantRecord>;
   private ready = false;
 
@@ -271,6 +395,27 @@ class ControlledTenantRepository implements RepositoryPort {
     const error = this.errors.get(tenantId);
     if (error) return Promise.reject(error);
     return Promise.resolve(this.tenants.get(tenantId));
+  }
+
+  loadConfig(tenantId: string): Promise<ConfigRecord | undefined> {
+    if (!this.tenants.has(tenantId)) return Promise.resolve(undefined);
+    return Promise.resolve({
+      tenantId,
+      configuration: { automation: this.policy },
+      schemaVersion: 1,
+      revision: 3,
+      createdAt: '2026-08-29T00:00:00.000Z',
+      updatedAt: '2026-08-29T00:00:00.000Z',
+    });
+  }
+
+  readEntitlementBalance(tenantId: string): Promise<EntitlementBalance> {
+    return Promise.resolve({ tenantId, units: this.entitlementUnits });
+  }
+
+  loadDeliveryByOperationKey(): Promise<DeliveryRecord | undefined> {
+    this.deliveryLookups += 1;
+    return Promise.resolve(undefined);
   }
 }
 
@@ -346,6 +491,10 @@ class AckingWorkerProcess implements WorkerChildProcessPort {
     this.connected = false;
     this.events.emit('exit', 1, null);
   }
+
+  receive(message: unknown): void {
+    this.events.emit('message', message);
+  }
 }
 
 function activeTenant(id: string): TenantRecord {
@@ -358,4 +507,9 @@ function activeTenant(id: string): TenantRecord {
     createdAt: '2026-08-29T00:00:00.000Z',
     updatedAt: '2026-08-29T00:00:00.000Z',
   });
+}
+
+async function flush(): Promise<void> {
+  await new Promise<void>((resolve) => setImmediate(resolve));
+  await new Promise<void>((resolve) => setImmediate(resolve));
 }

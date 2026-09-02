@@ -73,6 +73,8 @@ void test('projects one live inbound message through IPC into the existing evalu
     kind: 'INBOUND',
     transportCode: 'FORWARDED',
     decisionCode: 'ACCEPTED',
+    configRevision: 1,
+
     messageId: inbound.messageId,
     correlationId: worker.correlationId,
     tenantId,
@@ -104,6 +106,7 @@ void test('projects one live inbound message through IPC into the existing evalu
   }
 
   await fixture.runtime.stop();
+  assert.equal(fixture.socket.sendCalls, 0);
 });
 
 void test('accepts official LID and Long-shaped participant/timestamp forms without raw identifiers', async (t) => {
@@ -218,6 +221,14 @@ void test('rejects every characterized transport guard before automation evaluat
       },
     },
     {
+      code: 'STALE',
+      event: {
+        type: 'notify',
+        messages: [messageFixture({ id: 'future_example_one', timestamp: now + 121_000 })],
+      },
+    },
+
+    {
       code: 'QUOTED',
       event: {
         type: 'notify',
@@ -301,6 +312,7 @@ void test('rejects every characterized transport guard before automation evaluat
     assert.equal(fixture.inbound.length, 0);
   }
 
+  assert.equal(fixture.socket.sendCalls, 0);
   await fixture.runtime.stop();
 });
 
@@ -322,6 +334,29 @@ void test('does not record an async decision after runtime stop', async (t) => {
 
   await fixture.runtime.stop();
   await fixture.runtime.start();
+  resolveDecision({ code: 'ACCEPTED' });
+  await flush();
+
+  assert.equal(fixture.diagnostics.length, before);
+  await fixture.runtime.stop();
+});
+
+void test('discards a pending decision after its worker identity is invalidated', async (t) => {
+  let resolveDecision!: (value: Readonly<{ code: 'ACCEPTED' }>) => void;
+  const decision = new Promise<Readonly<{ code: 'ACCEPTED' }>>((resolve) => {
+    resolveDecision = resolve;
+  });
+  const fixture = await createFixture(t, () => decision);
+  await fixture.runtime.start();
+  assert.deepEqual(await fixture.runtime.startWorker(worker), { ok: true });
+  fixture.socket.events.emit('connection.update', { connection: 'open' });
+  fixture.socket.events.emit('messages.upsert', {
+    type: 'notify',
+    messages: [messageFixture({ id: 'message_example_invalidated' })],
+  });
+  const before = fixture.diagnostics.length;
+  fixture.runtime.invalidateWorker({ ...worker, correlationId: 'corr_example_stop' });
+
   resolveDecision({ code: 'ACCEPTED' });
   await flush();
 
@@ -450,11 +485,13 @@ async function createFixture(
     idGenerator: new SequenceIdGenerator('req'),
     commandTimeoutMs: 5_000,
     inbound: {
-      decide(input: {
-        messageId: string;
-        message: unknown;
-      }): PromiseLike<Readonly<{ code: string }>> {
-        if (decideOverride) return decideOverride();
+      decide(input: { messageId: string; message: unknown }) {
+        if (decideOverride) {
+          return Promise.resolve(decideOverride()).then((decision) => ({
+            revision: 1,
+            decision,
+          }));
+        }
         const message = normalizeSyntheticInboundMessage(input.message);
         const decision = evaluateAutomation(message, {
           enabled: true,
@@ -463,7 +500,7 @@ async function createFixture(
           keyword: 'list',
         });
         inbound.push({ messageId: input.messageId, message, decision });
-        return Promise.resolve(decision);
+        return Promise.resolve({ revision: 1, decision });
       },
     },
     diagnostics: createWorkerDiagnosticsService({
@@ -473,7 +510,7 @@ async function createFixture(
         },
       },
     }),
-  } as Parameters<typeof createWorkerRuntimeService>[0]);
+  });
 
   return {
     runtime,
@@ -496,6 +533,8 @@ class NoopScheduler implements ScheduleTaskPort {
 
 class FakeBaileysSocket {
   readonly events = new EventEmitter();
+  sendCalls = 0;
+
   readonly ev = {
     on: (event: string, listener: (...arguments_: unknown[]) => void) => {
       this.events.on(event, listener);
@@ -507,6 +546,11 @@ class FakeBaileysSocket {
 
   requestPairingCode(): Promise<string> {
     return Promise.resolve('unused');
+  }
+
+  sendMessage(): Promise<never> {
+    this.sendCalls += 1;
+    return Promise.reject(new Error('inbound acceptance must not send'));
   }
 
   end(): void {}
