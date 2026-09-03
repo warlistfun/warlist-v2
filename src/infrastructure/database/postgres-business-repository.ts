@@ -348,20 +348,25 @@ export function createPostgresBusinessRepository(dependencies: {
     },
     async prepareDelivery(input): Promise<DeliveryRecord> {
       authorize(input.tenantId);
-      if (!isUuid(input.id) || !isIdentifier(input.operationKey, false)) {
+      if (
+        !isUuid(input.id) ||
+        !isIdentifier(input.operationKey, false) ||
+        (input.scheduledStartAt !== undefined && !isTimestampOrNull(input.scheduledStartAt))
+      ) {
         throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       }
       const result = await query(
-        `INSERT INTO delivery_operations (id, tenant_id, operation_key)
-         VALUES ($1, $2, $3)
-         RETURNING id, tenant_id, operation_key, status, claim_owner, claim_fence,
+        `INSERT INTO delivery_operations (id, tenant_id, operation_key, scheduled_start_at)
+         VALUES ($1, $2, $3, $4::timestamptz)
+         ON CONFLICT (tenant_id, operation_key) DO UPDATE SET operation_key = EXCLUDED.operation_key
+         RETURNING id, tenant_id, operation_key, scheduled_start_at, status, claim_owner, claim_fence,
                    claim_lease_until, worker_generation, worker_child_id, schema_version, revision,
                    created_at, updated_at`,
-        [input.id, input.tenantId, input.operationKey],
+        [input.id, input.tenantId, input.operationKey, input.scheduledStartAt ?? null],
         (error) => {
           const code = postgresCode(error);
-          if (code === '23505') return new RepositoryError('DELIVERY_ALREADY_EXISTS');
           if (code === '23503') return new RepositoryError('TENANT_NOT_FOUND');
+          if (code === '23505') return new RepositoryError('DELIVERY_ALREADY_EXISTS');
           return undefined;
         },
       );
@@ -371,7 +376,7 @@ export function createPostgresBusinessRepository(dependencies: {
       authorize(tenantId);
       if (!isUuid(deliveryId)) throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       const result = await query(
-        `SELECT id, tenant_id, operation_key, status, claim_owner, claim_fence,
+        `SELECT id, tenant_id, operation_key, scheduled_start_at, status, claim_owner, claim_fence,
                 claim_lease_until, worker_generation, worker_child_id, schema_version, revision,
                 created_at, updated_at
          FROM delivery_operations WHERE tenant_id = $1 AND id = $2`,
@@ -385,7 +390,7 @@ export function createPostgresBusinessRepository(dependencies: {
         throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       }
       const result = await query(
-        `SELECT id, tenant_id, operation_key, status, claim_owner, claim_fence,
+        `SELECT id, tenant_id, operation_key, scheduled_start_at, status, claim_owner, claim_fence,
                 claim_lease_until, worker_generation, worker_child_id, schema_version, revision,
                 created_at, updated_at
          FROM delivery_operations WHERE tenant_id = $1 AND operation_key = $2`,
@@ -524,6 +529,7 @@ export function createPostgresBusinessRepository(dependencies: {
            RETURNING *
          )
          SELECT claimed.id AS operation_id, claimed.tenant_id, claimed.operation_key,
+                claimed.scheduled_start_at,
                 claimed.status AS operation_status, claimed.claim_owner, claimed.claim_fence,
                 claimed.claim_lease_until, claimed.worker_generation, claimed.worker_child_id,
                 claimed.schema_version AS operation_schema_version,
@@ -541,6 +547,7 @@ export function createPostgresBusinessRepository(dependencies: {
          FROM claimed JOIN created_attempt ON created_attempt.operation_id = claimed.id
          UNION ALL
          SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.scheduled_start_at,
                 operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
                 operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
                 operation.schema_version AS operation_schema_version,
@@ -562,6 +569,7 @@ export function createPostgresBusinessRepository(dependencies: {
          WHERE operation.status IN ('SENT', 'AMBIGUOUS') AND attempt.status = operation.status
          UNION ALL
          SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.scheduled_start_at,
                 operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
                 operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
                 operation.schema_version AS operation_schema_version,
@@ -632,6 +640,7 @@ export function createPostgresBusinessRepository(dependencies: {
            RETURNING operation.*
          )
          SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.scheduled_start_at,
                 operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
                 operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
                 operation.schema_version AS operation_schema_version, operation.revision AS operation_revision,
@@ -699,6 +708,7 @@ export function createPostgresBusinessRepository(dependencies: {
            RETURNING attempt.*
          )
          SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.scheduled_start_at,
                 operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
                 operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
                 operation.schema_version AS operation_schema_version, operation.revision AS operation_revision,
@@ -786,7 +796,8 @@ export function createPostgresBusinessRepository(dependencies: {
              AND ledger.entry_type = 'DEBIT_CONFIRMED_DELIVERY' AND ledger.units = -1
              AND NOT EXISTS (SELECT 1 FROM debited)
          )
-         SELECT canonical.id, canonical.tenant_id, canonical.operation_key, canonical.status,
+         SELECT canonical.id, canonical.tenant_id, canonical.operation_key, canonical.scheduled_start_at,
+                canonical.status,
                 canonical.claim_owner, canonical.claim_fence, canonical.claim_lease_until,
                 canonical.worker_generation, canonical.worker_child_id, canonical.confirmation_business_key,
                 canonical.confirmation_correlation_id, canonical.schema_version, canonical.revision,
@@ -855,6 +866,7 @@ export function createPostgresBusinessRepository(dependencies: {
            RETURNING attempt.*
          )
          SELECT operation.id AS operation_id, operation.tenant_id, operation.operation_key,
+                operation.scheduled_start_at,
                 operation.status AS operation_status, operation.claim_owner, operation.claim_fence,
                 operation.claim_lease_until, operation.worker_generation, operation.worker_child_id,
                 operation.schema_version AS operation_schema_version, operation.revision AS operation_revision,
@@ -867,7 +879,8 @@ export function createPostgresBusinessRepository(dependencies: {
                 JOIN recovered_attempt AS changed ON changed.tenant_id = operation.tenant_id
                 AND changed.operation_id = operation.id AND changed.claim_fence = operation.claim_fence
          UNION ALL
-         SELECT operation.id, operation.tenant_id, operation.operation_key, operation.status,
+         SELECT operation.id, operation.tenant_id, operation.operation_key, operation.scheduled_start_at,
+                operation.status,
                 operation.claim_owner, operation.claim_fence, operation.claim_lease_until,
                 operation.worker_generation, operation.worker_child_id,
                 operation.schema_version, operation.revision, operation.created_at, operation.updated_at,
@@ -1204,6 +1217,8 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
   const schemaVersion = positiveInteger(row.schema_version);
   const createdAt = timestamp(row.created_at);
   const updatedAt = timestamp(row.updated_at);
+  const scheduledStartAt =
+    row.scheduled_start_at === undefined ? null : nullableTimestamp(row.scheduled_start_at);
   const claimOwner = nullableIdentifier(row.claim_owner);
   const claimFence = nonNegativeInteger(row.claim_fence);
   const leaseUntil = nullableTimestamp(row.claim_lease_until);
@@ -1222,6 +1237,7 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
     !isUuid(row.tenant_id) ||
     !isIdentifier(row.operation_key, false) ||
     !isDeliveryStatus(row.status) ||
+    scheduledStartAt === undefined ||
     claimOwner === undefined ||
     claimFence === undefined ||
     leaseUntil === undefined ||
@@ -1241,6 +1257,7 @@ function parseDelivery(row: unknown): DeliveryRecord | undefined {
     id: row.id,
     tenantId: row.tenant_id,
     operationKey: row.operation_key,
+    scheduledStartAt,
     status: row.status,
     claimOwner,
     claimFence,
@@ -1300,6 +1317,7 @@ function parseDeliveryClaim(row: unknown): DeliveryClaimRecord | undefined {
   if (!isRecord(row)) return undefined;
   const operation = parseDelivery({
     id: row.operation_id,
+    scheduled_start_at: row.scheduled_start_at,
     tenant_id: row.tenant_id,
     operation_key: row.operation_key,
     status: row.operation_status,
@@ -1749,6 +1767,9 @@ function isNonEmptyString(value: unknown, maxLength: number): value is string {
   return typeof value === 'string' && value.length > 0 && value.length <= maxLength;
 }
 
+function isTimestampOrNull(value: unknown): value is string | null {
+  return value === null || (typeof value === 'string' && Number.isFinite(Date.parse(value)));
+}
 function isIntegerBetween(value: unknown, minimum: number, maximum: number): value is number {
   return (
     typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum

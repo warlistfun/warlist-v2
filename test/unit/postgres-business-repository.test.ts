@@ -23,6 +23,50 @@ void test('pooled PostgreSQL adapter satisfies the shared business repository co
   await verifyBusinessRepositoryContract(t, repository, authorization);
 });
 
+void test('PostgreSQL preserves the first nullable scheduled start across replay and restart', async (t) => {
+  const database = await createDisposablePostgres(t);
+  const authorization = new MutableTenantAuthorization();
+  const tenantId = '00000000-0000-4000-8000-000000000203';
+  authorization.allowed.add(tenantId);
+  const createRepository = () =>
+    createPostgresBusinessRepository({
+      config: database.config,
+      authorization,
+      logger: new NoopLogger(),
+      metrics: new NoopMetrics(),
+    });
+  const firstRepository = createRepository();
+  await firstRepository.start();
+  t.after(() => firstRepository.stop());
+  await firstRepository.createTenant({ id: tenantId, publicOpsId: 'ops_example_schedule' });
+
+  const first = await firstRepository.prepareDelivery({
+    id: '00000000-0000-4000-8000-000000000204',
+    tenantId,
+    operationKey: 'automation:scheduled_start',
+    scheduledStartAt: '2032-02-29T01:30:00.000Z',
+  });
+  assert.equal(first.scheduledStartAt, '2032-02-29T01:30:00.000Z');
+  await firstRepository.stop();
+
+  const restartedRepository = createRepository();
+  await restartedRepository.start();
+  t.after(() => restartedRepository.stop());
+  const replay = await restartedRepository.prepareDelivery({
+    id: '00000000-0000-4000-8000-000000000205',
+    tenantId,
+    operationKey: 'automation:scheduled_start',
+    scheduledStartAt: '2033-01-01T03:00:00.000Z',
+  });
+  assert.equal(replay.id, first.id);
+  assert.equal(replay.scheduledStartAt, first.scheduledStartAt);
+  assert.equal(
+    (await restartedRepository.loadDeliveryByOperationKey(tenantId, 'automation:scheduled_start'))
+      ?.scheduledStartAt,
+    first.scheduledStartAt,
+  );
+});
+
 void test('pooled PostgreSQL atomically saves config syncs, fences settlements, and recovers expired leases', async (t) => {
   const database = await createDisposablePostgres(t);
   const authorization = new MutableTenantAuthorization();

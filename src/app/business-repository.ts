@@ -48,6 +48,7 @@ export type DeliveryRecord = Readonly<{
   workerGeneration: number | null;
   childId: string | null;
   confirmationBusinessKey?: string | null;
+  scheduledStartAt?: string | null;
   confirmationCorrelationId?: string | null;
   schemaVersion: number;
   revision: number;
@@ -242,7 +243,12 @@ export interface BusinessRepositoryPort extends RepositoryPort {
     }>,
   ): Promise<AutomationConfigSyncRecord>;
   prepareDelivery(
-    input: Readonly<{ id: string; tenantId: string; operationKey: string }>,
+    input: Readonly<{
+      id: string;
+      tenantId: string;
+      operationKey: string;
+      scheduledStartAt?: string | null;
+    }>,
   ): Promise<DeliveryRecord>;
   loadDelivery(tenantId: string, deliveryId: string): Promise<DeliveryRecord | undefined>;
   loadDeliveryByOperationKey(
@@ -520,13 +526,17 @@ export function createInMemoryBusinessRepository(dependencies: {
       requireStarted();
       authorize(input.tenantId);
       if (!tenants.has(input.tenantId)) throw new RepositoryError('TENANT_NOT_FOUND');
-      if (!isUuid(input.id) || !isBoundedIdentifier(input.operationKey, false)) {
+      if (
+        !isUuid(input.id) ||
+        !isBoundedIdentifier(input.operationKey, false) ||
+        (input.scheduledStartAt !== undefined && !isTimestampOrNull(input.scheduledStartAt))
+      ) {
         throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       }
       const tenantKey = `${input.tenantId}\u0000${input.operationKey}`;
-      if (deliveries.has(input.id) || deliveryIdsByTenantKey.has(tenantKey)) {
-        throw new RepositoryError('DELIVERY_ALREADY_EXISTS');
-      }
+      if (deliveries.has(input.id)) throw new RepositoryError('DELIVERY_ALREADY_EXISTS');
+      const existingId = deliveryIdsByTenantKey.get(tenantKey);
+      if (existingId) return freezeDelivery(deliveries.get(existingId)!);
       const now = new Date().toISOString();
       const delivery = freezeDelivery({
         ...input,
@@ -536,6 +546,7 @@ export function createInMemoryBusinessRepository(dependencies: {
         leaseUntil: null,
         workerGeneration: null,
         childId: null,
+        scheduledStartAt: input.scheduledStartAt ?? null,
         schemaVersion: 1,
         revision: 1,
         createdAt: now,
@@ -689,6 +700,9 @@ function isPositiveInteger(value: unknown): value is number {
 
 function isTimestamp(value: unknown): value is string {
   return typeof value === 'string' && Number.isFinite(Date.parse(value));
+}
+function isTimestampOrNull(value: unknown): value is string | null {
+  return value === null || isTimestamp(value);
 }
 
 function isClaimInput(value: unknown): value is Readonly<{

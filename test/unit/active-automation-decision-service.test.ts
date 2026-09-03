@@ -53,6 +53,96 @@ void test('loads canonical config and decides a normalized active inbound slice 
   assert.equal(Object.isFrozen(result.decision), true);
 });
 
+void test('persists accepted scheduled metadata once without reparsing replay text', async () => {
+  const repository = await createRepository(true);
+  const service = createActiveAutomationDecisionService({
+    repository,
+    trustedTenant: { tenantId },
+    state: {
+      async load({ messageId }) {
+        const delivery = await repository.loadDeliveryByOperationKey(
+          tenantId,
+          `automation:${messageId}`,
+        );
+        return {
+          hasEntitlement: true,
+          duplicateMessage: false,
+          deliveryExists: delivery !== undefined,
+          delivery,
+        };
+      },
+    },
+  });
+  const messageId = `message:${'c'.repeat(64)}`;
+  const first = await service.decide(
+    {
+      messageId,
+      message: {
+        groupId: 'group_example_one',
+        senderId: 'admin_example_one',
+        text: 'hello 29 Februari 2032 PUKUL 08.30',
+      },
+    },
+    600,
+  );
+  const replay = await service.decide(
+    {
+      messageId,
+      message: {
+        groupId: 'group_example_one',
+        senderId: 'admin_example_one',
+        text: 'hello 1 Januari 2033 PUKUL 10:00',
+      },
+    },
+    600,
+  );
+
+  assert.deepEqual(first.decision, { code: 'ACCEPTED' });
+  assert.deepEqual(replay.decision, { code: 'DELIVERY_ALREADY_EXISTS' });
+  assert.equal(replay.operation?.id, first.operation?.id);
+  assert.equal(replay.operation?.scheduledStartAt, '2032-02-29T01:30:00.000Z');
+});
+
+void test('accepts malformed and missing schedules with null metadata', async () => {
+  const repository = await createRepository(true);
+  const service = createActiveAutomationDecisionService({
+    repository,
+    trustedTenant: { tenantId },
+    state: {
+      load() {
+        return Promise.resolve({
+          hasEntitlement: true,
+          duplicateMessage: false,
+          deliveryExists: false,
+        });
+      },
+    },
+  });
+  for (const [suffix, text] of [
+    ['d', 'hello without a schedule'],
+    ['e', 'hello 32 Januari 2032 PUKUL 08:30'],
+  ]) {
+    const messageId = `message:${suffix!.repeat(64)}`;
+    assert.deepEqual(
+      (
+        await service.decide(
+          {
+            messageId,
+            message: { groupId: 'group_example_one', senderId: 'admin_example_one', text },
+          },
+          600,
+        )
+      ).decision,
+      { code: 'ACCEPTED' },
+    );
+    assert.equal(
+      (await repository.loadDeliveryByOperationKey(tenantId, `automation:${messageId}`))
+        ?.scheduledStartAt,
+      null,
+    );
+  }
+});
+
 void test('stops at an earlier evaluator gate without loading delivery state', async () => {
   const repository = await createRepository(false);
   let stateReads = 0;
