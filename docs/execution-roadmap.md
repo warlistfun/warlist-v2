@@ -105,7 +105,7 @@ Native Android APK/Play Store packaging, passkeys, Google Sheets/Contacts, notif
 
 No next implementation slice is active or authorized by this OM-19 closure.
 
-**Exactly one next recommendation:** `OM-20 — Disposable delivery, confirmation, and entitlement acceptance`, subject to explicit external-send approval for one bounded disposable case.
+**Exactly one next recommendation:** `OM-19.5 — Scheduled-start metadata foundation` through Issue #201. It adds only deterministic WIB schedule extraction and immutable nullable delivery-operation metadata before OM-20; recommendation and Issue creation are not implementation authorization.
 
 A recommendation is not authorization. Every implementation Issue remains bounded to at most two independently testable acceptance criteria. Real account/provider, hosted project, financial, customer-data, deployment, migration, rollback, or Production effects still require their explicit scope and approval at the slice where they occur.
 

@@ -1,6 +1,6 @@
 # WARLIST V2 Unified Operational Migration Roadmap
 
-> **Status:** `OM-01`–`OM-18.8` are landed bounded slices at their recorded evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-18.8` landed. `OM-19`–`OM-69` are `NOT STARTED`. Operational Migration as a whole remains `PARTIALLY VERIFIED`. No implementation Issue is active or authorized by this document alone.
+> **Status:** `OM-01`–`OM-19` are landed bounded slices at their recorded evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-19` landed. `OM-19.5`–`OM-69` are `NOT STARTED`. Operational Migration as a whole remains `PARTIALLY VERIFIED`. No implementation Issue is active or authorized by this document alone.
 >
 > **Governing contract:** [`operational-migration-master.md`](operational-migration-master.md). Active authorization: [`execution-roadmap.md`](execution-roadmap.md).
 
@@ -24,7 +24,7 @@ Every new implementation Issue has one bounded outcome and at most two independe
 ## 2. Status and supersession
 
 - `OM-01–OM-11` retain their original numbers, landed implementation, Issue/PR evidence, and bounded evidence ceilings; OM-A remains closed only at that boundary.
-- `OM-12–OM-18.8` retain their original numbers and landed implementation as partially verified OM-B subsets; they do not close OM-B or the whole migration.
+- `OM-12–OM-19` retain their original numbers and landed implementation as partially verified OM-B subsets; they do not close OM-B or the whole migration.
 - The former planning-only `OM-15–OM-44` rows never started. They are superseded by the `OM-15–OM-69` board below; no implementation history is rewritten.
 - The former Pakasir slices are replaced by Saweria slices. Provider-neutral financial safety invariants are preserved.
 - OPS ID + PIN, deferred customer UI, and a separate post-migration roadmap are superseded by the owner-approved Google/WhatsApp auth, usable product, Android, and Saweria direction.
@@ -73,7 +73,7 @@ A slice never closes its parent phase automatically.
 ## 4. Phase OM-B — Runtime seams, runnable backend, and disposable Baileys acceptance
 
 **Range:** `OM-12–OM-20`
-**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-19` landed; `OM-20` not started
+**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-19` landed; `OM-19.5` and `OM-20` not started
 **Objective:** Compose the preserved backend/bot seams into one runnable non-Production path, then prove the core automation outcome with an explicitly approved disposable WhatsApp account before auth/product work consumes it.
 
 ### Landed OM-B baseline — preserved, not reopened
@@ -161,14 +161,23 @@ These ten landed slices are evidence for OM-B, not phase closure.
 - **Evidence ceiling:** This proves one rejected live decision and the characterized safe guard matrix. It does not prove an accepted live decision, delivery, confirmation, entitlement mutation, graceful shutdown with an open pairing-browser connection, broader group/account compatibility, customer traffic, hosted operation, or Production.
 - **Explicit exclusions:** No customer messages, broad traffic, billing, notification campaign, public deployment, or Production operation.
 
+### OM-19.5 — Scheduled-start metadata foundation
+
+- **Prerequisites:** OM-19.
+- **Status:** `NOT STARTED`; Issue #201 records the bounded contract. Issue creation and roadmap publication do not authorize implementation.
+- **Acceptance criteria (2/2):**
+  1. Existing trigger/keyword matching and automation gate order remain unchanged. After an inbound message is accepted, a deterministic extractor recognizes a valid Indonesian calendar date plus `PUKUL HH:MM`, `PUKUL HH.MM`, or `JAM HH:MM` case-insensitively, ignores invisible characters and trailing list lines, interprets the result as WIB (`Asia/Jakarta`), and persists nullable `scheduled_start_at` on the delivery operation before any external send.
+  2. Missing or malformed schedule metadata remains non-blocking and persists no scheduled start. Duplicate/replay/restart returns the original immutable operation metadata; downstream delivery/confirmation uses that stored value rather than reparsing or overwriting it.
+- **Explicit exclusions:** No change to existing trigger/gate/reply behavior; no user/vendor/assignment authority, cooldown configuration, `nextEligibleAt`, daily-entitlement change, external send, provider/account/credential action, customer/runtime data, hosted deployment, or Production action.
+
 ### OM-20 — Disposable delivery, confirmation, and entitlement acceptance
 
-- **Prerequisites:** OM-19; explicit external-send approval for one bounded disposable case.
+- **Prerequisites:** OM-19.5; explicit external-send approval for one bounded disposable case.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
   1. One accepted disposable inbound event acquires current durable authority, performs at most one Baileys send, persists truthful `SENT`/`AMBIGUOUS` evidence, and processes an approved confirmation.
-  2. Duplicate/replay/restart/stale-worker cases do not resend, double-debit, or advance eligibility twice; after existing trigger acceptance, the delivery operation retains schedule metadata parsed under the canonical WIB contract, and confirmation derives `nextEligibleAt` from parsed `scheduledStartAt` or non-blocking `confirmedAt` fallback plus the fixed nine-hour work duration and supplied cooldown snapshot, without a once-per-business-date eligibility rule.
-- **Explicit exclusions:** No exactly-once network claim, customer account, campaign, billing provider, public deployment, or Production traffic.
+  2. Duplicate/replay/restart/stale-worker cases do not resend or double-debit; the composed confirmation result preserves the operation's immutable scheduled start when present and durable confirmation timestamp for later OM-30 eligibility composition, without reparsing or caller-supplied business authority.
+- **Explicit exclusions:** No user/vendor/assignment authority, cooldown configuration, `nextEligibleAt`, once-per-business-date eligibility gate, exactly-once network claim, customer account, campaign, billing provider, public deployment, or Production traffic.
 
 ### OM-B exit criteria
 
@@ -260,7 +269,7 @@ These ten landed slices are evidence for OM-B, not phase closure.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
   1. Safe group/admin directories plus target/admin/trigger/schedule and user-owned per-vendor cooldown writes validate current server-side provenance, an integer duration from `60` through `10080` minutes in `30`-minute increments, and exact revision before commit.
-  2. Missing/stale/forged/foreign membership, ambiguous trigger ownership, invalid cooldown, conflict, and provider unavailability preserve canonical state without partial activation or worker effect; canonical projections expose the fixed nine-hour work duration, committed cooldown minutes, anchor source, and server-derived `nextEligibleAt`.
+  2. Missing/stale/forged/foreign membership, ambiguous trigger ownership, invalid cooldown, conflict, and provider unavailability preserve canonical state without partial activation or worker effect; canonical projections expose the fixed nine-hour work duration and committed cooldown minutes without fabricating an assignment or `nextEligibleAt` before OM-30.
 - **Explicit exclusions:** No UI, client-trusted JID/phone authority, broad provider scan, customer group, or Production effect.
 
 ### OM-30 — Atomic activation, re-pair, and onboarding closure
@@ -268,7 +277,7 @@ These ten landed slices are evidence for OM-B, not phase closure.
 - **Prerequisites:** OM-28–OM-29.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. Review/activation validates required committed stages and atomically reaches setup-complete, active config, entitlement eligibility, and current worker start without stale or partial state; confirmed assignment atomically snapshots the committed per-vendor cooldown and advances per-user/per-vendor eligibility to parsed `scheduledStartAt`, or non-blocking `confirmedAt` fallback, plus nine hours and that snapshot, including across business-date boundaries, while later setting changes affect only future assignments.
+  1. Review/activation validates required committed stages and atomically reaches setup-complete, active config, entitlement eligibility, and current worker start without stale or partial state; confirmed assignment derives the user from tenant membership and vendor from committed configuration, snapshots that vendor's cooldown, and atomically advances eligibility to immutable `scheduledStartAt`, or durable `confirmedAt` fallback, plus nine hours and that snapshot, including across business-date boundaries, while later setting changes affect only future assignments.
   2. Missing/invalid/revoked Baileys state becomes `REPAIR_REQUIRED`; re-pair resumes the same user/tenant/onboarding contract without credential restore, tenant duplication, or lost config.
 - **Explicit exclusions:** No UI, mandatory cross-host credential backup, customer migration, public rollout, or Production action.
 
@@ -724,10 +733,10 @@ A recommendation is not authorization. External/account/hosted/financial/custome
 
 ## 13. Current recommendation
 
-**Recommended next slice:** `OM-20 — Disposable delivery, confirmation, and entitlement acceptance`.
+**Recommended next slice:** `OM-19.5 — Scheduled-start metadata foundation` through Issue #201.
 
-**Ready because:** OM-19 composed canonical inbound decisions into the runnable worker path and proved one approved disposable live inbound event reaches a correlated safe rejection without delivery or send.
+**Ready because:** OM-19 composed canonical inbound decisions into the runnable worker path, while current source lacks the immutable schedule metadata OM-20 must consume without taking future user/vendor/cooldown authority early.
 
-**Still excluded:** OM-20 implementation and any external send until separately authorized for one bounded disposable case; customer/runtime data, hosted deployment, billing provider, public traffic, and Production effects.
+**Still excluded:** OM-19.5 implementation until explicitly authorized; OM-20 and any external send; user/vendor/cooldown/eligibility authority; customer/runtime data, hosted deployment, billing provider, public traffic, and Production effects.
 
-Stop after OM-19 is checkpointed. Do not open OM-20 in the same session.
+Do not start OM-20 before OM-19.5 is landed and reconciled. Recommendation and Issue creation are not implementation authorization.

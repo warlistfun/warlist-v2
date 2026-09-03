@@ -12,9 +12,10 @@ The user configures cooldown per vendor in 30-minute increments from 60 through 
 
 ## Roadmap ownership
 
-- `OM-20`: schedule extraction after existing trigger acceptance, immutable delivery-operation metadata, fallback anchor, and idempotent eligibility primitive.
-- `OM-29`: canonical per-vendor cooldown write validation and projection.
-- `OM-30`: atomic confirmed-assignment composition and snapshot semantics.
+- `OM-19.5`: schedule extraction after existing trigger acceptance and immutable nullable delivery-operation metadata.
+- `OM-20`: delivery/send/confirmation/debit composition that consumes the stored schedule without introducing later business authority.
+- `OM-29`: canonical per-vendor cooldown write validation and projection without fabricating assignment eligibility.
+- `OM-30`: server-derived user/vendor assignment, fallback anchor, atomic eligibility composition, and snapshot semantics.
 - `OM-36`: customer UI for selecting the canonical cooldown increments; no manual work-start correction prompt.
 
 ## Changed files

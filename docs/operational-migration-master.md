@@ -88,6 +88,8 @@ List eligibility is timestamp-based, not limited to once per business date. Exis
 
 When extraction succeeds, the delivery operation retains the immutable `scheduledStartAt` before external send so retry, restart, and confirmation never reparse the message. When extraction fails, delivery and confirmation remain non-blocking and use `confirmedAt` as the fallback anchor. The first idempotently admitted confirmed assignment snapshots the user's committed per-vendor cooldown, represented as integer minutes from `60` through `10080` in `30`-minute increments, and derives `nextEligibleAt = anchor + nine-hour work duration + cooldown snapshot`. The anchor source is retained as `parsed_trigger` or `confirmation_fallback`; duplicate/replayed confirmation cannot extend eligibility, and later cooldown changes apply only to future assignments. Daily entitlement accounting must not become a once-per-business-date list-eligibility gate.
 
+This contract is deliberately staged. `OM-19.5` owns extraction and immutable nullable schedule metadata only; `OM-20` consumes that metadata through delivery and confirmation without inventing user, vendor, cooldown, or eligibility authority; `OM-29` establishes committed per-vendor configuration provenance; and `OM-30` binds the server-derived user/vendor assignment and computes `nextEligibleAt` atomically.
+
 Legacy screens and code are capability/content/failure-mode references only. Browser, Android-browser/PWA, and admin clients consume the same versioned WARLIST API and canonical server state. They never receive service-role credentials, choose tenant authority, or directly mutate privileged Supabase/business/provider state.
 
 ### 3.3 Android
@@ -133,7 +135,7 @@ They do not require a second roadmap now.
 
 ## 4. Preserved behavior baseline
 
-OM-01–OM-18 are landed bounded subsets. OM-A is closed only through OM-11; OM-12–OM-18 are landed subsets of OM-B, which remains open. OM-18's live evidence used pairing code; planned OM-18.7 owns the unverified live QR scan. Reconciliation may correct status documentation, but it must not reopen, renumber, diminish, or rewrite landed implementation history without a separately evidenced defect.
+OM-01–OM-19 are landed bounded subsets at their recorded evidence ceilings. OM-A is closed only through OM-11; OM-12–OM-19 are landed subsets of OM-B, which remains open. Reconciliation may correct status documentation, but it must not reopen, renumber, diminish, or rewrite landed implementation history without a separately evidenced defect.
 
 The core path remains:
 
