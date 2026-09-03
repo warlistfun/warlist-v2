@@ -84,6 +84,10 @@ public landing and legal pages
   -> relink/REPAIR_REQUIRED recovery
 ```
 
+List eligibility is timestamp-based, not limited to once per business date. Existing trigger/keyword matching and gate order remain unchanged. Only after a message matches the existing trigger, the backend extracts schedule metadata from the accepted admin text: a calendar day, case-insensitive Indonesian month name, and four-digit year followed by `PUKUL HH:MM`, `PUKUL HH.MM`, or `JAM HH:MM`. Invisible characters and trailing list lines do not affect extraction, and every extracted schedule is interpreted as WIB (`Asia/Jakarta`).
+
+When extraction succeeds, the delivery operation retains the immutable `scheduledStartAt` before external send so retry, restart, and confirmation never reparse the message. When extraction fails, delivery and confirmation remain non-blocking and use `confirmedAt` as the fallback anchor. The first idempotently admitted confirmed assignment snapshots the user's committed per-vendor cooldown, represented as integer minutes from `60` through `10080` in `30`-minute increments, and derives `nextEligibleAt = anchor + nine-hour work duration + cooldown snapshot`. The anchor source is retained as `parsed_trigger` or `confirmation_fallback`; duplicate/replayed confirmation cannot extend eligibility, and later cooldown changes apply only to future assignments. Daily entitlement accounting must not become a once-per-business-date list-eligibility gate.
+
 Legacy screens and code are capability/content/failure-mode references only. Browser, Android-browser/PWA, and admin clients consume the same versioned WARLIST API and canonical server state. They never receive service-role credentials, choose tenant authority, or directly mutate privileged Supabase/business/provider state.
 
 ### 3.3 Android
