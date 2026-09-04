@@ -1,8 +1,8 @@
 # WARLIST V2 Unified Operational Migration Roadmap
 
-> **Status:** `OM-01`–`OM-19` are landed bounded slices at their recorded evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-19` landed. `OM-19.5`–`OM-69` are `NOT STARTED`. Operational Migration as a whole remains `PARTIALLY VERIFIED`. No implementation Issue is active or authorized by this document alone.
+> **Status:** `OM-01`–`OM-19.5` are landed bounded slices at their recorded evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-19.5` landed. `OM-20`–`OM-69` are `NOT STARTED`. Operational Migration as a whole remains `PARTIALLY VERIFIED`. No implementation Issue is active from this document alone.
 >
-> **Governing contract:** [`operational-migration-master.md`](operational-migration-master.md). Active authorization: [`execution-roadmap.md`](execution-roadmap.md).
+> **Governing contract:** [`operational-migration-master.md`](operational-migration-master.md). Current direction: [`execution-roadmap.md`](execution-roadmap.md). Issue activation and effect authorization: the standing OM execution envelope in [`AGENTS.md`](../AGENTS.md). Any repeated approval wording for disposable non-Production effects below is historical or superseded by that envelope; the material hard stops in `AGENTS.md` remain current.
 
 ## 1. One-roadmap rule
 
@@ -19,12 +19,12 @@ OM-A  OM-01–OM-11  landed core bot/delivery evidence (closed subset)
   -> OM-H  immutable release and Production cutover
 ```
 
-Every new implementation Issue has one bounded outcome and at most two independently testable acceptance criteria. Global parity, safety, verification, review, CI, merge, cleanup, checkpoint, handoff, and approval requirements are not hidden AC.
+Every new implementation Issue has one bounded outcome and at most two independently testable acceptance criteria. Global parity, safety, verification, review, CI, merge, cleanup, checkpoint, handoff, and execution-envelope requirements are not hidden AC.
 
 ## 2. Status and supersession
 
 - `OM-01–OM-11` retain their original numbers, landed implementation, Issue/PR evidence, and bounded evidence ceilings; OM-A remains closed only at that boundary.
-- `OM-12–OM-19` retain their original numbers and landed implementation as partially verified OM-B subsets; they do not close OM-B or the whole migration.
+- `OM-12–OM-19.5` retain their original numbers and landed implementation as partially verified OM-B subsets; they do not close OM-B or the whole migration.
 - The former planning-only `OM-15–OM-44` rows never started. They are superseded by the `OM-15–OM-69` board below; no implementation history is rewritten.
 - The former Pakasir slices are replaced by Saweria slices. Provider-neutral financial safety invariants are preserved.
 - OPS ID + PIN, deferred customer UI, and a separate post-migration roadmap are superseded by the owner-approved Google/WhatsApp auth, usable product, Android, and Saweria direction.
@@ -73,8 +73,8 @@ A slice never closes its parent phase automatically.
 ## 4. Phase OM-B — Runtime seams, runnable backend, and disposable Baileys acceptance
 
 **Range:** `OM-12–OM-20`
-**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-19` landed; `OM-19.5` and `OM-20` not started
-**Objective:** Compose the preserved backend/bot seams into one runnable non-Production path, then prove the core automation outcome with an explicitly approved disposable WhatsApp account before auth/product work consumes it.
+**Status:** `PARTIALLY VERIFIED` — `OM-12`–`OM-19.5` landed; `OM-20` not started
+**Objective:** Compose the preserved backend/bot seams into one runnable non-Production path, then prove the core automation outcome with a disposable WhatsApp account under an activated Issue before auth/product work consumes it.
 
 ### Landed OM-B baseline — preserved, not reopened
 
@@ -90,8 +90,9 @@ A slice never closes its parent phase automatically.
 | `OM-18.7` | Disposable QR pairing acceptance                 | Issue #192 / PR #193 / `35a1b95`  | One approved disposable QR scan to `OPEN`                     |
 | `OM-18.8` | Disposable QR credential resume acceptance       | Issue #194 / PR #195 / `8023850`  | One approved root resumes after one controlled worker restart |
 | `OM-19`   | Disposable live inbound-to-decision acceptance   | Issue #198 / PR #199              | One approved disposable group/admin/message fixture           |
+| `OM-19.5` | Scheduled-start metadata foundation              | Issue #201 / PR #202 / `6af6eda`  | Deterministic local/PostgreSQL; no provider effect            |
 
-These ten landed slices are evidence for OM-B, not phase closure.
+These eleven landed slices are evidence for OM-B, not phase closure.
 
 ### OM-15 — Runnable application and HTTP adapter composition
 
@@ -164,7 +165,7 @@ These ten landed slices are evidence for OM-B, not phase closure.
 ### OM-19.5 — Scheduled-start metadata foundation
 
 - **Prerequisites:** OM-19.
-- **Status:** `NOT STARTED`; Issue #201 records the bounded contract. Issue creation and roadmap publication do not authorize implementation.
+- **Status:** `PARTIALLY VERIFIED`; implementation landed through Issue #201 / PR #202 / merge `6af6edaff6d71b448cb6886900a078111195b228` with exact-head quality/security CI green at its deterministic local/PostgreSQL ceiling. No terminal checkpoint or required schema/migration review evidence was found during this reconciliation.
 - **Acceptance criteria (2/2):**
   1. Existing trigger/keyword matching and automation gate order remain unchanged. After an inbound message is accepted, a deterministic extractor recognizes a valid Indonesian calendar date plus `PUKUL HH:MM`, `PUKUL HH.MM`, or `JAM HH:MM` case-insensitively, ignores invisible characters and trailing list lines, interprets the result as WIB (`Asia/Jakarta`), and persists nullable `scheduled_start_at` on the delivery operation before any external send.
   2. Missing or malformed schedule metadata remains non-blocking and persists no scheduled start. Duplicate/replay/restart returns the original immutable operation metadata; downstream delivery/confirmation uses that stored value rather than reparsing or overwriting it.
@@ -172,10 +173,10 @@ These ten landed slices are evidence for OM-B, not phase closure.
 
 ### OM-20 — Disposable delivery, confirmation, and entitlement acceptance
 
-- **Prerequisites:** OM-19.5; explicit external-send approval for one bounded disposable case.
+- **Prerequisites:** OM-19.5.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
-  1. One accepted disposable inbound event acquires current durable authority, performs at most one Baileys send, persists truthful `SENT`/`AMBIGUOUS` evidence, and processes an approved confirmation.
+  1. One accepted disposable inbound event acquires current durable authority, performs at most one Baileys send, persists truthful `SENT`/`AMBIGUOUS` evidence, and processes one correlated admitted confirmation.
   2. Duplicate/replay/restart/stale-worker cases do not resend or double-debit; the composed confirmation result preserves the operation's immutable scheduled start when present and durable confirmation timestamp for later OM-30 eligibility composition, without reparsing or caller-supplied business authority.
 - **Explicit exclusions:** No user/vendor/assignment authority, cooldown configuration, `nextEligibleAt`, once-per-business-date eligibility gate, exactly-once network claim, customer account, campaign, billing provider, public deployment, or Production traffic.
 
@@ -193,7 +194,7 @@ These ten landed slices are evidence for OM-B, not phase closure.
 
 ### OM-21 — Supabase same-user auth feasibility proof
 
-- **Prerequisites:** OM-B; official current Supabase documentation; explicit isolated disposable-project approval.
+- **Prerequisites:** OM-B; official current Supabase documentation.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
   1. A disposable proof determines whether one Google-created Supabase user can safely gain phone/password login while preserving the exact same user ID and without exposing admin/service-role authority to the client.
@@ -403,7 +404,7 @@ These ten landed slices are evidence for OM-B, not phase closure.
 - **Acceptance criteria (2/2):**
   1. A validated tenant checkout command persists one intent before at most one gateway create call and returns only a bounded safe QR/payment projection.
   2. Idempotency reuse, unresolved-invoice limit, timeout, restart, conflicting input, and gateway error converge on canonical created/pending/ambiguous state without duplicate intent or charge assumption.
-- **Explicit exclusions:** Fake gateway only unless separately approved; no real money, customer account, UI, or Production operation.
+- **Explicit exclusions:** No real-money payment, customer account, UI, or Production operation; any disposable gateway acceptance stays bounded by the active Issue.
 
 ### OM-42 — Saweria signal and authoritative payment verification
 
@@ -412,7 +413,7 @@ These ten landed slices are evidence for OM-B, not phase closure.
 - **Acceptance criteria (2/2):**
   1. Gateway signals are authenticated, timestamp/replay bounded, correlated to one current checkout, and treated as prompts for authoritative verification rather than financial truth.
   2. Malformed, forged, duplicate, out-of-order, wrong-amount/order, expired, unavailable, and conflicting evidence cannot terminally mark paid or credit entitlement.
-- **Explicit exclusions:** No real financial mutation without approval, browser-trusted payment result, Pakasir, pricing change, or Production callback.
+- **Explicit exclusions:** No real financial mutation under the standing envelope; that effect requires exact approval. No browser-trusted payment result, Pakasir, pricing change, or Production callback.
 
 ### OM-43 — Atomic Saweria settlement and entitlement credit
 
@@ -439,7 +440,7 @@ These ten landed slices are evidence for OM-B, not phase closure.
 - **Acceptance criteria (2/2):**
   1. Authenticated users create one checkout and inspect safe creating/pending/paid/failed/expired/ambiguous/reconciling/payment-history states through canonical server confirmation.
   2. Refresh/back/offline/timeout/retry/duplicate-submit/expired-QR/manual-attention flows remain accessible and never treat browser redirect, local timer, QR disappearance, or gateway signal as paid truth.
-- **Explicit exclusions:** No customer transaction without explicit isolated approval, direct gateway/browser call, fake success, public deployment, or Production billing.
+- **Explicit exclusions:** No customer transaction under the standing envelope; that effect requires exact approval. No direct gateway/browser call, fake success, public deployment, or Production billing.
 
 ### OM-46 — Approved disposable Saweria acceptance and phase closure
 
@@ -539,7 +540,7 @@ These ten landed slices are evidence for OM-B, not phase closure.
 
 ### OM-54 — Isolated hosted business database and runtime roles
 
-- **Prerequisites:** OM-B–OM-F; explicit isolated hosted-project approval; current official service limits.
+- **Prerequisites:** OM-B–OM-F; current official service limits.
 - **Status:** `NOT STARTED`.
 - **Acceptance criteria (2/2):**
   1. An isolated PostgreSQL/Supabase project applies current migrations through a migration role while runtime uses separate least-privilege credentials and configuration.
@@ -729,14 +730,14 @@ one owner-authorized Issue with <= 2 AC
   -> stop
 ```
 
-A recommendation is not authorization. External/account/hosted/financial/customer-data/deployment/Production effects require explicit approval at the exact owning slice.
+A recommendation is not authorization. A direct owner instruction activates one Issue and its standing execution envelope through the terminal checkpoint. Do not request another approval for an in-scope disposable effect; apply only the hard stops in `AGENTS.md`.
 
 ## 13. Current recommendation
 
-**Recommended next slice:** `OM-19.5 — Scheduled-start metadata foundation` through Issue #201.
+**Recommended next slice:** `OM-20 — Disposable delivery, confirmation, and entitlement acceptance` through Issue #200.
 
-**Ready because:** OM-19 composed canonical inbound decisions into the runnable worker path, while current source lacks the immutable schedule metadata OM-20 must consume without taking future user/vendor/cooldown authority early.
+**Ready because:** OM-19 composed canonical inbound decisions into the runnable worker path, and OM-19.5 landed the immutable scheduled-start metadata OM-20 consumes without taking future user/vendor/cooldown authority early.
 
-**Still excluded:** OM-19.5 implementation until explicitly authorized; OM-20 and any external send; user/vendor/cooldown/eligibility authority; customer/runtime data, hosted deployment, billing provider, public traffic, and Production effects.
+**Still excluded:** OM-20 implementation until a direct owner instruction activates Issue #200; user/vendor/cooldown/eligibility authority; customer/runtime data, billing provider, public traffic, and Production effects.
 
-Do not start OM-20 before OM-19.5 is landed and reconciled. Recommendation and Issue creation are not implementation authorization.
+Recommendation and Issue creation do not activate OM-20. Once the owner directly authorizes Issue #200, its in-scope disposable provider effects require no second approval.

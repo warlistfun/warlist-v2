@@ -33,7 +33,7 @@ The frozen PR #100 foundation plus later bounded overlays provide reusable TypeS
 
 ### Operational Migration
 
-**Status:** `OM-01`–`OM-19` are landed bounded slices at their recorded synthetic/local/disposable evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-19` landed. Operational Migration as a whole remains `PARTIALLY VERIFIED`.
+**Status:** `OM-01`–`OM-19.5` are landed bounded slices at their recorded synthetic/local/disposable evidence ceilings. OM-A is closed only through `OM-11`; OM-B is `PARTIALLY VERIFIED` with `OM-12`–`OM-19.5` landed. Operational Migration as a whole remains `PARTIALLY VERIFIED`.
 
 - `OM-01`–`OM-11`: Issues #132, #136, #140, #142, #146, #148, #150, #152, #154, #156, and #158.
 - `OM-12`: Issue #164 / PR #165 / merge `d5dc513e81ab325203c60087f4b1bcdc4a9b09a6`.
@@ -46,8 +46,9 @@ The frozen PR #100 foundation plus later bounded overlays provide reusable TypeS
 - `OM-18.7`: Issue #192 / PR #193 / merge `35a1b95625151343ebc990f5d091c6e65411c91c`.
 - `OM-18.8`: Issue #194 / PR #195 / merge `80238506afac9824082fa81dd8cf8f406baf621b`.
 - `OM-19`: Issue #198 / PR #199; one approved disposable group/admin/message fixture reached a correlated live `WRONG_GROUP` decision with no send.
+- `OM-19.5`: Issue #201 / PR #202 / merge `6af6edaff6d71b448cb6886900a078111195b228`; immutable nullable scheduled-start metadata is landed at its deterministic local/PostgreSQL ceiling.
 
-These are valid landed subsets and are not reopened or rewritten by this roadmap reconciliation. OM-18 proves one approved disposable pairing-code lifecycle; OM-18.7 proves one approved disposable QR scan to `OPEN`; OM-18.8 proves one approved isolated QR credential root resumes to `OPEN` after one controlled worker restart without another QR; OM-19 proves one approved disposable inbound reaches a correlated safe rejection without delivery/send. These slices do not prove customer accounts, broader provider compatibility, hosted operation, customer migration, deployment, financial effect, or Production operation.
+These are valid landed subsets and are not reopened or rewritten by this roadmap reconciliation. OM-18 proves one approved disposable pairing-code lifecycle; OM-18.7 proves one approved disposable QR scan to `OPEN`; OM-18.8 proves one approved isolated QR credential root resumes to `OPEN` after one controlled worker restart without another QR; OM-19 proves one approved disposable inbound reaches a correlated safe rejection without delivery/send; OM-19.5 proves immutable scheduled-start metadata without provider effects. These slices do not prove customer accounts, broader provider compatibility, hosted operation, customer migration, deployment, financial effect, or Production operation.
 
 The public frontend foundation also exists through PR #124 and PR #130. It is preserved as landed foundation, not counted as integrated customer-product completion.
 
@@ -103,11 +104,11 @@ Native Android APK/Play Store packaging, passkeys, Google Sheets/Contacts, notif
 
 ## 6. Current decision point
 
-No next implementation slice is active or authorized by this OM-19 closure.
+No OM implementation slice is active from roadmap status alone.
 
-**Exactly one next recommendation:** `OM-19.5 — Scheduled-start metadata foundation` through Issue #201. It adds only deterministic WIB schedule extraction and immutable nullable delivery-operation metadata before OM-20; recommendation and Issue creation are not implementation authorization.
+**Exactly one next recommendation:** `OM-20 — Disposable delivery, confirmation, and entitlement acceptance` through Issue #200.
 
-A recommendation is not authorization. Every implementation Issue remains bounded to at most two independently testable acceptance criteria. Real account/provider, hosted project, financial, customer-data, deployment, migration, rollback, or Production effects still require their explicit scope and approval at the slice where they occur.
+A recommendation or open Issue is not authorization. A direct owner instruction to continue or work on OM-20 activates the standing OM execution envelope in `AGENTS.md`. That one instruction covers every local, synthetic, and disposable non-Production effect required by the frozen acceptance criteria; only the envelope's material hard stops need separate approval.
 
 ## 7. Safety and authority
 
@@ -115,4 +116,4 @@ A recommendation is not authorization. Every implementation Issue remains bounde
 - This execution roadmap authorizes only the owner-approved roadmap direction; it does not make unimplemented slices complete.
 - Historical plans and legacy Markdown remain evidence and provenance, not competing execution authority.
 - Legacy Production `/home/marlo/warlist`, runtime/customer data, credentials, databases, logs, and protected paths remain untouched.
-- No status wording authorizes Production, provider, account, credential, hosted, customer-data, financial, deployment, destructive, cutover, or rollback action by implication.
+- Status wording alone neither activates an Issue nor overrides the canonical execution envelope and its hard stops in `AGENTS.md`.
