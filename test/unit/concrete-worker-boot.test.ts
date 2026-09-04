@@ -105,7 +105,7 @@ void test('runnable entrypoint boots every canonical active tenant through concr
   await entrypoint.stop();
 });
 
-void test('concrete runtime evaluates the bounded inbound matrix without delivery', async () => {
+void test('concrete runtime evaluates the bounded inbound matrix without external send', async () => {
   const repository = new ControlledTenantRepository([tenantOne]);
   const children: AckingWorkerProcess[] = [];
   const diagnostics: Array<Readonly<Record<string, unknown>> | undefined> = [];
@@ -370,6 +370,7 @@ class ControlledTenantRepository implements RepositoryPort {
   entitlementUnits = 1;
   deliveryLookups = 0;
   private readonly tenants: Map<string, TenantRecord>;
+  private readonly deliveries = new Map<string, DeliveryRecord>();
   private ready = false;
 
   constructor(tenantIds: readonly string[]) {
@@ -413,9 +414,43 @@ class ControlledTenantRepository implements RepositoryPort {
     return Promise.resolve({ tenantId, units: this.entitlementUnits });
   }
 
-  loadDeliveryByOperationKey(): Promise<DeliveryRecord | undefined> {
+  loadDeliveryByOperationKey(
+    tenantId: string,
+    operationKey: string,
+  ): Promise<DeliveryRecord | undefined> {
     this.deliveryLookups += 1;
-    return Promise.resolve(undefined);
+    return Promise.resolve(this.deliveries.get(`${tenantId}\u0000${operationKey}`));
+  }
+
+  prepareDelivery(
+    input: Readonly<{
+      id: string;
+      tenantId: string;
+      operationKey: string;
+      scheduledStartAt?: string | null;
+    }>,
+  ): Promise<DeliveryRecord> {
+    const key = `${input.tenantId}\u0000${input.operationKey}`;
+    const existing = this.deliveries.get(key);
+    if (existing) return Promise.resolve(existing);
+    const delivery = Object.freeze({
+      id: input.id,
+      tenantId: input.tenantId,
+      operationKey: input.operationKey,
+      scheduledStartAt: input.scheduledStartAt ?? null,
+      status: 'PREPARED' as const,
+      claimOwner: null,
+      claimFence: 0,
+      leaseUntil: null,
+      workerGeneration: null,
+      childId: null,
+      schemaVersion: 1,
+      revision: 1,
+      createdAt: '2026-08-29T00:00:00.000Z',
+      updatedAt: '2026-08-29T00:00:00.000Z',
+    });
+    this.deliveries.set(key, delivery);
+    return Promise.resolve(delivery);
   }
 }
 
