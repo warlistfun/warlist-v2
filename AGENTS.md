@@ -21,6 +21,13 @@
 - Concrete security, tenant-isolation, data-integrity, duplicate-effect, and lifecycle risks remain blockers. Non-material ambiguity uses the safest in-scope default. An ambiguous network outcome must be reconciled before retry and never permits a blind repeated effect.
 - Once active and free of a concrete blocker, continue through verification and closure. Do not pause for repeated authorization wording, status housekeeping, an owner-supplied disposable manifest, or speculative advisor/reviewer concerns.
 
+### Legacy product reference
+
+- Before asking the owner, every OM slice whose behavior, flow, terminology, copy/messages, or fixtures have a legacy counterpart must perform targeted read-only inspection: start with `/home/marlo/warlist/PRODUCT.md` and `/home/marlo/warlist/RULES.md`, then read only the relevant source/test blocks. Use that evidence to derive the trigger, gate order, reply/outbound, confirmation, state transition, and synthetic fixtures; do not ask the owner to redefine behavior the legacy evidence already proves.
+- Legacy is context and parity evidence only. `warlist-v2` and the current OM roadmap remain the sole authority for scope, sequence, architecture, implementation, and status. Classify every observable difference as `PARITY`, `CONFIRMED_BUG_FIX`, `SAFETY_HARDENING`, `OWNER_APPROVED_CHANGE`, `RETIRE`, or `UNKNOWN`; do not port OPS ID/PIN, Pakasir, Telegram control, legacy PWA push, known bugs, or superseded architecture by default.
+- Ask only when legacy and the V2 contract conflict, behavior is new or has no counterpart, a material product decision is required, or human interaction such as QR/OTP cannot be automated. Every question must state the evidence inspected, concrete gap, and one default recommendation; never send the owner an empty checklist.
+- Never read or use project-local SOUL/identity files. The hard boundaries below also apply to the legacy checkout and equivalent credential, customer, provider-runtime, backup, or database paths. Never mutate that checkout, and use only invented identifiers and synthetic data as fixtures. This policy does not weaken the OM execution envelope or rewrite historical evidence as if it applied retroactively.
+
 ### Execution-roadmap authority — mandatory for WARLIST V2
 
 - `docs/execution-roadmap.md` is the active execution authority. Backend Foundation remains `PARTIALLY VERIFIED` and non-operational after the as-built audit. Unified Operational Migration preserves `OM-01` through `OM-19.5` as landed bounded evidence while the whole product remains `PARTIALLY VERIFIED`; `OM-20` is the sole next recommendation. Start it only through the direct owner instruction defined by the OM execution envelope.
