@@ -70,6 +70,11 @@ const migrations = [
     name: 'delivery-scheduled-start',
     sql: readFileSync(resolve('migrations/0012-delivery-scheduled-start.sql'), 'utf8'),
   },
+  {
+    revision: 13,
+    name: 'inbound-confirmation-admission',
+    sql: readFileSync(resolve('migrations/0013-inbound-confirmation-admission.sql'), 'utf8'),
+  },
 ] as const;
 
 export type DisposablePostgres = Readonly<{

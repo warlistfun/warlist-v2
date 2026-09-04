@@ -3,6 +3,7 @@ import test from 'node:test';
 
 import { Client } from 'pg';
 
+import { createDeliveryConfirmationAdmissionService } from '../../src/modules/delivery/application/delivery-confirmation-admission-service';
 import { createDeliveryConfirmationService } from '../../src/modules/delivery/application/delivery-confirmation-service';
 import { createPostgresBusinessRepository } from '../../src/infrastructure/database/postgres-business-repository';
 import { createDeliveryClaimService } from '../../src/modules/delivery/application/delivery-claim-service';
@@ -34,6 +35,7 @@ void test('confirms a sent delivery once and debits at most once for its WIB dat
     });
   }
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
+  await admitConfirmation(fixture, 'inbound_confirmation_first');
 
   const first = await confirmation.confirm(authority);
   const replay = await confirmation.confirm(authority);
@@ -51,30 +53,19 @@ void test('confirms a sent delivery once and debits at most once for its WIB dat
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
 });
 
-void test('confirms a second sent delivery on the same WIB date without another debit', async (t) => {
+void test('fails closed when more than one sent delivery could match one inbound confirmation', async (t) => {
   const fixture = await createFixture(t);
-  const first = await prepareSentDelivery(fixture);
-  const second = await prepareSentDelivery(fixture, {
+  await prepareSentDelivery(fixture);
+  await prepareSentDelivery(fixture, {
     operationId: '00000000-0000-4000-8000-000000000a05',
     attemptId: '00000000-0000-4000-8000-000000000a06',
     operationKey: 'automation:message_confirmation_second',
   });
-  const confirmation = createDeliveryConfirmationService({
-    repository: fixture.repository,
-    trustedTenant: { tenantId },
-    clock: new FixedClock(new Date('2030-01-01T17:00:00.000Z')),
-    idGenerator: { generate: () => '00000000-0000-4000-8000-000000000a07' },
+
+  await assert.rejects(admitConfirmation(fixture, 'inbound_confirmation_ambiguous'), {
+    code: 'DELIVERY_CONFIRMATION_CONFLICT',
   });
-
-  const [firstResult, secondResult] = await Promise.all([
-    confirmation.confirm(first),
-    confirmation.confirm(second),
-  ]);
-
-  assert.equal(firstResult.operation.status, 'CONFIRMED');
-  assert.equal(secondResult.operation.status, 'CONFIRMED');
-  assert.equal([firstResult.debit, secondResult.debit].filter(Boolean).length, 1);
-  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
 });
 
 void test('rejects an expired initial confirmation without debit or state drift', async (t) => {
@@ -87,6 +78,7 @@ void test('rejects an expired initial confirmation without debit or state drift'
     idGenerator: { generate: () => '00000000-0000-4000-8000-000000000a08' },
   });
   const expiredLease = await expireLease(fixture, expiredAuthority.operationId);
+  await admitConfirmation(fixture, 'inbound_confirmation_expired');
 
   await assert.rejects(confirmation.confirm({ ...expiredAuthority, leaseUntil: expiredLease }), {
     code: 'DELIVERY_CLAIM_CONFLICT',
@@ -108,6 +100,7 @@ void test('replays a durable confirmation with the exact expired persisted lease
     clock: new FixedClock(new Date('2030-01-02T17:00:00.000Z')),
     idGenerator: { generate: () => '00000000-0000-4000-8000-000000000a11' },
   });
+  await admitConfirmation(fixture, 'inbound_confirmation_replay');
   const first = await replayConfirmation.confirm(replayAuthority);
   const replayLease = await expireLease(fixture, replayAuthority.operationId);
   const replay = await replayConfirmation.confirm({ ...replayAuthority, leaseUntil: replayLease });
@@ -184,6 +177,21 @@ async function prepareSentDelivery(
     providerMessageId: 'provider_message_confirmation',
   });
   return authority;
+}
+async function admitConfirmation(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  confirmationMessageId: string,
+) {
+  await createDeliveryConfirmationAdmissionService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+  }).admit({
+    tenantId,
+    confirmationMessageId,
+    publicOpsId: 'ops_example_confirmation',
+    workerGeneration: 1,
+    childId: 'child_example_1',
+  });
 }
 
 async function expireLease(

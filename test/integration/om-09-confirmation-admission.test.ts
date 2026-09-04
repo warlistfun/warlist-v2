@@ -32,73 +32,86 @@ const worker = {
   revision: 1,
 };
 
-void test('admits only a valid confirmation correlated to the current tenant delivery and attempt', async (t) => {
+void test('admits one later inbound OPS confirmation without mistaking outbound send evidence for confirmation', async (t) => {
   const fixture = await createFixture(t);
   await fixture.repository.prepareDelivery({
     id: operationId,
     tenantId,
     operationKey: 'automation:om_09_confirmation',
+    scheduledStartAt: '2030-01-02T08:00:00.000Z',
   });
   await sendOnce(fixture, operationId, attemptId);
   await assertConfirmationShapeConstraint(fixture);
-
   const admission = createDeliveryConfirmationAdmissionService({
     repository: fixture.repository,
     trustedTenant: { tenantId },
   });
-  const valid = { tenantId, operationId, attemptId, providerMessageId };
+  const valid = {
+    tenantId,
+    confirmationMessageId: 'inbound_confirmation_om_09',
+    publicOpsId: 'ops_example_om_09',
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  };
 
   for (const malformed of [
     null,
     {},
-    { ...valid, attemptId: 'not-an-attempt-id' },
-    { ...valid, providerMessageId: ' raw-provider-payload ' },
+    { ...valid, confirmationMessageId: ' raw-provider-payload ' },
+    { ...valid, publicOpsId: 'ops identifier with spaces' },
   ]) {
     await assert.rejects(admission.admit(malformed), { code: 'INVALID_REPOSITORY_INPUT' });
   }
-  await assert.rejects(admission.admit({ ...valid, tenantId: foreignTenantId }), {
-    code: 'TENANT_ACCESS_DENIED',
-  });
-  for (const stale of [
-    { ...valid, operationId: '00000000-0000-4000-8000-000000000c05' },
-    { ...valid, attemptId: '00000000-0000-4000-8000-000000000c06' },
-    { ...valid, providerMessageId: 'provider_message_om_09_stale' },
+  await assert.rejects(
+    admission.admit({ ...valid, tenantId: foreignTenantId, publicOpsId: 'ops_example_foreign' }),
+    { code: 'TENANT_ACCESS_DENIED' },
+  );
+  for (const rejected of [
+    { ...valid, publicOpsId: 'ops_not_this_tenant' },
+    { ...valid, workerGeneration: worker.generation + 1 },
   ]) {
-    await assert.rejects(admission.admit(stale), { code: 'DELIVERY_CONFIRMATION_CONFLICT' });
+    await assert.rejects(admission.admit(rejected), { code: 'DELIVERY_CONFIRMATION_CONFLICT' });
   }
 
   const outcome = await admission.admit(valid);
-  assert.equal(outcome.outcome, 'CONFIRMED');
   assert.deepEqual(
     {
       tenantId: outcome.tenantId,
       operationId: outcome.operationId,
       attemptId: outcome.attemptId,
-      providerMessageId: outcome.providerMessageId,
+      confirmationMessageId: outcome.confirmationMessageId,
     },
-    valid,
+    { tenantId, operationId, attemptId, confirmationMessageId: valid.confirmationMessageId },
   );
   assert.match(outcome.confirmedAt, /^\d{4}-\d{2}-\d{2}T/);
   assert.equal((await fixture.repository.loadDelivery(tenantId, operationId))?.status, 'SENT');
+  assert.equal(
+    (await fixture.repository.loadDelivery(tenantId, operationId))?.scheduledStartAt,
+    '2030-01-02T08:00:00.000Z',
+  );
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
   assert.equal(fixture.sends.count, 1);
 });
 
-void test('duplicate, out-of-order, and post-restart confirmations converge on one durable outcome', async (t) => {
+void test('replays inbound confirmation once and fails closed for ambiguous sent operations', async (t) => {
   const fixture = await createFixture(t);
   await fixture.repository.prepareDelivery({
     id: operationId,
     tenantId,
     operationKey: 'automation:om_09_confirmation_replay',
   });
-  const valid = { tenantId, operationId, attemptId, providerMessageId };
+  await sendOnce(fixture, operationId, attemptId);
   const admission = createDeliveryConfirmationAdmissionService({
     repository: fixture.repository,
     trustedTenant: { tenantId },
   });
-  await assert.rejects(admission.admit(valid), { code: 'DELIVERY_CONFIRMATION_CONFLICT' });
-  await sendOnce(fixture, operationId, attemptId);
-
+  const valid = {
+    tenantId,
+    confirmationMessageId: 'inbound_confirmation_replay_om_09',
+    publicOpsId: 'ops_example_om_09',
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  };
   const [first, duplicate, outOfOrder] = await Promise.all([
     admission.admit(valid),
     admission.admit(valid),
@@ -106,39 +119,86 @@ void test('duplicate, out-of-order, and post-restart confirmations converge on o
   ]);
   assert.deepEqual(duplicate, first);
   assert.deepEqual(outOfOrder, first);
-
   await fixture.repository.stop();
   const restartedRepository = createRepository(fixture.database, fixture.authorization);
   await restartedRepository.start();
   t.after(() => restartedRepository.stop());
-  const restartedAdmission = createDeliveryConfirmationAdmissionService({
-    repository: restartedRepository,
-    trustedTenant: { tenantId },
-  });
-  assert.deepEqual(await restartedAdmission.admit(valid), first);
-  const client = new Client(fixture.database.config);
-  await client.connect();
-  const durable = await client.query<{
-    confirmation_count: string;
-    confirmation_provider_message_id: string;
-    confirmed_at: Date;
-  }>(
-    `SELECT count(*) FILTER (WHERE confirmed_at IS NOT NULL)::text AS confirmation_count,
-            max(confirmation_provider_message_id) AS confirmation_provider_message_id,
-            max(confirmed_at) AS confirmed_at
-     FROM delivery_attempts WHERE tenant_id = $1 AND operation_id = $2`,
-    [tenantId, operationId],
+  assert.deepEqual(
+    await createDeliveryConfirmationAdmissionService({
+      repository: restartedRepository,
+      trustedTenant: { tenantId },
+    }).admit(valid),
+    first,
   );
-  await client.end();
-  assert.deepEqual(durable.rows[0], {
-    confirmation_count: '1',
-    confirmation_provider_message_id: providerMessageId,
-    confirmed_at: new Date(first.confirmedAt),
+
+  await restartedRepository.prepareDelivery({
+    id: '00000000-0000-4000-8000-000000000c05',
+    tenantId,
+    operationKey: 'automation:om_09_confirmation_ambiguous',
   });
+  await sendOnce(
+    { ...fixture, repository: restartedRepository },
+    '00000000-0000-4000-8000-000000000c05',
+    '00000000-0000-4000-8000-000000000c06',
+  );
+  await assert.rejects(
+    createDeliveryConfirmationAdmissionService({
+      repository: restartedRepository,
+      trustedTenant: { tenantId },
+    }).admit({ ...valid, confirmationMessageId: 'inbound_confirmation_ambiguous_om_09' }),
+    { code: 'DELIVERY_CONFIRMATION_CONFLICT' },
+  );
   assert.equal((await restartedRepository.readEntitlementBalance(tenantId)).units, 0);
-  assert.equal(fixture.sends.count, 1);
 });
 
+void test('fails closed when a concurrent settlement creates a second eligible operation', async (t) => {
+  const fixture = await createFixture(t);
+  await fixture.repository.prepareDelivery({
+    id: operationId,
+    tenantId,
+    operationKey: 'automation:om_09_confirmation_race_first',
+  });
+  await sendOnce(fixture, operationId, attemptId);
+  const secondOperationId = '00000000-0000-4000-8000-000000000c15';
+  const secondAttemptId = '00000000-0000-4000-8000-000000000c16';
+  const secondAuthority = await beginSending(fixture, secondOperationId, secondAttemptId);
+  const writer = new Client(fixture.database.config);
+  const observer = new Client(fixture.database.config);
+  await Promise.all([writer.connect(), observer.connect()]);
+  t.after(() => Promise.all([writer.end(), observer.end()]));
+  await writer.query('BEGIN');
+  await writer.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+  await writer.query(
+    `UPDATE delivery_operations SET status = 'SENT'
+     WHERE tenant_id = $1 AND id = $2 AND claim_fence = $3`,
+    [tenantId, secondOperationId, secondAuthority.claimFence],
+  );
+  await writer.query(
+    `UPDATE delivery_attempts SET status = 'SENT', provider_message_id = 'provider_message_race'
+     WHERE tenant_id = $1 AND id = $2 AND claim_fence = $3`,
+    [tenantId, secondAttemptId, secondAuthority.claimFence],
+  );
+  const admission = createDeliveryConfirmationAdmissionService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+  }).admit({
+    tenantId,
+    confirmationMessageId: 'inbound_confirmation_race_om_09',
+    publicOpsId: 'ops_example_om_09',
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  });
+  await waitForAdmissionLock(observer);
+  await writer.query('COMMIT');
+  await assert.rejects(admission, { code: 'DELIVERY_CONFIRMATION_CONFLICT' });
+  const persisted = await observer.query<{ confirmation_count: string }>(
+    `SELECT count(*) FILTER (WHERE confirmation_message_id IS NOT NULL)::text AS confirmation_count
+     FROM delivery_attempts WHERE tenant_id = $1 AND id = $2`,
+    [tenantId, attemptId],
+  );
+  assert.equal(persisted.rows[0]?.confirmation_count, '0');
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
+});
 async function createFixture(t: test.TestContext) {
   const database = await createDisposablePostgres(t, 'warlist-pg16-om-09-');
   const authorization = new MutableTenantAuthorization();
@@ -225,6 +285,68 @@ async function sendOnce(
   });
   assert.equal(completion.outcome, 'SENT');
 }
+async function beginSending(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  targetOperationId: string,
+  targetAttemptId: string,
+) {
+  await fixture.repository.prepareDelivery({
+    id: targetOperationId,
+    tenantId,
+    operationKey: `automation:om_09_confirmation_${targetAttemptId}`,
+  });
+  const claim = await createDeliveryClaimService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    ownerId: 'claim_owner_om_09',
+    idGenerator: { generate: () => targetAttemptId },
+  }).claim({
+    operationId: targetOperationId,
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  });
+  const authority = {
+    operationId: targetOperationId,
+    attemptId: targetAttemptId,
+    claimFence: claim.operation.claimFence,
+    claimOwner: claim.operation.claimOwner!,
+    leaseUntil: claim.operation.leaseUntil!,
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  };
+  await fixture.repository.beginDelivery({ tenantId, ...authority });
+  return authority;
+}
+
+async function waitForAdmissionLock(observer: Client): Promise<void> {
+  for (let attempt = 0; attempt < 50; attempt += 1) {
+    const result = await observer.query<{ waiting: boolean }>(
+      `SELECT EXISTS (
+         SELECT 1 FROM pg_stat_activity
+         WHERE datname = current_database() AND wait_event_type = 'Lock'
+           AND query LIKE '%locked_tenant%'
+       ) AS waiting`,
+    );
+    if (result.rows[0]?.waiting) return;
+    await new Promise((resolve) => setTimeout(resolve, 10));
+  }
+  assert.fail('delivery confirmation admission did not wait for the tenant lock');
+}
+async function admitConfirmation(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  confirmationMessageId: string,
+): Promise<void> {
+  await createDeliveryConfirmationAdmissionService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+  }).admit({
+    tenantId,
+    confirmationMessageId,
+    publicOpsId: 'ops_example_om_09',
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  });
+}
 
 void test('OM-10 settles confirmation and daily debit atomically once', async (t) => {
   const fixture = await createFixture(t);
@@ -234,6 +356,7 @@ void test('OM-10 settles confirmation and daily debit atomically once', async (t
     operationKey: 'automation:om_10_atomic',
   });
   await sendOnce(fixture, operationId, attemptId);
+  await admitConfirmation(fixture, 'inbound_confirmation_settlement_om_09');
   const confirmation = createDeliveryConfirmationService({
     repository: fixture.repository,
     trustedTenant: { tenantId },
@@ -266,6 +389,7 @@ void test('OM-10 concurrent replay is one debit and transaction failure rolls ba
     operationKey: 'automation:om_10_replay',
   });
   await sendOnce(fixture, operationId, attemptId);
+  await admitConfirmation(fixture, 'inbound_confirmation_replay_settlement_om_09');
   const delivery = await fixture.repository.loadDelivery(tenantId, operationId);
   const attempt = await fixture.repository.loadDeliveryAttempt(tenantId, attemptId);
   assert.ok(delivery?.claimOwner && delivery.leaseUntil && attempt?.claimFence);
@@ -297,6 +421,7 @@ void test('OM-10 concurrent replay is one debit and transaction failure rolls ba
     operationKey: 'automation:om_10_rollback',
   });
   await sendOnce(fixture, failedOperationId, failedAttemptId);
+  await admitConfirmation(fixture, 'inbound_confirmation_rollback_om_09');
   const failedDelivery = await fixture.repository.loadDelivery(tenantId, failedOperationId);
   const failedAttempt = await fixture.repository.loadDeliveryAttempt(tenantId, failedAttemptId);
   assert.ok(failedDelivery?.claimOwner && failedDelivery.leaseUntil && failedAttempt?.claimFence);

@@ -440,29 +440,74 @@ export function createPostgresBusinessRepository(dependencies: {
         throw new RepositoryError('INVALID_REPOSITORY_INPUT');
       }
       const result = await query(
-        `WITH authority_clock AS MATERIALIZED (
+        `WITH current_worker AS MATERIALIZED (
+           SELECT tenant_id
+           FROM tenant_worker_ownerships
+           WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
+             AND generation = $4 AND child_id = $5
+           FOR SHARE
+         ), locked_tenant AS MATERIALIZED (
+           SELECT tenant.id, tenant.public_ops_id
+           FROM tenants AS tenant
+           JOIN current_worker AS worker ON worker.tenant_id = tenant.id
+           WHERE tenant.id = $1 AND tenant.public_ops_id = $3
+           FOR UPDATE OF tenant
+         ), locked_operations AS MATERIALIZED (
+           SELECT operation.*
+           FROM delivery_operations AS operation
+           JOIN locked_tenant AS tenant ON tenant.id = operation.tenant_id
+           WHERE operation.tenant_id = $1
+           FOR UPDATE OF operation
+         ), locked_attempts AS MATERIALIZED (
+           SELECT attempt.*
+           FROM delivery_attempts AS attempt
+           JOIN locked_operations AS operation
+             ON operation.tenant_id = attempt.tenant_id AND operation.id = attempt.operation_id
+           FOR UPDATE OF attempt
+         ), existing AS MATERIALIZED (
+           SELECT operation.id AS operation_id, attempt.id AS attempt_id
+           FROM locked_operations AS operation
+           JOIN locked_attempts AS attempt
+             ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+           WHERE operation.status IN ('SENT', 'CONFIRMED')
+             AND attempt.status = 'SENT' AND attempt.claim_fence = operation.claim_fence
+             AND attempt.confirmation_message_id = $2
+         ), candidates AS MATERIALIZED (
+           SELECT operation.id AS operation_id, attempt.id AS attempt_id
+           FROM locked_operations AS operation
+           JOIN locked_attempts AS attempt
+             ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+           WHERE operation.status = 'SENT' AND attempt.status = 'SENT'
+             AND attempt.claim_fence = operation.claim_fence
+         ), target AS MATERIALIZED (
+           SELECT * FROM existing
+           UNION ALL
+           SELECT * FROM candidates
+           WHERE NOT EXISTS (SELECT 1 FROM existing)
+             AND (SELECT count(*) FROM candidates) = 1
+         ), authority_clock AS MATERIALIZED (
            SELECT date_trunc('milliseconds', clock_timestamp()) AS now
          )
          UPDATE delivery_attempts AS attempt
-         SET confirmation_provider_message_id = attempt.provider_message_id,
+         SET confirmation_message_id = $2,
              confirmed_at = COALESCE(attempt.confirmed_at, authority_clock.now),
              revision = attempt.revision + CASE WHEN attempt.confirmed_at IS NULL THEN 1 ELSE 0 END,
              updated_at = CASE
                WHEN attempt.confirmed_at IS NULL THEN authority_clock.now
                ELSE attempt.updated_at
              END
-         FROM delivery_operations AS operation, authority_clock
-         WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'SENT'
-           AND attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
-           AND attempt.id = $3 AND attempt.status = 'SENT'
-           AND attempt.claim_fence = operation.claim_fence
-           AND attempt.provider_message_id = $4
-           AND (attempt.confirmation_provider_message_id IS NULL
-             OR attempt.confirmation_provider_message_id = $4)
+         FROM target, authority_clock
+         WHERE attempt.tenant_id = $1 AND attempt.id = target.attempt_id
+           AND (attempt.confirmation_message_id IS NULL OR attempt.confirmation_message_id = $2)
          RETURNING attempt.tenant_id, attempt.operation_id, attempt.id AS attempt_id,
-                   attempt.confirmation_provider_message_id AS provider_message_id,
-                   attempt.confirmed_at`,
-        [input.tenantId, input.operationId, input.attemptId, input.providerMessageId],
+                   attempt.confirmation_message_id, attempt.confirmed_at`,
+        [
+          input.tenantId,
+          input.confirmationMessageId,
+          input.publicOpsId,
+          input.workerGeneration,
+          input.childId,
+        ],
         (error) =>
           postgresCode(error) === '23505'
             ? new RepositoryError('DELIVERY_CONFIRMATION_CONFLICT')
@@ -675,10 +720,16 @@ export function createPostgresBusinessRepository(dependencies: {
            WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
              AND generation = $7 AND child_id = $8
            FOR SHARE
+         ), locked_tenant AS MATERIALIZED (
+           SELECT tenant.id
+           FROM tenants AS tenant
+           JOIN current_worker AS worker ON worker.tenant_id = tenant.id
+           WHERE tenant.id = $1
+           FOR UPDATE OF tenant
          ), locked_claim AS MATERIALIZED (
            SELECT operation.id, operation.tenant_id, operation.claim_lease_until
            FROM delivery_operations AS operation
-           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
+           JOIN locked_tenant AS tenant ON tenant.id = operation.tenant_id
            JOIN delivery_attempts AS attempt
              ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
            WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'SENDING'
@@ -758,6 +809,7 @@ export function createPostgresBusinessRepository(dependencies: {
              AND operation.worker_generation = $7 AND operation.worker_child_id = $8
              AND attempt.id = $3 AND attempt.status = 'SENT'
              AND attempt.claim_fence = operation.claim_fence
+             AND attempt.confirmation_message_id IS NOT NULL AND attempt.confirmed_at IS NOT NULL
            FOR UPDATE OF operation
          ), authority_clock AS MATERIALIZED (
            SELECT date_trunc('milliseconds', clock_timestamp()) AS now FROM locked_confirmation
@@ -835,9 +887,15 @@ export function createPostgresBusinessRepository(dependencies: {
            SELECT tenant_id FROM tenant_worker_ownerships
            WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
              AND generation = $7 AND child_id = $8 FOR SHARE
+         ), locked_tenant AS MATERIALIZED (
+           SELECT tenant.id
+           FROM tenants AS tenant
+           JOIN current_worker AS worker ON worker.tenant_id = tenant.id
+           WHERE tenant.id = $1
+           FOR UPDATE OF tenant
          ), locked AS MATERIALIZED (
            SELECT operation.* FROM delivery_operations AS operation
-           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
+           JOIN locked_tenant AS tenant ON tenant.id = operation.tenant_id
            JOIN delivery_attempts AS attempt
              ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
            WHERE operation.tenant_id = $1 AND operation.id = $2
@@ -1397,7 +1455,7 @@ function parseDeliveryConfirmationAdmission(
     !isUuid(row.tenant_id) ||
     !isUuid(row.operation_id) ||
     !isUuid(row.attempt_id) ||
-    !isIdentifier(row.provider_message_id, false) ||
+    !isIdentifier(row.confirmation_message_id, false) ||
     !confirmedAt
   ) {
     return undefined;
@@ -1407,7 +1465,7 @@ function parseDeliveryConfirmationAdmission(
     tenantId: row.tenant_id,
     operationId: row.operation_id,
     attemptId: row.attempt_id,
-    providerMessageId: row.provider_message_id,
+    confirmationMessageId: row.confirmation_message_id,
     confirmedAt,
   });
 }
@@ -1668,9 +1726,10 @@ function isDeliveryConfirmationAdmissionInput(value: unknown): boolean {
   return (
     isRecord(value) &&
     isUuid(value.tenantId) &&
-    isUuid(value.operationId) &&
-    isUuid(value.attemptId) &&
-    isIdentifier(value.providerMessageId, false)
+    isIdentifier(value.confirmationMessageId, false) &&
+    isIdentifier(value.publicOpsId, false) &&
+    isPositiveInteger(value.workerGeneration) &&
+    isIdentifier(value.childId, false)
   );
 }
 
