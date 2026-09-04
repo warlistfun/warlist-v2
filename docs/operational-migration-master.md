@@ -1,6 +1,6 @@
 # WARLIST V2 Unified Operational Migration Contract
 
-> **Status:** Canonical planning and execution contract. Current authorization lives in [`execution-roadmap.md`](execution-roadmap.md); sequence and slice status live in [`operational-migration-roadmap.md`](operational-migration-roadmap.md). This contract does not by itself authorize provider/account access, credentials, customer/runtime data, hosted configuration, financial effects, deployment, cutover, rollback, or Production changes.
+> **Status:** Canonical planning and execution contract. Repository safety and the standing OM execution envelope live in [`AGENTS.md`](../AGENTS.md); current direction lives in [`execution-roadmap.md`](execution-roadmap.md); sequence and slice status live in [`operational-migration-roadmap.md`](operational-migration-roadmap.md).
 
 ## 1. Outcome
 
@@ -25,14 +25,15 @@ Backend correctness stays first. “Unified” does not authorize frontend, Andr
 
 Authority is split deliberately:
 
-1. [`execution-roadmap.md`](execution-roadmap.md) is the active execution authority.
-2. This contract defines invariants, decision precedence, parity/change rules, evidence, safety, and closure protocol.
-3. [`operational-migration-roadmap.md`](operational-migration-roadmap.md) owns the ordered slice board and status.
-4. Current source, tests, executable schemas, migrations, and current-state docs prove as-built behavior.
-5. Owner-approved product contracts decide intentional future behavior.
-6. Legacy source/tests are read-only behavior references; protected runtime/customer/credential paths are never fixtures.
-7. Issues, PRs, CI, merge commits, and checkpoints provide bounded evidence.
-8. Historical plans and brainstorming are provenance and gap input only; they do not become scope by being written down.
+1. [`AGENTS.md`](../AGENTS.md) owns repository safety, Issue activation, the standing execution envelope, and its hard stops.
+2. [`execution-roadmap.md`](execution-roadmap.md) is the active direction and current-recommendation authority.
+3. This contract defines invariants, decision precedence, parity/change rules, evidence, safety, and closure protocol.
+4. [`operational-migration-roadmap.md`](operational-migration-roadmap.md) owns the ordered slice board and status.
+5. Current source, tests, executable schemas, migrations, and current-state docs prove as-built behavior.
+6. Owner-approved product contracts decide intentional future behavior.
+7. Legacy source/tests are read-only behavior references; protected runtime/customer/credential paths are never fixtures.
+8. Issues, PRs, CI, merge commits, and checkpoints provide bounded evidence.
+9. Historical plans and brainstorming are provenance and gap input only; they do not become scope by being written down.
 
 Every decision-bearing artifact used by a slice must be classified before implementation:
 
@@ -42,7 +43,7 @@ Every decision-bearing artifact used by a slice must be classified before implem
 | `CURRENT_AUTHORITY`    | Canonical roadmap/contract/accepted ADR                   | Governs work until explicitly reconciled                                                                           |
 | `AS_BUILT_EVIDENCE`    | Current source/test/schema/runtime-safe proof             | Establishes what exists and its evidence ceiling                                                                   |
 | `HISTORICAL_REFERENCE` | Old plan, legacy doc, checkpoint, commit note, brainstorm | May reveal requirements or risks; cannot authorize scope                                                           |
-| `UNRESOLVED`           | Conflicting or insufficient evidence                      | Stop or preserve safe parity; obtain owner/technical decision                                                      |
+| `UNRESOLVED`           | Material conflict or insufficient safety evidence         | Stop or preserve safe parity; obtain owner/technical decision                                                      |
 
 A later owner-final decision may supersede planning text but does not erase valid landed evidence. Record both facts.
 
@@ -182,7 +183,7 @@ Every behavior slice includes:
 
 | Prior source/contract            | Synthetic or approved transition                        | Prior/required result            | Classification    | Required V2 result                                | Evidence                                                                        |
 | -------------------------------- | ------------------------------------------------------- | -------------------------------- | ----------------- | ------------------------------------------------- | ------------------------------------------------------------------------------- |
-| Exact symbol/path/owner contract | Invented fixture or explicitly approved isolated effect | Observed or owner-final behavior | One class from §5 | Preserved, corrected, replaced, or retired result | RED/GREEN test, command, browser run, provider acceptance, or bounded rehearsal |
+| Exact symbol/path/owner contract | Invented fixture or envelope-authorized isolated effect | Observed or owner-final behavior | One class from §5 | Preserved, corrected, replaced, or retired result | RED/GREEN test, command, browser run, provider acceptance, or bounded rehearsal |
 
 Rules:
 
@@ -192,7 +193,7 @@ Rules:
 - preserve known-good evidence even when old interpretation/status was stale;
 - one happy example is not proof for error, timeout, restart, replay, accessibility, or recovery;
 - unit tests do not prove browser/provider/hosted behavior;
-- provider/account behavior remains `UNVERIFIED` until an explicitly approved isolated acceptance run exercises it.
+- provider/account behavior remains `UNVERIFIED` until an isolated acceptance run under an activated Issue exercises it.
 
 ## 7. Backend-first dependency gates
 
@@ -259,7 +260,7 @@ Before implementation freeze:
 - exact source/test/contracts in scope;
 - evidence matrix rows;
 - dependencies and explicit exclusions;
-- external-effect/approval boundary;
+- execution-envelope fit and hard-stop boundary;
 - focused verification and CI expectations;
 - concrete risk triggers requiring independent review;
 - recovery/revert contract.
@@ -300,17 +301,9 @@ A process running, HTTP `200`, a screenshot, a unit test, a callback, or a succe
 
 ## 11. External-effect and data gates
 
-Synthetic/fake transport and disposable local PostgreSQL evidence are allowed. These require explicit owner scope at the exact slice:
+`AGENTS.md` is the sole policy for Issue activation, automatically authorized local/synthetic/disposable effects, and material hard stops. This contract adds no per-effect approval gate. Once the owner activates one bounded Issue, the agent continues through all in-scope disposable non-Production work and exact cleanup unless a concrete hard stop applies.
 
-- real/disposable WhatsApp account pairing or credential creation;
-- external inbound/outbound messages;
-- Supabase project/OAuth/provider configuration;
-- Saweria/gateway network or financial effect;
-- hosted database/project mutation;
-- legacy customer/runtime-data inspection or migration;
-- deployment, restart, DNS/edge, cutover, rollback, or Production action.
-
-Use only disposable accounts and invented data for approved acceptance before Production. Never type, print, commit, copy, or document secrets, passwords, OAuth tokens, QR, pairing material, phone/JID, customer messages, or raw provider payloads.
+Use only disposable accounts and invented data for acceptance before Production. Never type, print, commit, copy, or document secrets, passwords, OAuth tokens, QR, pairing material, phone/JID, customer messages, or raw provider payloads. Human-only QR or OTP input is coordinated without treating it as another approval. Reconcile an ambiguous network outcome before any retry.
 
 The Saweria gateway artifact remains unmodified and is not re-audited by WARLIST integration work unless explicitly requested.
 
