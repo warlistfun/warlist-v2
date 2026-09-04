@@ -161,14 +161,15 @@ export async function verifyBusinessRepositoryContract(
         prepared,
       );
 
-      for (const duplicate of [
-        { ...prepared, id: '00000000-0000-4000-8000-000000000202' },
-        { ...prepared, operationKey: 'automation:message_example_2' },
-      ]) {
-        await assert.rejects(repository.prepareDelivery(duplicate), (error: unknown) =>
-          hasRepositoryCode(error, 'DELIVERY_ALREADY_EXISTS'),
-        );
-      }
+      const replay = await repository.prepareDelivery({
+        ...prepared,
+        id: '00000000-0000-4000-8000-000000000202',
+      });
+      assert.deepEqual(replay, prepared);
+      await assert.rejects(
+        repository.prepareDelivery({ ...prepared, operationKey: 'automation:message_example_2' }),
+        (error: unknown) => hasRepositoryCode(error, 'DELIVERY_ALREADY_EXISTS'),
+      );
       const attempt = await repository.createDeliveryAttempt({
         id: '00000000-0000-4000-8000-000000000204',
         tenantId: tenantOne,

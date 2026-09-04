@@ -33,7 +33,11 @@ export function createConcreteWorkerRuntime(dependencies: {
     Partial<
       Pick<
         BusinessRepositoryPort,
-        'loadTenant' | 'loadConfig' | 'readEntitlementBalance' | 'loadDeliveryByOperationKey'
+        | 'loadTenant'
+        | 'loadConfig'
+        | 'readEntitlementBalance'
+        | 'loadDeliveryByOperationKey'
+        | 'prepareDelivery'
       >
     >;
   readonly clock: ClockPort;
@@ -46,14 +50,19 @@ export function createConcreteWorkerRuntime(dependencies: {
     typeof dependencies.repository.loadTenant !== 'function' ||
     typeof dependencies.repository.loadConfig !== 'function' ||
     typeof dependencies.repository.readEntitlementBalance !== 'function' ||
-    typeof dependencies.repository.loadDeliveryByOperationKey !== 'function'
+    typeof dependencies.repository.loadDeliveryByOperationKey !== 'function' ||
+    typeof dependencies.repository.prepareDelivery !== 'function'
   ) {
     throw new Error('Concrete worker runtime requires canonical business repository');
   }
   const repository = dependencies.repository as RepositoryPort &
     Pick<
       BusinessRepositoryPort,
-      'loadTenant' | 'loadConfig' | 'readEntitlementBalance' | 'loadDeliveryByOperationKey'
+      | 'loadTenant'
+      | 'loadConfig'
+      | 'readEntitlementBalance'
+      | 'loadDeliveryByOperationKey'
+      | 'prepareDelivery'
     >;
   const decisions = new Map(
     config.activeTenants.map(({ tenantId }) => [
@@ -71,6 +80,7 @@ export function createConcreteWorkerRuntime(dependencies: {
               hasEntitlement: balance.units > 0,
               duplicateMessage: false,
               deliveryExists: delivery !== undefined,
+              delivery,
             });
           },
         },
