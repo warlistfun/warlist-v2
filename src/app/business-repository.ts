@@ -87,7 +87,7 @@ export type DeliveryConfirmationAdmissionRecord = Readonly<{
   tenantId: string;
   operationId: string;
   attemptId: string;
-  providerMessageId: string;
+  confirmationMessageId: string;
   confirmedAt: string;
 }>;
 
@@ -176,9 +176,10 @@ export interface DeliveryConfirmationAdmissionRepositoryPort {
   admitDeliveryConfirmation(
     input: Readonly<{
       tenantId: string;
-      operationId: string;
-      attemptId: string;
-      providerMessageId: string;
+      confirmationMessageId: string;
+      publicOpsId: string;
+      workerGeneration: number;
+      childId: string;
     }>,
   ): Promise<DeliveryConfirmationAdmissionRecord>;
 }

@@ -10,6 +10,7 @@ import {
   createDeliverySettlementPort,
 } from '../../src/modules/delivery/application/claim-gated-delivery-sender';
 import { createDeliveryClaimService } from '../../src/modules/delivery/application/delivery-claim-service';
+import { createDeliveryConfirmationAdmissionService } from '../../src/modules/delivery/application/delivery-confirmation-admission-service';
 import { createDeliveryConfirmationService } from '../../src/modules/delivery/application/delivery-confirmation-service';
 import { createPostgresBusinessRepository } from '../../src/infrastructure/database/postgres-business-repository';
 import { createPostgresWorkerLifecycleStateRepository } from '../../src/modules/whatsapp/infrastructure/postgres-worker-lifecycle-state-repository';
@@ -356,6 +357,7 @@ void test('ownership loss wins before blocked confirmation and prevents debit', 
     outcome: 'SENT',
     providerMessageId: 'provider_message_ownership_loss_confirmation',
   });
+  await admitConfirmation(fixture, 'inbound_confirmation_ownership_loss');
   const confirmation = createDeliveryConfirmationService({
     repository: fixture.repository,
     trustedTenant: { tenantId },
@@ -405,6 +407,7 @@ void test('adversarial matrix fences stale authority and makes confirmation repl
     outcome: 'SENT',
     providerMessageId: 'provider_message_matrix_confirm',
   });
+  await admitConfirmation(fixture, 'inbound_confirmation_matrix');
   const confirmation = createDeliveryConfirmationService({
     repository: fixture.repository,
     trustedTenant: { tenantId },
@@ -434,6 +437,22 @@ void test('adversarial matrix fences stale authority and makes confirmation repl
   }
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
 });
+
+async function admitConfirmation(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  confirmationMessageId: string,
+): Promise<void> {
+  await createDeliveryConfirmationAdmissionService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+  }).admit({
+    tenantId,
+    confirmationMessageId,
+    publicOpsId: 'ops_example_phase6_matrix',
+    workerGeneration: worker.generation,
+    childId: worker.childId,
+  });
+}
 
 async function blockAdmissionBehindOwnershipLoss<T>(
   fixture: Awaited<ReturnType<typeof createFixture>>,

@@ -6,9 +6,10 @@ import {
 
 type ConfirmationInput = Readonly<{
   tenantId: string;
-  operationId: string;
-  attemptId: string;
-  providerMessageId: string;
+  confirmationMessageId: string;
+  publicOpsId: string;
+  workerGeneration: number;
+  childId: string;
 }>;
 
 export function createDeliveryConfirmationAdmissionService(dependencies: {
@@ -32,15 +33,17 @@ function isConfirmationInput(value: unknown): value is ConfirmationInput {
   if (typeof value !== 'object' || value === null || Array.isArray(value)) return false;
   const input = value as Record<string, unknown>;
   return (
-    Object.keys(input).length === 4 &&
+    Object.keys(input).length === 5 &&
     Object.hasOwn(input, 'tenantId') &&
-    Object.hasOwn(input, 'operationId') &&
-    Object.hasOwn(input, 'attemptId') &&
-    Object.hasOwn(input, 'providerMessageId') &&
+    Object.hasOwn(input, 'confirmationMessageId') &&
+    Object.hasOwn(input, 'publicOpsId') &&
+    Object.hasOwn(input, 'workerGeneration') &&
+    Object.hasOwn(input, 'childId') &&
     isUuid(input.tenantId) &&
-    isUuid(input.operationId) &&
-    isUuid(input.attemptId) &&
-    isIdentifier(input.providerMessageId)
+    isIdentifier(input.confirmationMessageId) &&
+    isIdentifier(input.publicOpsId) &&
+    isPositiveInteger(input.workerGeneration) &&
+    isIdentifier(input.childId)
   );
 }
 
@@ -53,4 +56,7 @@ function isUuid(value: unknown): value is string {
 
 function isIdentifier(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9_:-]{1,160}$/.test(value);
+}
+function isPositiveInteger(value: unknown): value is number {
+  return typeof value === 'number' && Number.isSafeInteger(value) && value > 0;
 }
