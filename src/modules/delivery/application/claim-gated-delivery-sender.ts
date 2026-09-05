@@ -214,7 +214,7 @@ export function createAcceptedClaimGatedDeliverySender(dependencies: {
           sendTimeoutMs,
           scheduler,
         );
-        if (!isIdentifier(sent.providerMessageId)) {
+        if (!isProviderMessageId(sent.providerMessageId)) {
           throw new RepositoryError('INVALID_REPOSITORY_INPUT');
         }
         providerMessageId = sent.providerMessageId;
@@ -409,16 +409,19 @@ function isIdentifier(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9_:-]{1,160}$/.test(value);
 }
 
+function isProviderMessageId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(value);
+}
+
 function isText(value: unknown): value is string {
   return (
     typeof value === 'string' &&
-    value.length > 0 &&
+    value.length >= 1 &&
     value.length <= 4_096 &&
     value === value.trim() &&
     !/[\u0000-\u0009\u000b\u000c\u000e-\u001f\u007f-\u009f\u2028\u2029]/u.test(value)
   );
 }
-
 export function createClaimGatedDeliverySender(dependencies: SenderDependencies): Readonly<{
   send(
     input: Readonly<{ operationId: string; workerGeneration: number; childId: string }>,

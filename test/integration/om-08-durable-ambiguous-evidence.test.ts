@@ -16,34 +16,80 @@ import {
 } from '../../src/modules/delivery/application/claim-gated-delivery-sender';
 import { createDisposablePostgres, type DisposablePostgres } from '../support/disposable-postgres';
 
-const tenantId = '00000000-0000-4000-8000-000000000180';
 const workerGeneration = 8;
-const childId = 'child_om_08';
+const providerRejectionWorker = {
+  tenantId: uuid(180),
+  publicOpsId: 'ops_om_08_provider_rejection',
+  workerGeneration,
+  childId: 'child_om_08_provider_rejection',
+} satisfies TenantAuthority;
+const providerTimeoutWorker = {
+  tenantId: uuid(200),
+  publicOpsId: 'ops_om_08_provider_timeout',
+  workerGeneration,
+  childId: 'child_om_08_provider_timeout',
+} satisfies TenantAuthority;
+const settlementUncertaintyWorker = {
+  tenantId: uuid(201),
+  publicOpsId: 'ops_om_08_settlement_uncertainty',
+  workerGeneration,
+  childId: 'child_om_08_settlement_uncertainty',
+} satisfies TenantAuthority;
+const crashRecoveryWorker = {
+  tenantId: uuid(202),
+  publicOpsId: 'ops_om_08_crash_recovery',
+  workerGeneration,
+  childId: 'child_om_08_crash_recovery',
+} satisfies TenantAuthority;
+const staleWorker = {
+  tenantId: uuid(203),
+  publicOpsId: 'ops_om_08_stale_worker',
+  workerGeneration,
+  childId: 'child_om_08_stale_worker',
+} satisfies TenantAuthority;
+const restartReplayWorker = {
+  tenantId: uuid(204),
+  publicOpsId: 'ops_om_08_restart_replay',
+  workerGeneration,
+  childId: 'child_om_08_restart_replay',
+} satisfies TenantAuthority;
 
 void test('provider rejection, timeout, and settlement uncertainty persist exact ambiguous evidence', async (t) => {
-  const fixture = await createFixture(t);
+  const fixture = await createFixture(t, [
+    providerRejectionWorker,
+    providerTimeoutWorker,
+    settlementUncertaintyWorker,
+    crashRecoveryWorker,
+    staleWorker,
+  ]);
 
-  const rejected = await prepare(fixture, 181, 182, 'provider_rejection');
+  const rejected = await prepare(fixture, providerRejectionWorker, 181, 182, 'provider_rejection');
   const rejectedResult = await createSender(fixture, rejected, {
     sender: () => Promise.reject(new Error('synthetic provider outcome unknown')),
-  }).send(input(rejected.operationId));
+  }).send(input(rejected));
   await assertAmbiguous(fixture.repository, rejectedResult, rejected, null);
 
-  const timedOut = await prepare(fixture, 183, 184, 'provider_timeout');
+  const timedOut = await prepare(fixture, providerTimeoutWorker, 183, 184, 'provider_timeout');
   const timeoutScheduler = new ManualScheduler();
   const timeoutCompletion = createSender(fixture, timedOut, {
-    sender: () => new Promise(() => undefined),
+    sender: () => new Promise<Readonly<{ providerMessageId: string }>>(() => undefined),
     scheduler: timeoutScheduler,
-  }).send(input(timedOut.operationId));
+  }).send(input(timedOut));
   await timeoutScheduler.scheduled;
   timeoutScheduler.fire();
   const timeoutResult = await timeoutCompletion;
   await assertAmbiguous(fixture.repository, timeoutResult, timedOut, null);
 
-  const unsettled = await prepare(fixture, 185, 186, 'sent_settlement_unknown');
+  const unsettled = await prepare(
+    fixture,
+    settlementUncertaintyWorker,
+    185,
+    186,
+    'sent_settlement_unknown',
+  );
   const settle = createDeliverySettlementPort({
     repository: fixture.repository,
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: unsettled.tenantId },
   });
   const unsettledResult = await createSender(fixture, unsettled, {
     sender: () => Promise.resolve({ providerMessageId: 'provider_message_om_08_known' }),
@@ -51,7 +97,7 @@ void test('provider rejection, timeout, and settlement uncertainty persist exact
       authority.outcome === 'SENT'
         ? Promise.reject(new Error('synthetic sent settlement outcome unknown'))
         : settle(authority),
-  }).send(input(unsettled.operationId));
+  }).send(input(unsettled));
   await assertAmbiguous(
     fixture.repository,
     unsettledResult,
@@ -59,34 +105,36 @@ void test('provider rejection, timeout, and settlement uncertainty persist exact
     'provider_message_om_08_known',
   );
 
-  const crashed = await prepare(fixture, 187, 188, 'crash_recovery');
-  await fixture.repository.beginDelivery({ tenantId, ...crashed });
-  await expireLease(fixture.postgres, crashed.operationId);
-  const recovered = await recover(fixture, crashed.operationId, 189, workerGeneration, childId);
+  const crashed = await prepare(fixture, crashRecoveryWorker, 187, 188, 'crash_recovery');
+  await fixture.repository.beginDelivery(crashed);
+  await expireLease(fixture.postgres, crashed.tenantId, crashed.operationId);
+  const recovered = await recover(fixture, crashed, crashed.operationId, 189);
   const recoveredAuthority = { ...crashed, leaseUntil: recovered.operation.leaseUntil! };
   assert.equal(recovered.operation.status, 'AMBIGUOUS');
   assert.equal(recovered.attempt.id, crashed.attemptId);
   await assertAmbiguous(fixture.repository, completionFrom(recovered), recoveredAuthority, null);
-  assert.equal(await fixture.repository.loadDeliveryAttempt(tenantId, uuid(189)), undefined);
+  assert.equal(
+    await fixture.repository.loadDeliveryAttempt(crashed.tenantId, uuid(189)),
+    undefined,
+  );
 
-  const stale = await prepare(fixture, 190, 191, 'stale_worker_race');
-  await fixture.repository.beginDelivery({ tenantId, ...stale });
-  await expireLease(fixture.postgres, stale.operationId);
-  await replaceWorker(fixture.postgres, 9, 'child_om_08_restart');
-  await assert.rejects(recover(fixture, stale.operationId, 192, workerGeneration, childId), {
+  const stale = await prepare(fixture, staleWorker, 190, 191, 'stale_worker_race');
+  await fixture.repository.beginDelivery(stale);
+  await expireLease(fixture.postgres, stale.tenantId, stale.operationId);
+  const replacementWorker = {
+    tenantId: stale.tenantId,
+    workerGeneration: 9,
+    childId: 'child_om_08_restart',
+  } satisfies WorkerAuthority;
+  await replaceWorker(fixture.postgres, replacementWorker);
+  await assert.rejects(recover(fixture, stale, stale.operationId, 192), {
     code: 'DELIVERY_CLAIM_CONFLICT',
   });
   assert.equal(
-    (await fixture.repository.loadDeliveryAttempt(tenantId, stale.attemptId))?.status,
+    (await fixture.repository.loadDeliveryAttempt(stale.tenantId, stale.attemptId))?.status,
     'PREPARED',
   );
-  const currentWorkerRecovery = await recover(
-    fixture,
-    stale.operationId,
-    193,
-    9,
-    'child_om_08_restart',
-  );
+  const currentWorkerRecovery = await recover(fixture, replacementWorker, stale.operationId, 193);
   const currentWorkerAuthority = {
     ...stale,
     leaseUntil: currentWorkerRecovery.operation.leaseUntil!,
@@ -99,29 +147,34 @@ void test('provider rejection, timeout, and settlement uncertainty persist exact
     currentWorkerAuthority,
     null,
   );
-  assert.equal(await fixture.repository.loadDeliveryAttempt(tenantId, uuid(193)), undefined);
+  assert.equal(await fixture.repository.loadDeliveryAttempt(stale.tenantId, uuid(193)), undefined);
 });
 
 void test('restart and replay read ambiguous evidence without invoking the provider sender', async (t) => {
-  const fixture = await createFixture(t);
-  const authority = await prepare(fixture, 194, 195, 'restart_replay');
+  const fixture = await createFixture(t, [restartReplayWorker]);
+  const authority = await prepare(fixture, restartReplayWorker, 194, 195, 'restart_replay');
   const first = await createSender(fixture, authority, {
     sender: () => Promise.reject(new Error('synthetic provider outcome unknown')),
-  }).send(input(authority.operationId));
+  }).send(input(authority));
   await assertAmbiguous(fixture.repository, first, authority, null);
 
   await fixture.repository.stop();
-  await replaceWorker(fixture.postgres, 9, 'child_om_08_restart');
+  const replacementWorker = {
+    tenantId: restartReplayWorker.tenantId,
+    workerGeneration: 9,
+    childId: 'child_om_08_restart',
+  } satisfies WorkerAuthority;
+  await replaceWorker(fixture.postgres, replacementWorker);
   const restartedRepository = createRepository(fixture.postgres);
   await restartedRepository.start();
   t.after(() => restartedRepository.stop());
   let sends = 0;
   let generatedAttempts = 0;
   const replay = createAcceptedClaimGatedDeliverySender({
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: authority.tenantId },
     claim: createDeliveryClaimService({
       repository: restartedRepository,
-      trustedTenant: { tenantId },
+      trustedTenant: { tenantId: authority.tenantId },
       ownerId: 'claim_owner_om_08_restart',
       idGenerator: {
         generate: () => uuid(195 + ++generatedAttempts),
@@ -129,7 +182,7 @@ void test('restart and replay read ambiguous evidence without invoking the provi
     }).claim,
     begin: createDeliveryBeginPort({
       repository: restartedRepository,
-      trustedTenant: { tenantId },
+      trustedTenant: { tenantId: authority.tenantId },
     }),
     sender: () => {
       sends += 1;
@@ -137,21 +190,27 @@ void test('restart and replay read ambiguous evidence without invoking the provi
     },
     settle: createDeliverySettlementPort({
       repository: restartedRepository,
-      trustedTenant: { tenantId },
+      trustedTenant: { tenantId: authority.tenantId },
     }),
   });
   const replayInput = {
-    ...input(authority.operationId),
-    workerGeneration: 9,
-    childId: 'child_om_08_restart',
+    ...input(authority),
+    workerGeneration: replacementWorker.workerGeneration,
+    childId: replacementWorker.childId,
   };
 
   assert.deepEqual(await replay.send(replayInput), first);
   assert.deepEqual(await replay.send(replayInput), first);
   assert.equal(sends, 0);
   assert.equal(generatedAttempts, 2);
-  assert.equal(await restartedRepository.loadDeliveryAttempt(tenantId, uuid(196)), undefined);
-  assert.equal(await restartedRepository.loadDeliveryAttempt(tenantId, uuid(197)), undefined);
+  assert.equal(
+    await restartedRepository.loadDeliveryAttempt(authority.tenantId, uuid(196)),
+    undefined,
+  );
+  assert.equal(
+    await restartedRepository.loadDeliveryAttempt(authority.tenantId, uuid(197)),
+    undefined,
+  );
 });
 
 interface Fixture {
@@ -159,30 +218,47 @@ interface Fixture {
   readonly repository: ReturnType<typeof createPostgresBusinessRepository>;
 }
 
-interface Authority {
+interface TenantAuthority {
+  readonly tenantId: string;
+  readonly publicOpsId: string;
+  readonly workerGeneration: number;
+  readonly childId: string;
+}
+
+interface WorkerAuthority {
+  readonly tenantId: string;
+  readonly workerGeneration: number;
+  readonly childId: string;
+}
+
+interface Authority extends WorkerAuthority {
   readonly operationId: string;
   readonly attemptId: string;
   readonly claimOwner: string;
   readonly claimFence: number;
   readonly leaseUntil: string;
-  readonly workerGeneration: number;
-  readonly childId: string;
 }
 
-async function createFixture(t: test.TestContext): Promise<Fixture> {
+async function createFixture(
+  t: test.TestContext,
+  tenants: readonly TenantAuthority[],
+): Promise<Fixture> {
   const postgres = await createDisposablePostgres(t, `warlist-v2-om-08-${process.pid}-`);
   const client = new Client(postgres.config);
   await client.connect();
   try {
-    await client.query(`INSERT INTO tenants (id, public_ops_id) VALUES ($1, 'ops_om_08')`, [
-      tenantId,
-    ]);
-    await client.query(
-      `INSERT INTO tenant_worker_ownerships
-         (tenant_id, state, generation, child_id, quarantined, revision)
-       VALUES ($1, 'RUNNING', $2, $3, false, 1)`,
-      [tenantId, workerGeneration, childId],
-    );
+    for (const tenant of tenants) {
+      await client.query(`INSERT INTO tenants (id, public_ops_id) VALUES ($1, $2)`, [
+        tenant.tenantId,
+        tenant.publicOpsId,
+      ]);
+      await client.query(
+        `INSERT INTO tenant_worker_ownerships
+           (tenant_id, state, generation, child_id, quarantined, revision)
+         VALUES ($1, 'RUNNING', $2, $3, false, 1)`,
+        [tenant.tenantId, tenant.workerGeneration, tenant.childId],
+      );
+    }
   } finally {
     await client.end();
   }
@@ -203,6 +279,7 @@ function createRepository(postgres: DisposablePostgres) {
 
 async function prepare(
   fixture: Fixture,
+  worker: TenantAuthority,
   operationSuffix: number,
   attemptSuffix: number,
   key: string,
@@ -211,23 +288,28 @@ async function prepare(
   const attemptId = uuid(attemptSuffix);
   await fixture.repository.prepareDelivery({
     id: operationId,
-    tenantId,
+    tenantId: worker.tenantId,
     operationKey: `automation:om_08_${key}`,
   });
   const claim = await createDeliveryClaimService({
     repository: fixture.repository,
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: worker.tenantId },
     ownerId: `claim_owner_om_08_${key}`,
     idGenerator: { generate: () => attemptId },
-  }).claim({ operationId, workerGeneration, childId });
+  }).claim({
+    operationId,
+    workerGeneration: worker.workerGeneration,
+    childId: worker.childId,
+  });
   return {
+    tenantId: worker.tenantId,
     operationId,
     attemptId,
     claimOwner: claim.operation.claimOwner!,
     claimFence: claim.operation.claimFence,
     leaseUntil: claim.operation.leaseUntil!,
-    workerGeneration,
-    childId,
+    workerGeneration: worker.workerGeneration,
+    childId: worker.childId,
   };
 }
 
@@ -241,12 +323,12 @@ function createSender(
   }>,
 ) {
   return createAcceptedClaimGatedDeliverySender({
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: authority.tenantId },
     claim: () =>
       Promise.resolve({
         operation: {
           id: authority.operationId,
-          tenantId,
+          tenantId: authority.tenantId,
           operationKey: 'automation:om_08_synthetic',
           status: 'CLAIMED',
           claimOwner: authority.claimOwner,
@@ -261,7 +343,7 @@ function createSender(
         },
         attempt: {
           id: authority.attemptId,
-          tenantId,
+          tenantId: authority.tenantId,
           operationId: authority.operationId,
           attemptNumber: 1,
           status: 'PREPARED',
@@ -273,11 +355,17 @@ function createSender(
           updatedAt: '2030-08-27T00:00:00.000Z',
         },
       }),
-    begin: createDeliveryBeginPort({ repository: fixture.repository, trustedTenant: { tenantId } }),
+    begin: createDeliveryBeginPort({
+      repository: fixture.repository,
+      trustedTenant: { tenantId: authority.tenantId },
+    }),
     sender: options.sender,
     settle:
       options.settle ??
-      createDeliverySettlementPort({ repository: fixture.repository, trustedTenant: { tenantId } }),
+      createDeliverySettlementPort({
+        repository: fixture.repository,
+        trustedTenant: { tenantId: authority.tenantId },
+      }),
     sendTimeoutMs: 30_000,
     scheduler: options.scheduler ?? new ManualScheduler(),
   });
@@ -285,20 +373,27 @@ function createSender(
 
 async function recover(
   fixture: Fixture,
+  worker: WorkerAuthority,
   operationId: string,
   attemptSuffix: number,
-  generation: number,
-  recoveredChildId: string,
 ): Promise<DeliveryClaimRecord> {
   return createDeliveryClaimService({
     repository: fixture.repository,
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: worker.tenantId },
     ownerId: `claim_owner_om_08_recovery_${attemptSuffix}`,
     idGenerator: { generate: () => uuid(attemptSuffix) },
-  }).claim({ operationId, workerGeneration: generation, childId: recoveredChildId });
+  }).claim({
+    operationId,
+    workerGeneration: worker.workerGeneration,
+    childId: worker.childId,
+  });
 }
 
-async function expireLease(postgres: DisposablePostgres, operationId: string): Promise<void> {
+async function expireLease(
+  postgres: DisposablePostgres,
+  tenantId: string,
+  operationId: string,
+): Promise<void> {
   const client = new Client(postgres.config);
   await client.connect();
   try {
@@ -313,11 +408,7 @@ async function expireLease(postgres: DisposablePostgres, operationId: string): P
   }
 }
 
-async function replaceWorker(
-  postgres: DisposablePostgres,
-  generation: number,
-  replacementChildId: string,
-): Promise<void> {
+async function replaceWorker(postgres: DisposablePostgres, worker: WorkerAuthority): Promise<void> {
   const client = new Client(postgres.config);
   await client.connect();
   try {
@@ -326,7 +417,7 @@ async function replaceWorker(
        SET state = 'RUNNING', generation = $2, child_id = $3,
            quarantined = false, revision = revision + 1
        WHERE tenant_id = $1`,
-      [tenantId, generation, replacementChildId],
+      [worker.tenantId, worker.workerGeneration, worker.childId],
     );
   } finally {
     await client.end();
@@ -343,7 +434,7 @@ function completionFrom(record: DeliveryClaimRecord): DeliveryAmbiguousCompletio
   return {
     outcome: 'AMBIGUOUS',
     manualReconciliationRequired: true,
-    tenantId,
+    tenantId: record.operation.tenantId,
     operationId: record.operation.id,
     attemptId: record.attempt.id,
     claimFence: record.operation.claimFence,
@@ -355,14 +446,14 @@ function completionFrom(record: DeliveryClaimRecord): DeliveryAmbiguousCompletio
   };
 }
 
-function input(operationId: string): AcceptedDeliverySend {
+function input(authority: Authority): AcceptedDeliverySend {
   return {
     decisionCode: 'ACCEPTED',
-    correlationId: `correlation_${operationId.slice(-3)}`,
-    tenantId,
-    operationId,
-    workerGeneration,
-    childId,
+    correlationId: `correlation_${authority.operationId.slice(-3)}`,
+    tenantId: authority.tenantId,
+    operationId: authority.operationId,
+    workerGeneration: authority.workerGeneration,
+    childId: authority.childId,
     target: 'synthetic_group_om_08',
     text: 'Synthetic OM-08 message',
   };
@@ -378,7 +469,7 @@ async function assertAmbiguous(
   assert.deepEqual(result, {
     outcome: 'AMBIGUOUS',
     manualReconciliationRequired: true,
-    tenantId,
+    tenantId: authority.tenantId,
     operationId: authority.operationId,
     attemptId: authority.attemptId,
     claimFence: authority.claimFence,
@@ -388,8 +479,8 @@ async function assertAmbiguous(
     childId: authority.childId,
     providerMessageId,
   });
-  const operation = await repository.loadDelivery(tenantId, authority.operationId);
-  const attempt = await repository.loadDeliveryAttempt(tenantId, authority.attemptId);
+  const operation = await repository.loadDelivery(authority.tenantId, authority.operationId);
+  const attempt = await repository.loadDeliveryAttempt(authority.tenantId, authority.attemptId);
   assert.equal(operation?.status, 'AMBIGUOUS');
   assert.equal(operation?.claimFence, authority.claimFence);
   assert.equal(operation?.claimOwner, authority.claimOwner);
@@ -402,15 +493,15 @@ async function assertAmbiguous(
 
 class ManualScheduler {
   private task: (() => void) | undefined;
-  private signalScheduled!: () => void;
+  private resolveScheduled: (() => void) | undefined;
   readonly scheduled = new Promise<void>((resolve) => {
-    this.signalScheduled = resolve;
+    this.resolveScheduled = resolve;
   });
 
   schedule(delayMs: number, task: () => void): () => void {
     assert.equal(delayMs, 30_000);
     this.task = task;
-    this.signalScheduled();
+    this.resolveScheduled?.();
     return () => {
       if (this.task === task) this.task = undefined;
     };

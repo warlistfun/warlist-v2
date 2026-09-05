@@ -9,7 +9,6 @@ export type AutomationDecisionCode =
   | 'NO_ENTITLEMENT'
   | 'DUPLICATE_MESSAGE'
   | 'DELIVERY_ALREADY_EXISTS';
-
 export type AutomationDecision = Readonly<{ code: AutomationDecisionCode }>;
 
 export interface SyntheticInboundMessage {

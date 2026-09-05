@@ -4,6 +4,7 @@ import {
   IPC_PROTOCOL_VERSION,
   decodeChildMessage,
   type ChildMessage,
+  type DeliveryCommandPayload,
   type ParentCommandType,
   type ParentMessage,
   type WorkerInboundMessage,
@@ -42,6 +43,8 @@ export interface WorkerCommandResult {
   readonly ok: true;
 }
 
+export type WorkerDeliveryResult = Readonly<{ providerMessageId: string }>;
+
 export type PendingWorkerCommandDebug = Readonly<{
   commandType: ParentCommandType;
   correlationId: string;
@@ -76,16 +79,24 @@ export class WorkerRuntimeError extends Error {
   }
 }
 
-export type WorkerInboundDecisionResult = Readonly<{
-  revision: number;
-  decision: AutomationDecision;
-}>;
+export type WorkerInboundDecisionResult =
+  | Readonly<{
+      revision: number;
+      decision: AutomationDecision;
+    }>
+  | Readonly<{
+      code: AutomationDecision['code'] | 'CONFIRMED';
+      revision?: number;
+    }>;
 
 export interface WorkerInboundDecisionPort {
   decide(
     input: Readonly<{
       tenantId: string;
       messageId: string;
+      correlationId: string;
+      workerGeneration: number;
+      childId: string;
       message: WorkerInboundMessage;
     }>,
   ): WorkerInboundDecisionResult | PromiseLike<WorkerInboundDecisionResult>;
@@ -103,8 +114,8 @@ interface Dependencies {
 interface PendingCommand {
   readonly message: ParentMessage;
   readonly key: string;
-  readonly promise: Promise<WorkerCommandResult>;
-  readonly resolve: (result: WorkerCommandResult) => void;
+  readonly promise: Promise<WorkerCommandResult | WorkerDeliveryResult>;
+  readonly resolve: (result: WorkerCommandResult | WorkerDeliveryResult) => void;
   readonly reject: (error: WorkerRuntimeError) => void;
   cancelTimeout?: CancelScheduledTask;
 }
@@ -115,6 +126,7 @@ export interface WorkerRuntimeService extends WorkerRuntimePort {
   requestPairing(input: PairingWorkerIdentity): Promise<WorkerCommandResult>;
   stopWorker(input: WorkerIdentity): Promise<WorkerCommandResult>;
   resetWorker(input: WorkerIdentity): Promise<WorkerCommandResult>;
+  sendDelivery(input: WorkerIdentity & DeliveryCommandPayload): Promise<WorkerDeliveryResult>;
   invalidateWorker(input: WorkerIdentity): void;
   getDebugSnapshot(): WorkerRuntimeDebugSnapshot;
 }
@@ -175,8 +187,8 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
   function command(
     type: ParentCommandType,
     input: WorkerIdentity,
-    payload?: number | string,
-  ): Promise<WorkerCommandResult> {
+    payload?: number | string | DeliveryCommandPayload,
+  ): Promise<WorkerCommandResult | WorkerDeliveryResult> {
     if (!running) return Promise.reject(stoppedError());
     const key = JSON.stringify([
       input.tenantId,
@@ -189,9 +201,9 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     const duplicate = pendingByKey.get(key);
     if (duplicate) return duplicate.promise;
 
-    let resolve!: (result: WorkerCommandResult) => void;
+    let resolve!: (result: WorkerCommandResult | WorkerDeliveryResult) => void;
     let reject!: (error: WorkerRuntimeError) => void;
-    const promise = new Promise<WorkerCommandResult>((accept, decline) => {
+    const promise = new Promise<WorkerCommandResult | WorkerDeliveryResult>((accept, decline) => {
       resolve = accept;
       reject = decline;
     });
@@ -261,8 +273,15 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     const pending = pendingByRequest.get(message.requestId);
     if (!pending || !matches(pending.message, message)) return;
 
-    if (message.type === 'COMMAND_ACK') {
-      settle(pending);
+    if (message.type === 'COMMAND_ACK' || message.type === 'DELIVERY_RESULT') {
+      settle(
+        pending,
+        undefined,
+        undefined,
+        message.type === 'DELIVERY_RESULT'
+          ? Object.freeze({ providerMessageId: message.payload.providerMessageId })
+          : undefined,
+      );
       return;
     }
     settle(
@@ -308,6 +327,9 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
           Object.freeze({
             tenantId: message.tenantId,
             messageId: message.payload.messageId,
+            correlationId: message.correlationId,
+            workerGeneration: message.generation,
+            childId: message.childId,
             message: message.payload.message,
           }),
         ),
@@ -320,8 +342,9 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
           ) {
             recordInboundDiagnostic({
               ...diagnostic,
-              decisionCode: decision.decision.code,
-              configRevision: decision.revision,
+              decisionCode: 'decision' in decision ? decision.decision.code : decision.code,
+              configRevision:
+                'decision' in decision ? decision.revision : (decision.revision ?? null),
             });
           }
         },
@@ -403,6 +426,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
     pending: PendingCommand,
     error?: WorkerRuntimeError,
     errorOutcome?: 'REJECTED' | 'UNAVAILABLE',
+    result: WorkerCommandResult | WorkerDeliveryResult = { ok: true },
   ): void {
     if (pendingByKey.get(pending.key) !== pending) return;
     pending.cancelTimeout?.();
@@ -416,7 +440,7 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
       pending.reject(error);
     } else {
       recordDiagnostic(pending, 'ACKNOWLEDGED');
-      pending.resolve({ ok: true });
+      pending.resolve(result);
     }
   }
 
@@ -502,25 +526,32 @@ export function createWorkerRuntimeService(dependencies: Dependencies): WorkerRu
         correlationId: input.correlationId,
       });
       activeWorkers.set(input.tenantId, worker);
-      const result = command('START_WORKER', input, input.configVersion);
+      const result = command(
+        'START_WORKER',
+        input,
+        input.configVersion,
+      ) as Promise<WorkerCommandResult>;
       void result.catch(() => {
         if (activeWorkers.get(input.tenantId) === worker) activeWorkers.delete(input.tenantId);
       });
       return result;
     },
     applyConfig(input): Promise<WorkerCommandResult> {
-      return command('APPLY_CONFIG', input, input.configVersion);
+      return command('APPLY_CONFIG', input, input.configVersion) as Promise<WorkerCommandResult>;
     },
     requestPairing(input): Promise<WorkerCommandResult> {
-      return command('REQUEST_PAIRING', input, input.pairingTarget);
+      return command('REQUEST_PAIRING', input, input.pairingTarget) as Promise<WorkerCommandResult>;
+    },
+    sendDelivery(input): Promise<WorkerDeliveryResult> {
+      return command('SEND_DELIVERY', input, input) as Promise<WorkerDeliveryResult>;
     },
     stopWorker(input): Promise<WorkerCommandResult> {
       invalidateActiveWorker(input);
-      return command('STOP_WORKER', input);
+      return command('STOP_WORKER', input) as Promise<WorkerCommandResult>;
     },
     resetWorker(input): Promise<WorkerCommandResult> {
       invalidateActiveWorker(input);
-      return command('RESET_WORKER', input);
+      return command('RESET_WORKER', input) as Promise<WorkerCommandResult>;
     },
     invalidateWorker(input): void {
       invalidateActiveWorker(input);
@@ -556,7 +587,7 @@ function createMessage(
   type: ParentCommandType,
   input: WorkerIdentity,
   requestId: string,
-  payload?: number | string,
+  payload?: number | string | DeliveryCommandPayload,
 ): ParentMessage {
   const identity = {
     protocolVersion: IPC_PROTOCOL_VERSION,
@@ -566,6 +597,12 @@ function createMessage(
     generation: input.generation,
     childId: input.childId,
   } as const;
+  if (type === 'SEND_DELIVERY') {
+    if (typeof payload !== 'object' || payload === null)
+      throw new Error('delivery payload is required');
+    const { operationId, attemptId, claimFence, target, text } = payload;
+    return { ...identity, type, payload: { operationId, attemptId, claimFence, target, text } };
+  }
   if (type === 'STOP_WORKER' || type === 'RESET_WORKER') {
     return { ...identity, type, payload: {} };
   }
@@ -579,25 +616,29 @@ function createMessage(
 
 function matches(
   parent: ParentMessage,
-  child: Extract<ChildMessage, { type: 'COMMAND_ACK' | 'COMMAND_ERROR' }>,
+  child: Extract<ChildMessage, { type: 'COMMAND_ACK' | 'COMMAND_ERROR' | 'DELIVERY_RESULT' }>,
 ): boolean {
   const identityMatches =
     parent.requestId === child.requestId &&
     parent.correlationId === child.correlationId &&
     parent.tenantId === child.tenantId &&
     parent.generation === child.generation &&
-    parent.childId === child.childId &&
-    parent.type === child.payload.commandType;
-  if (!identityMatches || child.type === 'COMMAND_ERROR') return identityMatches;
+    child.childId === parent.childId;
+  if (!identityMatches) return false;
+  if (child.type === 'COMMAND_ERROR') return child.payload.commandType === parent.type;
+  if (child.type === 'DELIVERY_RESULT') return parent.type === 'SEND_DELIVERY';
+  if (parent.type === 'SEND_DELIVERY') return false;
+  if (parent.type !== child.payload.commandType) return false;
   if (
     parent.type === 'REQUEST_PAIRING' ||
     parent.type === 'STOP_WORKER' ||
     parent.type === 'RESET_WORKER'
   ) {
-    return child.payload.commandType === parent.type;
+    return true;
   }
-  if (!('configVersion' in child.payload)) return false;
-  return parent.payload.configVersion === child.payload.configVersion;
+  return (
+    'configVersion' in child.payload && parent.payload.configVersion === child.payload.configVersion
+  );
 }
 
 function stoppedError(): WorkerRuntimeError {

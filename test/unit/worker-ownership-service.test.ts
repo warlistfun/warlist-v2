@@ -13,6 +13,10 @@ import {
   createWorkerOwnershipService,
   type WorkerCommandPort,
 } from '../../src/modules/whatsapp/application/worker-ownership-service';
+import {
+  createInMemoryWorkerLifecycleStateRepository,
+  type WorkerLifecycleStateRepositoryPort,
+} from '../../src/modules/whatsapp/application/worker-lifecycle-state-service';
 
 interface Deferred<T> {
   readonly promise: Promise<T>;
@@ -108,6 +112,98 @@ void test('does not let a diagnostic implementation block ownership transitions'
   assert.equal(commands.stops.length, 1);
   commands.stopResults[0]!.resolve({ ok: true });
   assert.deepEqual(await stop, { ok: true });
+});
+
+void test('fences a persisted running worker before starting a replacement', async () => {
+  const persistence = createInMemoryWorkerLifecycleStateRepository();
+  await persistence.save({
+    tenantId: tenant.tenantId,
+    state: 'RUNNING',
+    generation: 7,
+    childId: 'persisted_child_example',
+    quarantined: false,
+    revision: 1,
+  });
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({
+    commands,
+    diagnostics: noopDiagnostics,
+    persistence,
+  });
+
+  const replacement = ownership.startWorker({ ...tenant, childId: 'replacement_child_example' });
+  await flush();
+  assert.deepEqual(commands.starts, [
+    {
+      ...tenant,
+      generation: 8,
+      childId: 'replacement_child_example',
+    },
+  ]);
+  commands.startResults[0]!.resolve({ ok: true });
+  await replacement;
+  assert.equal((await persistence.load(tenant.tenantId))?.generation, 8);
+});
+
+void test('restores terminal ownership when initial start persistence fails', async () => {
+  const persistence: WorkerLifecycleStateRepositoryPort = {
+    load: () => Promise.resolve(undefined),
+    save: () => Promise.resolve(),
+    compareAndSave: () => Promise.reject(new Error('durable state unavailable')),
+  };
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({
+    commands,
+    diagnostics: noopDiagnostics,
+    persistence,
+  });
+
+  await assert.rejects(ownership.startWorker(tenant), /durable state unavailable/);
+  assert.deepEqual(commands.starts, []);
+  assert.deepEqual(ownership.getState(tenant.tenantId), {
+    state: 'STOPPED',
+    desired: 'STOPPED',
+    generation: 0,
+    childId: null,
+    quarantined: false,
+  });
+});
+
+void test('does not report a stop until terminal ownership is persisted', async () => {
+  const durable = createInMemoryWorkerLifecycleStateRepository();
+  let writes = 0;
+  const persistence: WorkerLifecycleStateRepositoryPort = {
+    load: (tenantId) => durable.load(tenantId),
+    save: (snapshot) => durable.save(snapshot),
+    compareAndSave(snapshot, expected) {
+      writes += 1;
+      return writes === 4
+        ? Promise.reject(new Error('durable state unavailable'))
+        : durable.compareAndSave(snapshot, expected);
+    },
+  };
+  const commands = new ControlledCommands();
+  const ownership = createWorkerOwnershipService({
+    commands,
+    diagnostics: noopDiagnostics,
+    persistence,
+  });
+
+  const start = ownership.startWorker(tenant);
+  await flush();
+  commands.startResults[0]!.resolve({ ok: true });
+  await start;
+  const stop = ownership.stopWorker({ tenantId: tenant.tenantId, correlationId: 'corr_stop' });
+  await flush();
+  commands.stopResults[0]!.resolve({ ok: true });
+  await assert.rejects(stop, /durable state unavailable/);
+  assert.deepEqual(ownership.getState(tenant.tenantId), {
+    state: 'STOPPING',
+    desired: 'STOPPED',
+    generation: 1,
+    childId: tenant.childId,
+    quarantined: true,
+  });
 });
 
 void test('emits correlated ownership transitions for a successful start', async () => {

@@ -21,6 +21,8 @@ import {
   type EntitlementLedgerEntry,
   type TenantAuthorizationPort,
   type TenantRecord,
+  type WorkerOwnershipRecord,
+  type WorkerOwnershipRepositoryPort,
 } from '../../app/business-repository';
 
 type QueryResult = Readonly<{ rowCount: number | null; rows: readonly unknown[] }>;
@@ -65,7 +67,8 @@ export function createPostgresBusinessRepository(dependencies: {
   readonly poolFactory?: (options: PoolOptions) => PoolPort;
 }): BusinessRepositoryPort &
   DeliveryClaimRepositoryPort &
-  DeliveryConfirmationAdmissionRepositoryPort {
+  DeliveryConfirmationAdmissionRepositoryPort &
+  WorkerOwnershipRepositoryPort {
   const config = parseConfig(dependencies.config);
   const poolFactory = dependencies.poolFactory ?? defaultPoolFactory;
   let pool: PoolPort | undefined;
@@ -789,12 +792,12 @@ export function createPostgresBusinessRepository(dependencies: {
       authorize(input.tenantId);
       if (!isDeliveryConfirmationInput(input))
         throw new RepositoryError('INVALID_REPOSITORY_INPUT');
-      const result = await query(
+      let result = await query(
         `WITH current_worker AS MATERIALIZED (
            SELECT tenant_id
            FROM tenant_worker_ownerships
            WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
-             AND generation = $7 AND child_id = $8
+             AND generation = $6 AND child_id = $7
            FOR SHARE
          ), locked_confirmation AS MATERIALIZED (
            SELECT operation.*
@@ -805,8 +808,6 @@ export function createPostgresBusinessRepository(dependencies: {
            WHERE operation.tenant_id = $1 AND operation.id = $2
              AND operation.status IN ('SENT', 'CONFIRMED')
              AND operation.claim_fence = $4 AND operation.claim_owner = $5
-             AND operation.claim_lease_until = $6::timestamptz
-             AND operation.worker_generation = $7 AND operation.worker_child_id = $8
              AND attempt.id = $3 AND attempt.status = 'SENT'
              AND attempt.claim_fence = operation.claim_fence
              AND attempt.confirmation_message_id IS NOT NULL AND attempt.confirmed_at IS NOT NULL
@@ -815,19 +816,19 @@ export function createPostgresBusinessRepository(dependencies: {
            SELECT date_trunc('milliseconds', clock_timestamp()) AS now FROM locked_confirmation
          ), transitioned AS (
            UPDATE delivery_operations AS operation
-           SET status = 'CONFIRMED', confirmation_business_key = $10,
-               confirmation_correlation_id = $11, revision = operation.revision + 1,
+           SET status = 'CONFIRMED', confirmation_business_key = $9,
+               confirmation_correlation_id = $10, revision = operation.revision + 1,
                updated_at = authority_clock.now
            FROM locked_confirmation AS locked, authority_clock
            WHERE operation.tenant_id = locked.tenant_id AND operation.id = locked.id
-             AND locked.status = 'SENT' AND locked.claim_lease_until > authority_clock.now
+             AND locked.status = 'SENT'
              AND NOT EXISTS (SELECT 1 FROM entitlement_ledger
-               WHERE tenant_id = operation.tenant_id AND business_key = $10
+               WHERE tenant_id = operation.tenant_id AND business_key = $9
                  AND (entry_type <> 'DEBIT_CONFIRMED_DELIVERY' OR units <> -1))
            RETURNING operation.*
          ), debited AS (
            INSERT INTO entitlement_ledger (id, tenant_id, entry_type, units, business_key, correlation_id)
-           SELECT $9, tenant_id, 'DEBIT_CONFIRMED_DELIVERY', -1, $10, $11 FROM transitioned
+           SELECT $8, tenant_id, 'DEBIT_CONFIRMED_DELIVERY', -1, $9, $10 FROM transitioned
            ON CONFLICT (tenant_id, business_key) DO NOTHING
            RETURNING id, tenant_id, entry_type, units, business_key, correlation_id, created_at
          ), canonical AS (
@@ -837,14 +838,14 @@ export function createPostgresBusinessRepository(dependencies: {
            JOIN locked_confirmation AS locked
              ON locked.tenant_id = operation.tenant_id AND locked.id = operation.id
            WHERE operation.status = 'CONFIRMED'
-             AND operation.confirmation_business_key = $10
-             AND operation.confirmation_correlation_id = $11
+             AND operation.confirmation_business_key = $9
+             AND operation.confirmation_correlation_id = $10
              AND NOT EXISTS (SELECT 1 FROM transitioned)
          ), ledger_result AS (
            SELECT * FROM debited
            UNION ALL
            SELECT ledger.* FROM entitlement_ledger AS ledger
-           WHERE ledger.tenant_id = $1 AND ledger.business_key = $10
+           WHERE ledger.tenant_id = $1 AND ledger.business_key = $9
              AND ledger.entry_type = 'DEBIT_CONFIRMED_DELIVERY' AND ledger.units = -1
              AND NOT EXISTS (SELECT 1 FROM debited)
          )
@@ -867,7 +868,6 @@ export function createPostgresBusinessRepository(dependencies: {
           input.attemptId,
           input.claimFence,
           input.claimOwner,
-          input.leaseUntil,
           input.workerGeneration,
           input.childId,
           input.debitId,
@@ -875,6 +875,51 @@ export function createPostgresBusinessRepository(dependencies: {
           input.correlationId,
         ],
       );
+      if (result.rowCount === 0) {
+        result = await query(
+          `WITH current_worker AS MATERIALIZED (
+             SELECT tenant_id
+             FROM tenant_worker_ownerships
+             WHERE tenant_id = $1 AND state = 'RUNNING' AND quarantined = false
+               AND generation = $6 AND child_id = $7
+             FOR SHARE
+           )
+           SELECT operation.id, operation.tenant_id, operation.operation_key, operation.scheduled_start_at,
+                  operation.status,
+                  operation.claim_owner, operation.claim_fence, operation.claim_lease_until,
+                  operation.worker_generation, operation.worker_child_id, operation.confirmation_business_key,
+                  operation.confirmation_correlation_id, operation.schema_version, operation.revision,
+                  operation.created_at, operation.updated_at, ledger.id AS debit_id,
+                  ledger.tenant_id AS debit_tenant_id, ledger.entry_type AS debit_entry_type,
+                  ledger.units AS debit_units, ledger.business_key AS debit_business_key,
+                  ledger.correlation_id AS debit_correlation_id, ledger.created_at AS debit_created_at
+           FROM delivery_operations AS operation
+           JOIN current_worker AS worker ON worker.tenant_id = operation.tenant_id
+           JOIN delivery_attempts AS attempt
+             ON attempt.tenant_id = operation.tenant_id AND attempt.operation_id = operation.id
+           JOIN entitlement_ledger AS ledger
+             ON ledger.tenant_id = operation.tenant_id AND ledger.business_key = operation.confirmation_business_key
+               AND ledger.correlation_id = operation.confirmation_correlation_id
+               AND ledger.entry_type = 'DEBIT_CONFIRMED_DELIVERY' AND ledger.units = -1
+           WHERE operation.tenant_id = $1 AND operation.id = $2 AND operation.status = 'CONFIRMED'
+             AND operation.claim_fence = $4 AND operation.claim_owner = $5
+             AND operation.confirmation_business_key = $8 AND operation.confirmation_correlation_id = $9
+             AND attempt.id = $3 AND attempt.status = 'SENT'
+             AND attempt.claim_fence = operation.claim_fence
+             AND attempt.confirmation_message_id IS NOT NULL AND attempt.confirmed_at IS NOT NULL`,
+          [
+            input.tenantId,
+            input.operationId,
+            input.attemptId,
+            input.claimFence,
+            input.claimOwner,
+            input.workerGeneration,
+            input.childId,
+            input.businessKey,
+            input.correlationId,
+          ],
+        );
+      }
       if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
       return parseSingle(result, parseDeliveryConfirmation);
     },
@@ -1006,6 +1051,52 @@ export function createPostgresBusinessRepository(dependencies: {
         [tenantId],
       );
       return parseSingle(result, parseEntitlementBalance);
+    },
+    async loadWorkerOwnership(tenantId): Promise<WorkerOwnershipRecord | undefined> {
+      authorize(tenantId);
+      const result = await query(
+        `SELECT tenant_id, state, generation, child_id, quarantined, revision::text AS revision
+         FROM tenant_worker_ownerships WHERE tenant_id = $1`,
+        [tenantId],
+      );
+      return result.rowCount === 0 ? undefined : parseSingle(result, parseWorkerOwnership);
+    },
+    async compareAndSaveWorkerOwnership(snapshot, expectedSnapshot): Promise<void> {
+      authorize(snapshot.tenantId);
+      if (
+        !isWorkerOwnership(snapshot) ||
+        (expectedSnapshot !== null && !isWorkerOwnership(expectedSnapshot))
+      ) {
+        throw new RepositoryError('INVALID_REPOSITORY_INPUT');
+      }
+      const result = await query(
+        `INSERT INTO tenant_worker_ownerships
+           (tenant_id, state, generation, child_id, quarantined, revision)
+         VALUES ($1, $2, $3, $4, $5, $6)
+         ON CONFLICT (tenant_id) DO UPDATE
+           SET state = EXCLUDED.state, generation = EXCLUDED.generation, child_id = EXCLUDED.child_id,
+               quarantined = EXCLUDED.quarantined, revision = EXCLUDED.revision, updated_at = now()
+         WHERE tenant_worker_ownerships.state = $7
+           AND tenant_worker_ownerships.generation = $8
+           AND tenant_worker_ownerships.child_id IS NOT DISTINCT FROM $9
+           AND tenant_worker_ownerships.quarantined = $10
+           AND tenant_worker_ownerships.revision = $11
+         RETURNING tenant_id`,
+        [
+          snapshot.tenantId,
+          snapshot.state,
+          snapshot.generation,
+          snapshot.childId,
+          snapshot.quarantined,
+          snapshot.revision,
+          expectedSnapshot?.state ?? 'STOPPED',
+          expectedSnapshot?.generation ?? 0,
+          expectedSnapshot?.childId ?? null,
+          expectedSnapshot?.quarantined ?? false,
+          expectedSnapshot?.revision ?? 0,
+        ],
+      );
+      if (result.rowCount !== 1) throw new RepositoryError('DELIVERY_CLAIM_CONFLICT');
     },
     async appendAuditEvent(input): Promise<AuditEvent> {
       authorize(input.tenantId);
@@ -1340,7 +1431,9 @@ function parseDeliveryAttempt(row: unknown): DeliveryAttemptRecord | undefined {
   const updatedAt = timestamp(row.updated_at);
   const claimFence = nullablePositiveInteger(row.claim_fence);
   const providerMessageId =
-    row.provider_message_id === undefined ? null : nullableIdentifier(row.provider_message_id);
+    row.provider_message_id === undefined
+      ? null
+      : nullableProviderMessageId(row.provider_message_id);
   if (
     !isUuid(row.id) ||
     !isUuid(row.tenant_id) ||
@@ -1745,7 +1838,7 @@ function isDeliverySettlementInput(value: unknown): boolean {
     isPositiveInteger(value.workerGeneration) &&
     isIdentifier(value.childId, false) &&
     (value.outcome === 'SENT' || value.outcome === 'AMBIGUOUS') &&
-    (value.providerMessageId === null || isIdentifier(value.providerMessageId, false))
+    (value.providerMessageId === null || isProviderMessageId(value.providerMessageId))
   );
 }
 
@@ -1833,4 +1926,44 @@ function isIntegerBetween(value: unknown, minimum: number, maximum: number): val
   return (
     typeof value === 'number' && Number.isInteger(value) && value >= minimum && value <= maximum
   );
+}
+
+function isProviderMessageId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(value);
+}
+
+function nullableProviderMessageId(value: unknown): string | null | undefined {
+  return value === null || (typeof value === 'string' && /^[A-Za-z0-9_:-]{1,160}$/.test(value))
+    ? value
+    : undefined;
+}
+
+function isWorkerOwnership(value: unknown): value is WorkerOwnershipRecord {
+  return (
+    isRecord(value) &&
+    isUuid(value.tenantId) &&
+    (value.state === 'STOPPED' ||
+      value.state === 'STARTING' ||
+      value.state === 'RUNNING' ||
+      value.state === 'STOPPING') &&
+    Number.isSafeInteger(value.generation) &&
+    typeof value.generation === 'number' &&
+    value.generation >= 0 &&
+    (value.childId === null || isIdentifier(value.childId, false)) &&
+    typeof value.quarantined === 'boolean' &&
+    positiveInteger(value.revision) !== undefined
+  );
+}
+
+function parseWorkerOwnership(row: unknown): WorkerOwnershipRecord | undefined {
+  if (!isRecord(row)) return undefined;
+  const snapshot = {
+    tenantId: row.tenant_id,
+    state: row.state,
+    generation: row.generation,
+    childId: row.child_id,
+    quarantined: row.quarantined,
+    revision: positiveInteger(row.revision),
+  };
+  return isWorkerOwnership(snapshot) ? Object.freeze(snapshot) : undefined;
 }

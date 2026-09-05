@@ -1,4 +1,9 @@
-import type { BusinessRepositoryPort } from '../../../app/business-repository';
+import type {
+  BusinessRepositoryPort,
+  DeliveryClaimRepositoryPort,
+  DeliveryConfirmationAdmissionRepositoryPort,
+  WorkerOwnershipRepositoryPort,
+} from '../../../app/business-repository';
 import type {
   ClockPort,
   IdGeneratorPort,
@@ -7,13 +12,20 @@ import type {
   WorkerRuntimePort,
 } from '../../../app/ports';
 import { createActiveAutomationDecisionService } from '../../automation/application/active-automation-decision-service';
+import { createDeliveryClaimService } from '../../delivery/application/delivery-claim-service';
+import { createDeliveryConfirmationAdmissionService } from '../../delivery/application/delivery-confirmation-admission-service';
+import { createDeliveryConfirmationService } from '../../delivery/application/delivery-confirmation-service';
+import {
+  createAcceptedClaimGatedDeliverySender,
+  createDeliveryBeginPort,
+  createDeliverySettlementPort,
+} from '../../delivery/application/claim-gated-delivery-sender';
+import { createOm20DeliveryComposition } from '../../delivery/application/om-20-delivery-composition';
 import { createActiveTenantBootService } from '../application/active-tenant-boot-service';
 import { createActiveTenantWorkerService } from '../application/active-tenant-worker-service';
 import { createWorkerDiagnosticsService } from '../application/worker-diagnostics-service';
-import {
-  createWorkerOwnershipService,
-  type WorkerOwnershipService,
-} from '../application/worker-ownership-service';
+import type { WorkerLifecycleStateRepositoryPort } from '../application/worker-lifecycle-state-service';
+import { createWorkerOwnershipService } from '../application/worker-ownership-service';
 import { createWorkerRuntimeService } from '../application/worker-runtime-service';
 import {
   createNodeWorkerCommandTransport,
@@ -27,6 +39,21 @@ type ConcreteWorkerConfig = Readonly<{
   activeTenants: readonly Readonly<{ tenantId: string; configVersion: number }>[];
 }>;
 
+type BasicRepository = RepositoryPort &
+  Pick<
+    BusinessRepositoryPort,
+    | 'loadTenant'
+    | 'loadConfig'
+    | 'readEntitlementBalance'
+    | 'loadDeliveryByOperationKey'
+    | 'prepareDelivery'
+  >;
+type DeliveryRepository = BasicRepository &
+  Pick<BusinessRepositoryPort, 'loadDelivery'> &
+  DeliveryClaimRepositoryPort &
+  DeliveryConfirmationAdmissionRepositoryPort;
+type OwnershipRepository = BasicRepository & WorkerOwnershipRepositoryPort;
+
 export function createConcreteWorkerRuntime(dependencies: {
   readonly config: unknown;
   readonly repository: RepositoryPort &
@@ -36,9 +63,15 @@ export function createConcreteWorkerRuntime(dependencies: {
         | 'loadTenant'
         | 'loadConfig'
         | 'readEntitlementBalance'
+        | 'loadDelivery'
         | 'loadDeliveryByOperationKey'
         | 'prepareDelivery'
       >
+    > &
+    Partial<
+      DeliveryClaimRepositoryPort &
+        DeliveryConfirmationAdmissionRepositoryPort &
+        WorkerOwnershipRepositoryPort
     >;
   readonly clock: ClockPort;
   readonly idGenerator: IdGeneratorPort;
@@ -46,24 +79,9 @@ export function createConcreteWorkerRuntime(dependencies: {
   readonly spawn?: SpawnWorkerChildPort;
 }): WorkerRuntimePort {
   const config = parseConfig(dependencies.config);
-  if (
-    typeof dependencies.repository.loadTenant !== 'function' ||
-    typeof dependencies.repository.loadConfig !== 'function' ||
-    typeof dependencies.repository.readEntitlementBalance !== 'function' ||
-    typeof dependencies.repository.loadDeliveryByOperationKey !== 'function' ||
-    typeof dependencies.repository.prepareDelivery !== 'function'
-  ) {
-    throw new Error('Concrete worker runtime requires canonical business repository');
-  }
-  const repository = dependencies.repository as RepositoryPort &
-    Pick<
-      BusinessRepositoryPort,
-      | 'loadTenant'
-      | 'loadConfig'
-      | 'readEntitlementBalance'
-      | 'loadDeliveryByOperationKey'
-      | 'prepareDelivery'
-    >;
+  const repository = requireBasicRepository(dependencies.repository);
+  const deliveryRepository = hasDeliveryAuthority(repository) ? repository : undefined;
+  const ownershipRepository = hasWorkerOwnership(repository) ? repository : undefined;
   const decisions = new Map(
     config.activeTenants.map(({ tenantId }) => [
       tenantId,
@@ -94,7 +112,6 @@ export function createConcreteWorkerRuntime(dependencies: {
       },
     },
   });
-  let ownership: WorkerOwnershipService | undefined = undefined;
   const runtime = createWorkerRuntimeService({
     transport: createNodeWorkerCommandTransport({
       modulePath: config.modulePath,
@@ -120,16 +137,67 @@ export function createConcreteWorkerRuntime(dependencies: {
     diagnostics,
     inbound: {
       async decide(input) {
-        const service = decisions.get(input.tenantId);
-        if (!service) throw new Error('Inbound tenant is not active');
-        return service.decide(
-          { messageId: input.messageId, message: input.message },
-          minuteOfDayWib(dependencies.clock.now()),
-        );
+        const decision = decisions.get(input.tenantId);
+        if (!decision) throw new Error('Inbound tenant is not active');
+        const currentMinute = minuteOfDayWib(dependencies.clock.now());
+        if (!deliveryRepository) {
+          return decision.decide(
+            { messageId: input.messageId, message: input.message },
+            currentMinute,
+          );
+        }
+        const trustedTenant = { tenantId: input.tenantId };
+        const delivery = createAcceptedClaimGatedDeliverySender({
+          trustedTenant,
+          claim: createDeliveryClaimService({
+            repository: deliveryRepository,
+            trustedTenant,
+            ownerId: input.childId,
+            idGenerator: dependencies.idGenerator,
+          }).claim,
+          begin: createDeliveryBeginPort({ repository: deliveryRepository, trustedTenant }),
+          settle: createDeliverySettlementPort({ repository: deliveryRepository, trustedTenant }),
+          sender: (authority) =>
+            runtime.sendDelivery({
+              tenantId: authority.tenantId,
+              generation: authority.workerGeneration,
+              childId: authority.childId,
+              correlationId: authority.correlationId,
+              operationId: authority.operationId,
+              attemptId: authority.attemptId,
+              claimFence: authority.claimFence,
+              target: authority.target,
+              text: authority.text,
+            }),
+        });
+        return createOm20DeliveryComposition({
+          trustedTenant,
+          repository: deliveryRepository,
+          decision: {
+            decide: (event) => decision.decide(event, currentMinute),
+          },
+          delivery,
+          admission: createDeliveryConfirmationAdmissionService({
+            repository: deliveryRepository,
+            trustedTenant,
+          }),
+          confirmation: createDeliveryConfirmationService({
+            repository: deliveryRepository,
+            trustedTenant,
+            clock: dependencies.clock,
+            idGenerator: dependencies.idGenerator,
+          }),
+        }).handle(input);
       },
     },
   });
-  ownership = createWorkerOwnershipService({ commands: runtime, diagnostics });
+  const ownership = createWorkerOwnershipService({
+    commands: runtime,
+    diagnostics,
+    ...(ownershipRepository
+      ? { persistence: workerOwnershipPersistence(ownershipRepository) }
+      : {}),
+  });
   const boot = createActiveTenantBootService({
     repository: { loadTenant: repository.loadTenant.bind(repository) },
     workers: createActiveTenantWorkerService({ lifecycle: ownership }),
@@ -147,8 +215,16 @@ export function createConcreteWorkerRuntime(dependencies: {
         })),
       );
     },
-    stop(): Promise<void> {
-      return runtime.stop();
+    async stop(): Promise<void> {
+      await Promise.all(
+        config.activeTenants.map(({ tenantId }) =>
+          ownership.stopWorker({
+            tenantId,
+            correlationId: dependencies.idGenerator.generate(),
+          }),
+        ),
+      );
+      await runtime.stop();
     },
     isReady(): Promise<boolean> {
       return runtime.isReady();
@@ -156,6 +232,57 @@ export function createConcreteWorkerRuntime(dependencies: {
     providerDiagnostic(): Promise<'NOT_OBSERVED'> {
       return Promise.resolve('NOT_OBSERVED');
     },
+  };
+}
+
+function requireBasicRepository(repository: unknown): BasicRepository {
+  if (!isBasicRepository(repository)) {
+    throw new Error('Concrete worker runtime requires canonical business repository');
+  }
+  return repository;
+}
+
+function isBasicRepository(repository: unknown): repository is BasicRepository {
+  return (
+    typeof repository === 'object' &&
+    repository !== null &&
+    typeof (repository as Partial<BasicRepository>).loadTenant === 'function' &&
+    typeof (repository as Partial<BasicRepository>).loadConfig === 'function' &&
+    typeof (repository as Partial<BasicRepository>).readEntitlementBalance === 'function' &&
+    typeof (repository as Partial<BasicRepository>).loadDeliveryByOperationKey === 'function' &&
+    typeof (repository as Partial<BasicRepository>).prepareDelivery === 'function'
+  );
+}
+
+function hasDeliveryAuthority(repository: BasicRepository): repository is DeliveryRepository {
+  const candidate: Partial<DeliveryRepository> = repository;
+  return (
+    typeof candidate.loadDelivery === 'function' &&
+    typeof candidate.claimDelivery === 'function' &&
+    typeof candidate.beginDelivery === 'function' &&
+    typeof candidate.settleDelivery === 'function' &&
+    typeof candidate.confirmDelivery === 'function' &&
+    typeof candidate.admitDeliveryConfirmation === 'function'
+  );
+}
+
+function hasWorkerOwnership(repository: unknown): repository is OwnershipRepository {
+  return (
+    typeof repository === 'object' &&
+    repository !== null &&
+    typeof (repository as Partial<OwnershipRepository>).loadWorkerOwnership === 'function' &&
+    typeof (repository as Partial<OwnershipRepository>).compareAndSaveWorkerOwnership === 'function'
+  );
+}
+
+function workerOwnershipPersistence(
+  repository: OwnershipRepository,
+): WorkerLifecycleStateRepositoryPort {
+  return {
+    load: (tenantId) => repository.loadWorkerOwnership(tenantId),
+    save: (snapshot) => repository.compareAndSaveWorkerOwnership(snapshot, null),
+    compareAndSave: (snapshot, expectedSnapshot) =>
+      repository.compareAndSaveWorkerOwnership(snapshot, expectedSnapshot),
   };
 }
 

@@ -85,6 +85,7 @@ interface ActiveWorker {
   resetRequested: boolean;
   pairingQr: string | undefined;
   pairingConsole: LocalPairingConsole | undefined;
+  readonly groupTargets: Map<string, string>;
 }
 
 export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWorkerChild {
@@ -197,6 +198,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
           resetRequested: false,
           pairingConsole: undefined,
           pairingQr: undefined,
+          groupTargets: new Map(),
         };
         active = worker;
         await connect(worker);
@@ -261,6 +263,27 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       sendAcknowledgement(message);
       return;
     }
+    if (message.type === 'SEND_DELIVERY') {
+      const target = active.groupTargets.get(message.payload.target);
+      const socket = active.socket;
+      if (!target || !socket?.sendMessage) {
+        sendError(message, 'WA_RUNTIME_UNAVAILABLE');
+        return;
+      }
+      try {
+        const providerResult = await socket.sendMessage(target, { text: message.payload.text });
+        const providerMessageId = ownValue(ownValue(providerResult, 'key'), 'id');
+        if (!isProviderMessageId(providerMessageId)) throw new Error('invalid provider identity');
+        dependencies.send({
+          ...messageIdentity(message),
+          type: 'DELIVERY_RESULT',
+          payload: { providerMessageId },
+        });
+      } catch {
+        sendError(message, 'WA_RUNTIME_UNAVAILABLE');
+      }
+      return;
+    }
 
     const worker = active;
     setPairingState(worker, 'STOPPED');
@@ -283,6 +306,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       worker.cancelReconnect?.();
       worker.cancelReconnect = undefined;
       disposeSocket(worker);
+      worker.groupTargets.clear();
     }
     await worker.pairingConsole?.stop();
     if (reset) await worker.credentials.reset();
@@ -393,6 +417,8 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
       return;
     }
 
+    const groupId = safeHash(worker.start.tenantId, 'group', remoteJid);
+    worker.groupTargets.set(groupId, remoteJid);
     dependencies.send({
       ...messageIdentity(worker.start),
       type: 'INBOUND_EVENT',
@@ -400,7 +426,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
         transportCode: 'FORWARDED',
         messageId,
         message: {
-          groupId: safeHash(worker.start.tenantId, 'group', remoteJid),
+          groupId,
           senderId: safeHash(worker.start.tenantId, 'sender', participant),
           text,
         },
@@ -476,7 +502,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
     });
   }
 
-  function sendAcknowledgement(message: ParentMessage): void {
+  function sendAcknowledgement(message: Exclude<ParentMessage, { type: 'SEND_DELIVERY' }>): void {
     const identity = messageIdentity(message);
     dependencies.send(
       message.type === 'REQUEST_PAIRING' ||
@@ -543,7 +569,7 @@ export function createBaileysWorkerChild(dependencies: Dependencies): BaileysWor
         if (!socket?.sendMessage) throw new Error('Delivery sender unavailable');
         const providerResult = await socket.sendMessage(input.target, { text: input.text });
         const providerMessageId = ownValue(ownValue(providerResult, 'key'), 'id');
-        if (!isIdentifier(providerMessageId)) {
+        if (!isProviderMessageId(providerMessageId)) {
           throw new Error('Delivery sender returned invalid provider identity');
         }
         return Object.freeze({ providerMessageId });
@@ -580,6 +606,10 @@ function isUuid(value: unknown): value is string {
 
 function isIdentifier(value: unknown): value is string {
   return typeof value === 'string' && /^[a-z0-9_:-]{1,160}$/.test(value);
+}
+
+function isProviderMessageId(value: unknown): value is string {
+  return typeof value === 'string' && /^[A-Za-z0-9_-]{1,160}$/.test(value);
 }
 
 function isSafeOutboundText(value: unknown): value is string {

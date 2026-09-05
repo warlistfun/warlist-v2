@@ -104,24 +104,24 @@ void test('persists accepted scheduled metadata once without reparsing replay te
 });
 
 void test('accepts malformed and missing schedules with null metadata', async () => {
-  const repository = await createRepository(true);
-  const service = createActiveAutomationDecisionService({
-    repository,
-    trustedTenant: { tenantId },
-    state: {
-      load() {
-        return Promise.resolve({
-          hasEntitlement: true,
-          duplicateMessage: false,
-          deliveryExists: false,
-        });
-      },
-    },
-  });
   for (const [suffix, text] of [
     ['d', 'hello without a schedule'],
     ['e', 'hello 32 Januari 2032 PUKUL 08:30'],
   ]) {
+    const repository = await createRepository(true);
+    const service = createActiveAutomationDecisionService({
+      repository,
+      trustedTenant: { tenantId },
+      state: {
+        load() {
+          return Promise.resolve({
+            hasEntitlement: true,
+            duplicateMessage: false,
+            deliveryExists: false,
+          });
+        },
+      },
+    });
     const messageId = `message:${suffix!.repeat(64)}`;
     assert.deepEqual(
       (

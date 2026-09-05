@@ -1,5 +1,9 @@
 import { WorkerRuntimeError, type WorkerCommandResult } from './worker-runtime-service';
 import type { WorkerDiagnosticsService } from './worker-diagnostics-service';
+import type {
+  WorkerLifecycleSnapshot,
+  WorkerLifecycleStateRepositoryPort,
+} from './worker-lifecycle-state-service';
 
 export interface WorkerCommandPort {
   startWorker(input: VersionedWorkerCommand): Promise<WorkerCommandResult>;
@@ -55,6 +59,8 @@ interface MutableOwnershipState {
   stopPromise: Promise<WorkerCommandResult> | undefined;
   resolveStop: ((result: WorkerCommandResult) => void) | undefined;
   rejectStop: ((error: unknown) => void) | undefined;
+  persisted: WorkerLifecycleSnapshot | null;
+  recovered: boolean;
 }
 
 export interface WorkerOwnershipService {
@@ -73,6 +79,7 @@ export interface WorkerOwnershipService {
 export function createWorkerOwnershipService(dependencies: {
   readonly commands: WorkerCommandPort;
   readonly diagnostics: WorkerDiagnosticsService;
+  readonly persistence?: WorkerLifecycleStateRepositoryPort;
 }): WorkerOwnershipService {
   const states = new Map<string, MutableOwnershipState>();
 
@@ -89,6 +96,8 @@ export function createWorkerOwnershipService(dependencies: {
         stopPromise: undefined,
         resolveStop: undefined,
         rejectStop: undefined,
+        persisted: null,
+        recovered: false,
       };
       states.set(tenantId, state);
     }
@@ -97,14 +106,10 @@ export function createWorkerOwnershipService(dependencies: {
 
   async function startWorker(input: StartWorkerInput): Promise<WorkerCommandResult> {
     const state = stateFor(input.tenantId);
-    if (state.quarantined || state.state !== 'STOPPED') {
-      throw new WorkerRuntimeError(
-        'WORKER_OWNERSHIP_QUARANTINED',
-        'Worker ownership is not terminal',
-        true,
-      );
-    }
+    if (dependencies.persistence) await recover(state, input.tenantId);
+    if (state.quarantined || state.state !== 'STOPPED') throw notTerminalError();
 
+    const previous = ownershipSnapshot(state);
     state.generation += 1;
     state.childId = input.childId;
     state.correlationId = input.correlationId;
@@ -112,7 +117,12 @@ export function createWorkerOwnershipService(dependencies: {
     state.desired = 'RUNNING';
     const command = commandFor(input, state);
     recordOwnership(state, command);
-
+    try {
+      if (dependencies.persistence) await persist(state, command);
+    } catch (error) {
+      restoreOwnership(state, previous);
+      throw error;
+    }
     try {
       const result = await dependencies.commands.startWorker({
         ...command,
@@ -123,6 +133,7 @@ export function createWorkerOwnershipService(dependencies: {
       }
       state.state = 'RUNNING';
       recordOwnership(state, command);
+      if (dependencies.persistence) await persist(state, command);
       return result;
     } catch (error) {
       if (owns(state, command) && !state.stopPromise) {
@@ -130,6 +141,7 @@ export function createWorkerOwnershipService(dependencies: {
         state.desired = 'STOPPED';
         state.quarantined = true;
         recordOwnership(state, command);
+        void persist(state, command).catch(() => undefined);
         beginCompensatingStop(state, command);
       }
       throw error;
@@ -161,24 +173,20 @@ export function createWorkerOwnershipService(dependencies: {
     state.stopPromise = promise;
     state.resolveStop = resolveStop;
     state.rejectStop = rejectStop;
-    void dependencies.commands.stopWorker(command).then(
-      (result) => {
-        if (!owns(state, command)) return;
-        const resolve = state.resolveStop;
-        release(state);
-        recordOwnership(state, command);
-        resolve?.(result);
-      },
-      (error: unknown) => {
-        if (!owns(state, command)) return;
-        state.quarantined = true;
-        state.stopPromise = undefined;
-        state.resolveStop = undefined;
-        state.rejectStop = undefined;
-        recordOwnership(state, command);
-        rejectStop(error);
-      },
-    );
+
+    if (!dependencies.persistence) {
+      void dependencies.commands.stopWorker(command).then(
+        (result) => settleStopped(state, command, result, resolveStop, rejectStop),
+        (error: unknown) => failStop(state, command, error, rejectStop),
+      );
+      return promise;
+    }
+    void persist(state, command)
+      .then(() => dependencies.commands.stopWorker(command))
+      .then(
+        (result) => settleStopped(state, command, result, resolveStop, rejectStop),
+        (error: unknown) => failStop(state, command, error, rejectStop),
+      );
     return promise;
   }
 
@@ -196,22 +204,25 @@ export function createWorkerOwnershipService(dependencies: {
     ) {
       return;
     }
-    const command: WorkerCommand = {
-      tenantId,
-      generation,
-      childId,
-      correlationId,
-    };
+    const command: WorkerCommand = { tenantId, generation, childId, correlationId };
     const resolveStop = state.resolveStop;
+    const rejectStop = state.rejectStop;
     dependencies.commands.invalidateWorker(command);
-    release(state);
-    recordOwnership(state, command);
-    resolveStop?.({ ok: true });
+    if (!dependencies.persistence) {
+      release(state);
+      recordOwnership(state, command);
+      resolveStop?.({ ok: true });
+      return;
+    }
+    void persistStopped(state, command).then(
+      () => resolveStop?.({ ok: true }),
+      (error: unknown) => rejectStop?.(error),
+    );
   }
 
   return {
     startWorker,
-    applyConfig(input: ApplyConfigInput): Promise<WorkerCommandResult> {
+    applyConfig(input): Promise<WorkerCommandResult> {
       const state = stateFor(input.tenantId);
       if (state.state !== 'RUNNING' || state.quarantined || state.childId === null) {
         return Promise.reject(notTerminalError());
@@ -250,21 +261,85 @@ export function createWorkerOwnershipService(dependencies: {
     state.stopPromise = terminalEvidence;
     void terminalEvidence.catch(() => undefined);
     void dependencies.commands.stopWorker(command).then(
-      (result) => {
-        if (owns(state, command)) {
-          release(state);
-          recordOwnership(state, command);
-        }
-        resolveStop(result);
-      },
-      (error: unknown) => {
-        if (!owns(state, command)) return;
-        state.stopPromise = undefined;
-        state.resolveStop = undefined;
-        state.rejectStop = undefined;
-        rejectStop(error);
-      },
+      (result) => settleStopped(state, command, result, resolveStop, rejectStop),
+      (error: unknown) => failStop(state, command, error, rejectStop),
     );
+  }
+
+  async function recover(state: MutableOwnershipState, tenantId: string): Promise<void> {
+    if (state.recovered) return;
+    const persisted = await dependencies.persistence?.load(tenantId);
+    if (persisted) {
+      state.generation = persisted.generation;
+      state.persisted = persisted;
+      // A prior process cannot retain live child authority: the next STARTING CAS fences it.
+      state.state = 'STOPPED';
+      state.desired = 'STOPPED';
+      state.childId = null;
+      state.correlationId = null;
+      state.quarantined = false;
+    }
+    state.recovered = true;
+  }
+
+  function persist(state: MutableOwnershipState, command: WorkerCommand): Promise<void> {
+    if (!dependencies.persistence) return Promise.resolve();
+    const snapshot: WorkerLifecycleSnapshot = Object.freeze({
+      tenantId: command.tenantId,
+      state: state.state,
+      generation: state.generation,
+      childId: state.childId,
+      quarantined: state.quarantined,
+      revision: (state.persisted?.revision ?? 0) + 1,
+    });
+    return dependencies.persistence.compareAndSave(snapshot, state.persisted).then(() => {
+      state.persisted = snapshot;
+    });
+  }
+
+  function persistStopped(state: MutableOwnershipState, command: WorkerCommand): Promise<void> {
+    release(state);
+    recordOwnership(state, command);
+    return persist(state, command).catch((error: unknown) => {
+      state.state = 'STOPPING';
+      state.desired = 'STOPPED';
+      state.childId = command.childId;
+      state.quarantined = true;
+      recordOwnership(state, command);
+      throw error;
+    });
+  }
+
+  function settleStopped(
+    state: MutableOwnershipState,
+    command: WorkerCommand,
+    result: WorkerCommandResult,
+    resolve: (result: WorkerCommandResult) => void,
+    reject: (error: unknown) => void,
+  ): void {
+    if (!owns(state, command)) return;
+    if (!dependencies.persistence) {
+      release(state);
+      recordOwnership(state, command);
+      resolve(result);
+      return;
+    }
+    void persistStopped(state, command).then(() => resolve(result), reject);
+  }
+
+  function failStop(
+    state: MutableOwnershipState,
+    command: WorkerCommand,
+    error: unknown,
+    reject: (error: unknown) => void,
+  ): void {
+    if (!owns(state, command)) return;
+    state.quarantined = true;
+    state.stopPromise = undefined;
+    state.resolveStop = undefined;
+    state.rejectStop = undefined;
+    recordOwnership(state, command);
+    reject(error);
   }
 
   function recordOwnership(state: MutableOwnershipState, command: WorkerCommand): void {
@@ -291,6 +366,35 @@ function commandFor(input: StartWorkerInput, state: MutableOwnershipState): Work
     childId: input.childId,
     correlationId: input.correlationId,
   };
+}
+function ownershipSnapshot(state: MutableOwnershipState): Readonly<{
+  state: MutableOwnershipState['state'];
+  desired: MutableOwnershipState['desired'];
+  generation: number;
+  childId: string | null;
+  correlationId: string | null;
+  quarantined: boolean;
+}> {
+  return {
+    state: state.state,
+    desired: state.desired,
+    generation: state.generation,
+    childId: state.childId,
+    correlationId: state.correlationId,
+    quarantined: state.quarantined,
+  };
+}
+
+function restoreOwnership(
+  state: MutableOwnershipState,
+  previous: ReturnType<typeof ownershipSnapshot>,
+): void {
+  state.state = previous.state;
+  state.desired = previous.desired;
+  state.generation = previous.generation;
+  state.childId = previous.childId;
+  state.correlationId = previous.correlationId;
+  state.quarantined = previous.quarantined;
 }
 
 function owns(state: MutableOwnershipState, command: WorkerCommand): boolean {

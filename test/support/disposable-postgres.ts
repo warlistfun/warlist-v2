@@ -6,10 +6,13 @@ import type test from 'node:test';
 
 import { Client } from 'pg';
 
-import { runPostgresMigrations } from '../../src/infrastructure/database/postgres-migrator';
+import {
+  runPostgresMigrations,
+  type PostgresMigration,
+} from '../../src/infrastructure/database/postgres-migrator';
 
 const postgresBin = '/usr/lib/postgresql/16/bin';
-const migrations = [
+export const postgresMigrations = [
   {
     revision: 1,
     name: 'worker-lifecycle-states',
@@ -75,7 +78,17 @@ const migrations = [
     name: 'inbound-confirmation-admission',
     sql: readFileSync(resolve('migrations/0013-inbound-confirmation-admission.sql'), 'utf8'),
   },
-] as const;
+  {
+    revision: 14,
+    name: 'baileys-provider-message-id',
+    sql: readFileSync(resolve('migrations/0014-baileys-provider-message-id.sql'), 'utf8'),
+  },
+  {
+    revision: 15,
+    name: 'single-active-confirmation',
+    sql: readFileSync(resolve('migrations/0015-single-active-confirmation.sql'), 'utf8'),
+  },
+];
 
 export type DisposablePostgres = Readonly<{
   config: Readonly<{
@@ -95,6 +108,7 @@ export type DisposablePostgres = Readonly<{
 export async function createDisposablePostgres(
   t: test.TestContext,
   prefix = 'warlist-pg16-business-',
+  migrations: readonly PostgresMigration[] = postgresMigrations,
 ): Promise<DisposablePostgres> {
   const root = mkdtempSync(join(tmpdir(), prefix));
   const dataDirectory = join(root, 'cluster');
