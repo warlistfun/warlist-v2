@@ -52,7 +52,7 @@ void test('runnable entrypoint boots every canonical active tenant through concr
       signals: new ControlledSignals(),
       createRepository: () => repository,
       spawnWorker() {
-        const child = new AckingWorkerProcess();
+        const child = new AckingWorkerProcess('ACK', true);
         children.push(child);
         return child;
       },
@@ -131,7 +131,7 @@ void test('concrete runtime evaluates the bounded inbound matrix without externa
       signals: new ControlledSignals(),
       createRepository: () => repository,
       spawnWorker() {
-        const child = new AckingWorkerProcess();
+        const child = new AckingWorkerProcess('ACK', true);
         children.push(child);
         return child;
       },
@@ -243,7 +243,7 @@ void test('partial worker start reaches terminal exit before replacement and ign
       signals: new ControlledSignals(),
       createRepository: () => repository,
       spawnWorker() {
-        const child = new AckingWorkerProcess(children.length === 0 ? 'ERROR' : 'ACK');
+        const child = new AckingWorkerProcess(children.length === 0 ? 'ERROR' : 'ACK', true);
         children.push(child);
         return child;
       },
@@ -264,7 +264,7 @@ void test('partial worker start reaches terminal exit before replacement and ign
       generation: replacement.generation,
       childId: replacement.childId,
     },
-    { tenantId: tenantOne, generation: 2, childId: 'replacement-7' },
+    { tenantId: tenantOne, generation: 2, childId: 'replacement-9' },
   );
   assert.equal(children.filter(({ connected }) => connected).length, 1);
 
@@ -481,7 +481,10 @@ class AckingWorkerProcess implements WorkerChildProcessPort {
   readonly messages: ParentMessage[] = [];
   private readonly events = new EventEmitter();
 
-  constructor(private readonly startOutcome: 'ACK' | 'ERROR' = 'ACK') {}
+  constructor(
+    private readonly startOutcome: 'ACK' | 'ERROR' = 'ACK',
+    private readonly acknowledgeShutdown = false,
+  ) {}
 
   on(event: 'message' | 'exit' | 'error', listener: (...arguments_: unknown[]) => void): this {
     this.events.on(event, listener);
@@ -497,6 +500,17 @@ class AckingWorkerProcess implements WorkerChildProcessPort {
     this.messages.push(message);
     callback(null);
     queueMicrotask(() => {
+      if (
+        this.acknowledgeShutdown &&
+        (message.type === 'STOP_WORKER' || message.type === 'RESET_WORKER')
+      ) {
+        this.events.emit('message', {
+          ...message,
+          type: 'COMMAND_ACK',
+          payload: { commandType: message.type },
+        });
+        return;
+      }
       if (message.type !== 'START_WORKER') return;
       if (this.startOutcome === 'ERROR') {
         this.events.emit('error', new Error('synthetic child unavailable after allocation'));

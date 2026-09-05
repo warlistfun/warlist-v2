@@ -188,9 +188,13 @@ class ManualTransport implements WorkerCommandTransportPort {
   }
 
   acknowledge(message: ParentMessage): void {
+    if (message.type === 'SEND_DELIVERY')
+      throw new Error('delivery has a result, not acknowledgement');
     assert.ok(this.handler);
     const payload =
-      message.type === 'REQUEST_PAIRING' || message.type === 'STOP_WORKER'
+      message.type === 'REQUEST_PAIRING' ||
+      message.type === 'STOP_WORKER' ||
+      message.type === 'RESET_WORKER'
         ? { commandType: message.type }
         : { commandType: message.type, configVersion: message.payload.configVersion };
     const ack: ChildMessage = {

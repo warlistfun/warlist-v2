@@ -74,24 +74,31 @@ void test('adversarial matrix allows one synthetic sender call and never replays
   assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
   assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
 
+  const ambiguousWorker = await fixture.provisionTenant(
+    '00000000-0000-4000-8000-000000000b30',
+    'ops_example_phase6_matrix_ambiguous',
+  );
   const ambiguousOperationId = '00000000-0000-4000-8000-000000000b05';
   await fixture.repository.prepareDelivery({
     id: ambiguousOperationId,
-    tenantId,
+    tenantId: ambiguousWorker.tenantId,
     operationKey: 'automation:matrix_crash',
   });
   const crashSender = createClaimGatedDeliverySender({
     claim: (input) =>
       createDeliveryClaimService({
         repository: fixture.repository,
-        trustedTenant: { tenantId },
+        trustedTenant: { tenantId: ambiguousWorker.tenantId },
         ownerId: 'claim_owner_matrix_crash',
         idGenerator: { generate: () => '00000000-0000-4000-8000-000000000b06' },
       }).claim(input),
-    begin: createDeliveryBeginPort({ repository: fixture.repository, trustedTenant: { tenantId } }),
+    begin: createDeliveryBeginPort({
+      repository: fixture.repository,
+      trustedTenant: { tenantId: ambiguousWorker.tenantId },
+    }),
     settle: createDeliverySettlementPort({
       repository: fixture.repository,
-      trustedTenant: { tenantId },
+      trustedTenant: { tenantId: ambiguousWorker.tenantId },
     }),
     sender: () => {
       sends += 1;
@@ -101,47 +108,54 @@ void test('adversarial matrix allows one synthetic sender call and never replays
   await assert.rejects(
     crashSender.send({
       operationId: ambiguousOperationId,
-      workerGeneration: worker.generation,
-      childId: worker.childId,
+      workerGeneration: ambiguousWorker.generation,
+      childId: ambiguousWorker.childId,
     }),
   );
   assert.equal(
-    (await fixture.repository.loadDelivery(tenantId, ambiguousOperationId))?.status,
+    (await fixture.repository.loadDelivery(ambiguousWorker.tenantId, ambiguousOperationId))?.status,
     'AMBIGUOUS',
   );
   const ambiguousReplay = await createDeliveryClaimService({
     repository: fixture.repository,
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: ambiguousWorker.tenantId },
     ownerId: 'claim_owner_matrix_replay',
     idGenerator: { generate: () => '00000000-0000-4000-8000-000000000b07' },
   }).claim({
     operationId: ambiguousOperationId,
-    workerGeneration: worker.generation,
-    childId: worker.childId,
+    workerGeneration: ambiguousWorker.generation,
+    childId: ambiguousWorker.childId,
   });
   assert.equal(ambiguousReplay.operation.status, 'AMBIGUOUS');
   assert.equal(ambiguousReplay.attempt.status, 'AMBIGUOUS');
   assert.equal(ambiguousReplay.attempt.id, '00000000-0000-4000-8000-000000000b06');
   assert.equal(
-    await fixture.repository.loadDeliveryAttempt(tenantId, '00000000-0000-4000-8000-000000000b07'),
+    await fixture.repository.loadDeliveryAttempt(
+      ambiguousWorker.tenantId,
+      '00000000-0000-4000-8000-000000000b07',
+    ),
     undefined,
   );
   assert.equal(sends, 2);
 
+  const staleClaimWorker = await fixture.provisionTenant(
+    '00000000-0000-4000-8000-000000000b31',
+    'ops_example_phase6_matrix_stale_claim',
+  );
   await fixture.repository.prepareDelivery({
     id: '00000000-0000-4000-8000-000000000b11',
-    tenantId,
+    tenantId: staleClaimWorker.tenantId,
     operationKey: 'automation:matrix_stale_claim',
   });
   const staleClaim = createDeliveryClaimService({
     repository: fixture.repository,
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: staleClaimWorker.tenantId },
     ownerId: 'claim_owner_matrix_stale',
     idGenerator: { generate: () => '00000000-0000-4000-8000-000000000b12' },
   });
   for (const stale of [
-    { workerGeneration: worker.generation + 1, childId: worker.childId },
-    { workerGeneration: worker.generation, childId: 'child_example_matrix_stale' },
+    { workerGeneration: staleClaimWorker.generation + 1, childId: staleClaimWorker.childId },
+    { workerGeneration: staleClaimWorker.generation, childId: 'child_example_matrix_stale' },
   ]) {
     await assert.rejects(
       staleClaim.claim({
@@ -152,22 +166,26 @@ void test('adversarial matrix allows one synthetic sender call and never replays
     );
   }
 
+  const staleSendWorker = await fixture.provisionTenant(
+    '00000000-0000-4000-8000-000000000b32',
+    'ops_example_phase6_matrix_stale_send',
+  );
   const staleOperationId = '00000000-0000-4000-8000-000000000b13';
   const staleAttemptId = '00000000-0000-4000-8000-000000000b14';
   await fixture.repository.prepareDelivery({
     id: staleOperationId,
-    tenantId,
+    tenantId: staleSendWorker.tenantId,
     operationKey: 'automation:matrix_stale_send',
   });
   const staleAuthority = await createDeliveryClaimService({
     repository: fixture.repository,
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: staleSendWorker.tenantId },
     ownerId: 'claim_owner_matrix_stale_send',
     idGenerator: { generate: () => staleAttemptId },
   }).claim({
     operationId: staleOperationId,
-    workerGeneration: worker.generation,
-    childId: worker.childId,
+    workerGeneration: staleSendWorker.generation,
+    childId: staleSendWorker.childId,
   });
   const staleSend = {
     operationId: staleOperationId,
@@ -175,31 +193,36 @@ void test('adversarial matrix allows one synthetic sender call and never replays
     claimFence: staleAuthority.operation.claimFence,
     claimOwner: staleAuthority.operation.claimOwner!,
     leaseUntil: staleAuthority.operation.leaseUntil!,
-    workerGeneration: worker.generation,
-    childId: worker.childId,
+    workerGeneration: staleSendWorker.generation,
+    childId: staleSendWorker.childId,
   };
   for (const stale of [
     { childId: 'child_example_matrix_stale' },
-    { workerGeneration: worker.generation + 1 },
+    { workerGeneration: staleSendWorker.generation + 1 },
     { claimFence: staleSend.claimFence + 1 },
     { claimOwner: 'claim_owner_matrix_stale' },
     { leaseUntil: new Date(Date.parse(staleSend.leaseUntil) + 1_000).toISOString() },
   ]) {
-    await assert.rejects(fixture.repository.beginDelivery({ tenantId, ...staleSend, ...stale }), {
-      code: 'DELIVERY_CLAIM_CONFLICT',
-    });
+    await assert.rejects(
+      fixture.repository.beginDelivery({
+        tenantId: staleSendWorker.tenantId,
+        ...staleSend,
+        ...stale,
+      }),
+      { code: 'DELIVERY_CLAIM_CONFLICT' },
+    );
   }
-  await fixture.repository.beginDelivery({ tenantId, ...staleSend });
+  await fixture.repository.beginDelivery({ tenantId: staleSendWorker.tenantId, ...staleSend });
   for (const stale of [
     { childId: 'child_example_matrix_stale' },
-    { workerGeneration: worker.generation + 1 },
+    { workerGeneration: staleSendWorker.generation + 1 },
     { claimFence: staleSend.claimFence + 1 },
     { claimOwner: 'claim_owner_matrix_stale' },
     { leaseUntil: new Date(Date.parse(staleSend.leaseUntil) + 1_000).toISOString() },
   ]) {
     await assert.rejects(
       fixture.repository.settleDelivery({
-        tenantId,
+        tenantId: staleSendWorker.tenantId,
         ...staleSend,
         ...stale,
         outcome: 'AMBIGUOUS',
@@ -207,6 +230,38 @@ void test('adversarial matrix allows one synthetic sender call and never replays
       }),
       { code: 'DELIVERY_CLAIM_CONFLICT' },
     );
+  }
+});
+
+void test('serializes distinct active delivery preparation per tenant', async (t) => {
+  const fixture = await createFixture(t);
+  const tenantLock = new Client(fixture.database.config);
+  const observer = new Client(fixture.database.config);
+  await Promise.all([tenantLock.connect(), observer.connect()]);
+  try {
+    await tenantLock.query('BEGIN');
+    await tenantLock.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
+    const first = fixture.repository.prepareDelivery({
+      id: '00000000-0000-4000-8000-000000000b40',
+      tenantId,
+      operationKey: 'automation:concurrent_first',
+    });
+    void first.catch(() => undefined);
+    await waitForLockWait(observer, 'INSERT INTO delivery_operations');
+    const second = fixture.secondRepository.prepareDelivery({
+      id: '00000000-0000-4000-8000-000000000b41',
+      tenantId,
+      operationKey: 'automation:concurrent_second',
+    });
+    void second.catch(() => undefined);
+    await waitForLockWait(observer, 'INSERT INTO delivery_operations', 2);
+    await tenantLock.query('COMMIT');
+    const results = await Promise.allSettled([first, second]);
+    assert.equal(results.filter((result) => result.status === 'fulfilled').length, 1);
+    assert.equal(results.filter((result) => result.status === 'rejected').length, 1);
+  } finally {
+    await tenantLock.query('ROLLBACK').catch(() => undefined);
+    await Promise.all([tenantLock.end(), observer.end()]);
   }
 });
 
@@ -422,10 +477,6 @@ void test('adversarial matrix fences stale authority and makes confirmation repl
   for (const stale of [
     { ...authority, claimFence: authority.claimFence + 1 },
     { ...authority, claimOwner: 'claim_owner_matrix_stale' },
-    {
-      ...authority,
-      leaseUntil: new Date(Date.parse(authority.leaseUntil) + 1_000).toISOString(),
-    },
     { ...authority, workerGeneration: authority.workerGeneration + 1 },
     { ...authority, childId: 'child_example_matrix_stale' },
   ]) {
@@ -507,10 +558,14 @@ async function blockAdmissionBehindOwnershipLoss<T>(
   }
 }
 
-async function waitForLockWait(client: Client, queryMarker: string): Promise<string> {
+async function waitForLockWait(
+  client: Client,
+  queryMarker: string,
+  minimumWaiters = 1,
+): Promise<string> {
   for (let attempt = 0; attempt < 100; attempt += 1) {
-    const result = await client.query<{ query_start: Date; wait_event_type: string | null }>(
-      `SELECT query_start, wait_event_type
+    const result = await client.query<{ query_start: Date }>(
+      `SELECT query_start
        FROM pg_stat_activity
        WHERE datname = current_database()
          AND state = 'active'
@@ -519,7 +574,7 @@ async function waitForLockWait(client: Client, queryMarker: string): Promise<str
       [queryMarker],
     );
     const queryStartedAt = result.rows[0]?.query_start.toISOString();
-    if (queryStartedAt) return queryStartedAt;
+    if (queryStartedAt && result.rows.length >= minimumWaiters) return queryStartedAt;
     await new Promise<void>((resolve) => setImmediate(resolve));
   }
   const activity = await client.query<{
@@ -563,5 +618,15 @@ async function createFixture(t: test.TestContext) {
     worker,
     null,
   );
-  return { repository, secondRepository, database, authorization };
+  const provisionTenant = async (id: string, publicOpsId: string) => {
+    const tenantWorker = { ...worker, tenantId: id };
+    authorization.allowed.add(id);
+    await repository.createTenant({ id, publicOpsId });
+    await createPostgresWorkerLifecycleStateRepository({ client, authorization }).compareAndSave(
+      tenantWorker,
+      null,
+    );
+    return tenantWorker;
+  };
+  return { repository, secondRepository, database, authorization, provisionTenant };
 }

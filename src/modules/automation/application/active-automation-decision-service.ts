@@ -58,17 +58,27 @@ export function createActiveAutomationDecisionService(dependencies: {
         duplicateMessage: state.duplicateMessage,
         deliveryExists: state.deliveryExists,
       });
-      const operation =
-        decision.code === 'ACCEPTED'
-          ? await dependencies.repository.prepareDelivery({
-              id: randomUUID(),
-              tenantId: dependencies.trustedTenant.tenantId,
-              operationKey: `automation:${input.messageId}`,
-              scheduledStartAt: extractScheduledStartAt(normalized.text),
-            })
-          : decision.code === 'DELIVERY_ALREADY_EXISTS'
-            ? state.delivery
-            : undefined;
+      let operation: DeliveryRecord | undefined;
+      if (decision.code === 'ACCEPTED') {
+        try {
+          operation = await dependencies.repository.prepareDelivery({
+            id: randomUUID(),
+            tenantId: dependencies.trustedTenant.tenantId,
+            operationKey: `automation:${input.messageId}`,
+            scheduledStartAt: extractScheduledStartAt(normalized.text),
+          });
+        } catch (error) {
+          if (error instanceof RepositoryError && error.code === 'DELIVERY_ALREADY_EXISTS') {
+            return Object.freeze({
+              revision: config.revision,
+              decision: { code: 'DELIVERY_ALREADY_EXISTS' } as const,
+            });
+          }
+          throw error;
+        }
+      } else if (decision.code === 'DELIVERY_ALREADY_EXISTS') {
+        operation = state.delivery;
+      }
       return Object.freeze(
         operation === undefined
           ? { revision: config.revision, decision }

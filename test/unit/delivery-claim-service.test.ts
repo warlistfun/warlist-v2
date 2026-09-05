@@ -18,6 +18,9 @@ const deniedTenantId = '00000000-0000-4000-8000-000000000899';
 const operationId = '00000000-0000-4000-8000-000000000802';
 const attemptOneId = '00000000-0000-4000-8000-000000000803';
 const attemptTwoId = '00000000-0000-4000-8000-000000000804';
+const recoveryTenantId = '00000000-0000-4000-8000-000000000815';
+const crashTenantId = '00000000-0000-4000-8000-000000000816';
+const staleTenantId = '00000000-0000-4000-8000-000000000817';
 const currentWorker = {
   tenantId,
   state: 'RUNNING' as const,
@@ -151,15 +154,25 @@ void test('uses database time for live claims, recovery, and one-winner reclaim'
   assert.equal(reclaimed.filter((result) => result.status === 'rejected').length, 1);
   await secondRepository.stop();
 
+  fixture.authorization.allowed.add(recoveryTenantId);
+  await fixture.repository.createTenant({
+    id: recoveryTenantId,
+    publicOpsId: 'ops_example_claim_recovery',
+  });
+  await fixture.workerRepository.compareAndSave(
+    { ...currentWorker, tenantId: recoveryTenantId },
+    null,
+  );
   const recoveryOperationId = '00000000-0000-4000-8000-000000000812';
   const recoveryAttemptId = '00000000-0000-4000-8000-000000000813';
   await fixture.repository.prepareDelivery({
     id: recoveryOperationId,
-    tenantId,
+    tenantId: recoveryTenantId,
     operationKey: 'automation:database_time_recovery',
   });
   const recoveryClaim = await fixture.repository.claimDelivery({
     ...firstInput,
+    tenantId: recoveryTenantId,
     operationId: recoveryOperationId,
     attemptId: recoveryAttemptId,
     claimOwner: 'claim_owner_database_time_recovery',
@@ -173,17 +186,18 @@ void test('uses database time for live claims, recovery, and one-winner reclaim'
     workerGeneration: 3,
     childId: 'child_example_3',
   };
-  await fixture.repository.beginDelivery({ tenantId, ...recoveryAuthority });
+  await fixture.repository.beginDelivery({ tenantId: recoveryTenantId, ...recoveryAuthority });
   await assert.rejects(
     fixture.repository.claimDelivery({
       ...futureSkewedInput,
+      tenantId: recoveryTenantId,
       operationId: recoveryOperationId,
       attemptId: '00000000-0000-4000-8000-000000000814',
     }),
     { code: 'DELIVERY_CLAIM_CONFLICT' },
   );
   assert.equal(
-    (await fixture.repository.loadDelivery(tenantId, recoveryOperationId))?.status,
+    (await fixture.repository.loadDelivery(recoveryTenantId, recoveryOperationId))?.status,
     'SENDING',
   );
 });
@@ -294,15 +308,25 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
   assert.equal(settled.operation.status, 'SENT');
   assert.equal(settled.attempt.status, 'SENT');
   assert.equal(settled.attempt.providerMessageId, 'provider_message_example_1');
+  fixture.authorization.allowed.add(crashTenantId);
+  await fixture.repository.createTenant({
+    id: crashTenantId,
+    publicOpsId: 'ops_example_claim_crash',
+  });
+  await fixture.workerRepository.compareAndSave(
+    { ...currentWorker, tenantId: crashTenantId },
+    null,
+  );
   const crashOperationId = '00000000-0000-4000-8000-000000000808';
   await fixture.repository.prepareDelivery({
     id: crashOperationId,
-    tenantId,
+    tenantId: crashTenantId,
     operationKey: 'automation:message_example_crash_boundary',
   });
   const crashClaim = await claimService(fixture.repository, {
     ownerId: 'claim_owner_crash',
     attemptId: '00000000-0000-4000-8000-000000000809',
+    tenantId: crashTenantId,
   }).claim({ operationId: crashOperationId, workerGeneration: 3, childId: 'child_example_3' });
   const crashAuthority = {
     operationId: crashOperationId,
@@ -313,11 +337,11 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
     workerGeneration: 3,
     childId: 'child_example_3',
   };
-  await fixture.repository.beginDelivery({ tenantId, ...crashAuthority });
-  await expireLease(fixture.database.config, crashOperationId);
+  await fixture.repository.beginDelivery({ tenantId: crashTenantId, ...crashAuthority });
+  await expireLease(fixture.database.config, crashOperationId, crashTenantId);
   await assert.rejects(
     fixture.repository.settleDelivery({
-      tenantId,
+      tenantId: crashTenantId,
       ...crashAuthority,
       outcome: 'AMBIGUOUS',
       providerMessageId: null,
@@ -325,18 +349,22 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
     { code: 'DELIVERY_CLAIM_CONFLICT' },
   );
   assert.equal(
-    (await fixture.repository.loadDelivery(tenantId, crashOperationId))?.status,
+    (await fixture.repository.loadDelivery(crashTenantId, crashOperationId))?.status,
     'SENDING',
   );
   const recovered = await claimService(fixture.repository, {
     ownerId: 'claim_owner_recovery',
     attemptId: '00000000-0000-4000-8000-000000000810',
+    tenantId: crashTenantId,
   }).claim({ operationId: crashOperationId, workerGeneration: 3, childId: 'child_example_3' });
   assert.equal(recovered.operation.status, 'AMBIGUOUS');
   assert.equal(recovered.attempt.status, 'AMBIGUOUS');
   assert.equal(recovered.attempt.id, crashAuthority.attemptId);
   assert.equal(
-    await fixture.repository.loadDeliveryAttempt(tenantId, '00000000-0000-4000-8000-000000000810'),
+    await fixture.repository.loadDeliveryAttempt(
+      crashTenantId,
+      '00000000-0000-4000-8000-000000000810',
+    ),
     undefined,
   );
 
@@ -357,24 +385,38 @@ void test('durably settles only the exact claimed operation, attempt, fence, and
     }),
     { code: 'DELIVERY_CLAIM_CONFLICT' },
   );
+  fixture.authorization.allowed.add(staleTenantId);
+  await fixture.repository.createTenant({
+    id: staleTenantId,
+    publicOpsId: 'ops_example_claim_stale',
+  });
+  await fixture.workerRepository.compareAndSave(
+    { ...currentWorker, tenantId: staleTenantId },
+    null,
+  );
 
+  const staleSettle = createDeliverySettlementPort({
+    repository: fixture.repository,
+    trustedTenant: { tenantId: staleTenantId },
+  });
   const nextOperationId = '00000000-0000-4000-8000-000000000806';
   const nextAttemptId = '00000000-0000-4000-8000-000000000807';
   await fixture.repository.prepareDelivery({
     id: nextOperationId,
-    tenantId,
+    tenantId: staleTenantId,
     operationKey: 'automation:message_example_stale_settlement',
   });
   const nextClaim = await claimService(fixture.repository, {
     ownerId: 'claim_owner_two',
     attemptId: nextAttemptId,
+    tenantId: staleTenantId,
   }).claim({ operationId: nextOperationId, workerGeneration: 3, childId: 'child_example_3' });
   await fixture.workerRepository.compareAndSave(
-    { ...currentWorker, state: 'STOPPED', childId: null, revision: 2 },
-    currentWorker,
+    { ...currentWorker, tenantId: staleTenantId, state: 'STOPPED', childId: null, revision: 2 },
+    { ...currentWorker, tenantId: staleTenantId },
   );
   await assert.rejects(
-    settle({
+    staleSettle({
       operationId: nextOperationId,
       attemptId: nextAttemptId,
       claimFence: nextClaim.operation.claimFence,
@@ -510,11 +552,11 @@ function createRepository(
 
 function claimService(
   repository: ReturnType<typeof createPostgresBusinessRepository>,
-  input: Readonly<{ ownerId: string; attemptId: string }>,
+  input: Readonly<{ ownerId: string; attemptId: string; tenantId?: string }>,
 ) {
   return createDeliveryClaimService({
     repository,
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: input.tenantId ?? tenantId },
     ownerId: input.ownerId,
     idGenerator: { generate: () => input.attemptId },
   });
@@ -523,6 +565,7 @@ function claimService(
 async function expireLease(
   config: DisposablePostgres['config'],
   targetOperationId: string,
+  targetTenantId = tenantId,
 ): Promise<void> {
   const client = new Client(config);
   await client.connect();
@@ -531,7 +574,7 @@ async function expireLease(
       `UPDATE delivery_operations
        SET claim_lease_until = date_trunc('milliseconds', clock_timestamp()) - interval '1 second'
        WHERE tenant_id = $1 AND id = $2`,
-      [tenantId, targetOperationId],
+      [targetTenantId, targetOperationId],
     );
   } finally {
     await client.end();

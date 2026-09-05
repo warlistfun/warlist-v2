@@ -1,7 +1,12 @@
 export const IPC_PROTOCOL_VERSION = 1 as const;
 
 export type ParentCommandType =
-  'START_WORKER' | 'APPLY_CONFIG' | 'REQUEST_PAIRING' | 'STOP_WORKER' | 'RESET_WORKER';
+  | 'START_WORKER'
+  | 'APPLY_CONFIG'
+  | 'REQUEST_PAIRING'
+  | 'SEND_DELIVERY'
+  | 'STOP_WORKER'
+  | 'RESET_WORKER';
 
 export type WorkerConnectionState =
   'CONNECTING' | 'OPEN' | 'CLOSED_RETRYING' | 'LOGGED_OUT' | 'CREDENTIALS_SAVE_FAILED' | 'STOPPED';
@@ -41,6 +46,13 @@ interface VersionedConfigPayload {
 export type PairingRequestPayload = Readonly<{
   pairingTarget: string;
 }>;
+export type DeliveryCommandPayload = Readonly<{
+  operationId: string;
+  attemptId: string;
+  claimFence: number;
+  target: string;
+  text: string;
+}>;
 
 export type ParentMessage =
   | (MessageIdentity & {
@@ -54,6 +66,10 @@ export type ParentMessage =
   | (MessageIdentity & {
       readonly type: 'REQUEST_PAIRING';
       readonly payload: PairingRequestPayload;
+    })
+  | (MessageIdentity & {
+      readonly type: 'SEND_DELIVERY';
+      readonly payload: DeliveryCommandPayload;
     })
   | (MessageIdentity & {
       readonly type: 'STOP_WORKER' | 'RESET_WORKER';
@@ -100,6 +116,12 @@ export type ChildMessage =
       readonly payload: Readonly<{
         commandType: ParentCommandType;
         error: SafeIpcError;
+      }>;
+    })
+  | (MessageIdentity & {
+      readonly type: 'DELIVERY_RESULT';
+      readonly payload: Readonly<{
+        providerMessageId: string;
       }>;
     })
   | (MessageIdentity & {
@@ -154,6 +176,12 @@ export function decodeParentMessage(input: unknown): ParentMessage {
         type: message.type,
         payload: decodePairingRequest(message.payload),
       });
+    case 'SEND_DELIVERY':
+      return freeze({
+        ...message.identity,
+        type: message.type,
+        payload: decodeDeliveryCommand(message.payload),
+      });
     case 'STOP_WORKER':
     case 'RESET_WORKER':
       requireExactKeys(message.payload, []);
@@ -169,6 +197,7 @@ export function decodeChildMessage(input: unknown): ChildMessage {
   switch (message.type) {
     case 'COMMAND_ACK': {
       const commandType = decodeCommandType(message.payload.commandType);
+      if (commandType === 'SEND_DELIVERY') throw invalidMessage();
       if (
         commandType === 'REQUEST_PAIRING' ||
         commandType === 'STOP_WORKER' ||
@@ -206,6 +235,16 @@ export function decodeChildMessage(input: unknown): ChildMessage {
         ...message.identity,
         type: message.type,
         payload: freeze({ commandType, error }),
+      });
+    }
+    case 'DELIVERY_RESULT': {
+      requireExactKeys(message.payload, ['providerMessageId']);
+      return freeze({
+        ...message.identity,
+        type: message.type,
+        payload: freeze({
+          providerMessageId: decodeProviderMessageId(message.payload.providerMessageId),
+        }),
       });
     }
     case 'CONNECTION_UPDATE': {
@@ -305,6 +344,18 @@ function decodePairingRequest(input: Record<string, unknown>): PairingRequestPay
   if (!/^synthetic_[a-z0-9_:-]+$/i.test(pairingTarget)) throw invalidMessage();
   return freeze({ pairingTarget });
 }
+function decodeDeliveryCommand(input: Record<string, unknown>): DeliveryCommandPayload {
+  requireExactKeys(input, ['operationId', 'attemptId', 'claimFence', 'target', 'text']);
+  const operationId = decodeIdentifier(input.operationId);
+  const attemptId = decodeIdentifier(input.attemptId);
+  const claimFence = decodePositiveInteger(input.claimFence);
+  const target = decodeIdentifier(input.target);
+  const text = input.text;
+  if (typeof text !== 'string' || text.length < 1 || text.length > 4_096 || text !== text.trim()) {
+    throw invalidMessage();
+  }
+  return freeze({ operationId, attemptId, claimFence, target, text });
+}
 
 const safeErrors = {
   WA_RUNTIME_UNAVAILABLE: {
@@ -349,6 +400,7 @@ function decodeCommandType(input: unknown): ParentCommandType {
     input === 'START_WORKER' ||
     input === 'APPLY_CONFIG' ||
     input === 'REQUEST_PAIRING' ||
+    input === 'SEND_DELIVERY' ||
     input === 'STOP_WORKER' ||
     input === 'RESET_WORKER'
   ) {
@@ -436,6 +488,11 @@ function decodeIdentifier(input: unknown): string {
   ) {
     throw invalidMessage();
   }
+  return input;
+}
+
+function decodeProviderMessageId(input: unknown): string {
+  if (typeof input !== 'string' || !/^[A-Za-z0-9_-]{1,160}$/.test(input)) throw invalidMessage();
   return input;
 }
 

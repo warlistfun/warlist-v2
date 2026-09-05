@@ -226,6 +226,35 @@ void test('does not let a diagnostic implementation block command settlement', a
   assert.deepEqual(await command, { ok: true });
   await service.stop();
 });
+void test('sends only the validated delivery envelope to the child', async () => {
+  const { service, transport } = fixture();
+  await service.start();
+  const delivery = service.sendDelivery({
+    ...worker,
+    operationId: 'operation_example_1',
+    attemptId: 'attempt_example_1',
+    claimFence: 1,
+    target: `group:${'a'.repeat(64)}`,
+    text: 'OPS ops_example_1',
+  });
+  await flushCommands();
+  const command = transport.sent[0]!;
+  assert.equal(command.type, 'SEND_DELIVERY');
+  assert.deepEqual(command.payload, {
+    operationId: 'operation_example_1',
+    attemptId: 'attempt_example_1',
+    claimFence: 1,
+    target: `group:${'a'.repeat(64)}`,
+    text: 'OPS ops_example_1',
+  });
+  transport.receive({
+    ...identity(command),
+    type: 'DELIVERY_RESULT',
+    payload: { providerMessageId: '3EB0ABCDEF1234567890ABCDEF123456' },
+  });
+  assert.deepEqual(await delivery, { providerMessageId: '3EB0ABCDEF1234567890ABCDEF123456' });
+  await service.stop();
+});
 
 void test('emits one correlated diagnostic for a matching command acknowledgement', async () => {
   const { service, transport, diagnostics } = fixture();

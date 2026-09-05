@@ -20,6 +20,7 @@ import { FixedClock, NoopLogger, NoopMetrics } from '../support/test-adapters';
 
 const tenantId = '00000000-0000-4000-8000-000000000c01';
 const foreignTenantId = '00000000-0000-4000-8000-000000000c02';
+const recoveryTenantId = '00000000-0000-4000-8000-000000000c17';
 const operationId = '00000000-0000-4000-8000-000000000c03';
 const attemptId = '00000000-0000-4000-8000-000000000c04';
 const providerMessageId = 'provider_message_om_09';
@@ -30,6 +31,11 @@ const worker = {
   childId: 'child_example_om_09',
   quarantined: false,
   revision: 1,
+};
+const recoveryWorker = {
+  ...worker,
+  tenantId: recoveryTenantId,
+  childId: 'child_example_om_09_recovery',
 };
 
 void test('admits one later inbound OPS confirmation without mistaking outbound send evidence for confirmation', async (t) => {
@@ -92,8 +98,7 @@ void test('admits one later inbound OPS confirmation without mistaking outbound 
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
   assert.equal(fixture.sends.count, 1);
 });
-
-void test('replays inbound confirmation once and fails closed for ambiguous sent operations', async (t) => {
+void test('replays inbound confirmation once and rejects a second pending delivery', async (t) => {
   const fixture = await createFixture(t);
   await fixture.repository.prepareDelivery({
     id: operationId,
@@ -131,27 +136,17 @@ void test('replays inbound confirmation once and fails closed for ambiguous sent
     first,
   );
 
-  await restartedRepository.prepareDelivery({
-    id: '00000000-0000-4000-8000-000000000c05',
-    tenantId,
-    operationKey: 'automation:om_09_confirmation_ambiguous',
-  });
-  await sendOnce(
-    { ...fixture, repository: restartedRepository },
-    '00000000-0000-4000-8000-000000000c05',
-    '00000000-0000-4000-8000-000000000c06',
-  );
   await assert.rejects(
-    createDeliveryConfirmationAdmissionService({
-      repository: restartedRepository,
-      trustedTenant: { tenantId },
-    }).admit({ ...valid, confirmationMessageId: 'inbound_confirmation_ambiguous_om_09' }),
-    { code: 'DELIVERY_CONFIRMATION_CONFLICT' },
+    restartedRepository.prepareDelivery({
+      id: '00000000-0000-4000-8000-000000000c05',
+      tenantId,
+      operationKey: 'automation:om_09_confirmation_second_pending',
+    }),
+    { code: 'DELIVERY_ALREADY_EXISTS' },
   );
   assert.equal((await restartedRepository.readEntitlementBalance(tenantId)).units, 0);
 });
-
-void test('fails closed when a concurrent settlement creates a second eligible operation', async (t) => {
+void test('admits confirmation while another tenant settles a delivery concurrently', async (t) => {
   const fixture = await createFixture(t);
   await fixture.repository.prepareDelivery({
     id: operationId,
@@ -159,24 +154,20 @@ void test('fails closed when a concurrent settlement creates a second eligible o
     operationKey: 'automation:om_09_confirmation_race_first',
   });
   await sendOnce(fixture, operationId, attemptId);
+  await provisionTenantWorker(
+    fixture,
+    recoveryTenantId,
+    'ops_example_om_09_recovery',
+    recoveryWorker,
+  );
   const secondOperationId = '00000000-0000-4000-8000-000000000c15';
   const secondAttemptId = '00000000-0000-4000-8000-000000000c16';
-  const secondAuthority = await beginSending(fixture, secondOperationId, secondAttemptId);
-  const writer = new Client(fixture.database.config);
-  const observer = new Client(fixture.database.config);
-  await Promise.all([writer.connect(), observer.connect()]);
-  t.after(() => Promise.all([writer.end(), observer.end()]));
-  await writer.query('BEGIN');
-  await writer.query('SELECT id FROM tenants WHERE id = $1 FOR UPDATE', [tenantId]);
-  await writer.query(
-    `UPDATE delivery_operations SET status = 'SENT'
-     WHERE tenant_id = $1 AND id = $2 AND claim_fence = $3`,
-    [tenantId, secondOperationId, secondAuthority.claimFence],
-  );
-  await writer.query(
-    `UPDATE delivery_attempts SET status = 'SENT', provider_message_id = 'provider_message_race'
-     WHERE tenant_id = $1 AND id = $2 AND claim_fence = $3`,
-    [tenantId, secondAttemptId, secondAuthority.claimFence],
+  const secondAuthority = await beginSending(
+    fixture,
+    recoveryTenantId,
+    recoveryWorker,
+    secondOperationId,
+    secondAttemptId,
   );
   const admission = createDeliveryConfirmationAdmissionService({
     repository: fixture.repository,
@@ -188,16 +179,18 @@ void test('fails closed when a concurrent settlement creates a second eligible o
     workerGeneration: worker.generation,
     childId: worker.childId,
   });
-  await waitForAdmissionLock(observer);
-  await writer.query('COMMIT');
-  await assert.rejects(admission, { code: 'DELIVERY_CONFIRMATION_CONFLICT' });
-  const persisted = await observer.query<{ confirmation_count: string }>(
-    `SELECT count(*) FILTER (WHERE confirmation_message_id IS NOT NULL)::text AS confirmation_count
-     FROM delivery_attempts WHERE tenant_id = $1 AND id = $2`,
-    [tenantId, attemptId],
-  );
-  assert.equal(persisted.rows[0]?.confirmation_count, '0');
+  const [admitted] = await Promise.all([
+    admission,
+    fixture.repository.settleDelivery({
+      tenantId: recoveryTenantId,
+      ...secondAuthority,
+      outcome: 'SENT',
+      providerMessageId: 'provider_message_race',
+    }),
+  ]);
+  assert.equal(admitted.operationId, operationId);
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
+  assert.equal((await fixture.repository.readEntitlementBalance(recoveryTenantId)).units, 0);
 });
 async function createFixture(t: test.TestContext) {
   const database = await createDisposablePostgres(t, 'warlist-pg16-om-09-');
@@ -216,6 +209,25 @@ async function createFixture(t: test.TestContext) {
   );
   await client.end();
   return { database, authorization, repository, sends: { count: 0 } };
+}
+async function provisionTenantWorker(
+  fixture: Awaited<ReturnType<typeof createFixture>>,
+  targetTenantId: string,
+  publicOpsId: string,
+  targetWorker: typeof worker,
+): Promise<void> {
+  fixture.authorization.allowed.add(targetTenantId);
+  await fixture.repository.createTenant({ id: targetTenantId, publicOpsId });
+  const client = new Client(fixture.database.config);
+  await client.connect();
+  try {
+    await createPostgresWorkerLifecycleStateRepository({
+      client,
+      authorization: fixture.authorization,
+    }).compareAndSave(targetWorker, null);
+  } finally {
+    await client.end();
+  }
 }
 
 function createRepository(
@@ -287,23 +299,25 @@ async function sendOnce(
 }
 async function beginSending(
   fixture: Awaited<ReturnType<typeof createFixture>>,
+  targetTenantId: string,
+  targetWorker: typeof worker,
   targetOperationId: string,
   targetAttemptId: string,
 ) {
   await fixture.repository.prepareDelivery({
     id: targetOperationId,
-    tenantId,
+    tenantId: targetTenantId,
     operationKey: `automation:om_09_confirmation_${targetAttemptId}`,
   });
   const claim = await createDeliveryClaimService({
     repository: fixture.repository,
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: targetTenantId },
     ownerId: 'claim_owner_om_09',
     idGenerator: { generate: () => targetAttemptId },
   }).claim({
     operationId: targetOperationId,
-    workerGeneration: worker.generation,
-    childId: worker.childId,
+    workerGeneration: targetWorker.generation,
+    childId: targetWorker.childId,
   });
   const authority = {
     operationId: targetOperationId,
@@ -311,27 +325,13 @@ async function beginSending(
     claimFence: claim.operation.claimFence,
     claimOwner: claim.operation.claimOwner!,
     leaseUntil: claim.operation.leaseUntil!,
-    workerGeneration: worker.generation,
-    childId: worker.childId,
+    workerGeneration: targetWorker.generation,
+    childId: targetWorker.childId,
   };
-  await fixture.repository.beginDelivery({ tenantId, ...authority });
+  await fixture.repository.beginDelivery({ tenantId: targetTenantId, ...authority });
   return authority;
 }
 
-async function waitForAdmissionLock(observer: Client): Promise<void> {
-  for (let attempt = 0; attempt < 50; attempt += 1) {
-    const result = await observer.query<{ waiting: boolean }>(
-      `SELECT EXISTS (
-         SELECT 1 FROM pg_stat_activity
-         WHERE datname = current_database() AND wait_event_type = 'Lock'
-           AND query LIKE '%locked_tenant%'
-       ) AS waiting`,
-    );
-    if (result.rows[0]?.waiting) return;
-    await new Promise((resolve) => setTimeout(resolve, 10));
-  }
-  assert.fail('delivery confirmation admission did not wait for the tenant lock');
-}
 async function admitConfirmation(
   fixture: Awaited<ReturnType<typeof createFixture>>,
   confirmationMessageId: string,
@@ -507,21 +507,28 @@ void test('OM-11 authorized manual recovery converges ambiguous replay and resta
     await client.end();
   }
   await assert.rejects(recovery.resolve(authority), { code: 'DELIVERY_CLAIM_CONFLICT' });
+  await provisionTenantWorker(
+    fixture,
+    recoveryTenantId,
+    'ops_example_om_09_recovery',
+    recoveryWorker,
+  );
+  const currentOperationId = '00000000-0000-4000-8000-000000000c10';
+  const currentAttemptId = '00000000-0000-4000-8000-000000000c11';
   await fixture.repository.prepareDelivery({
-    id: '00000000-0000-4000-8000-000000000c10',
-    tenantId,
+    id: currentOperationId,
+    tenantId: recoveryTenantId,
     operationKey: 'automation:om_11_recovery_current',
   });
-  const currentAttemptId = '00000000-0000-4000-8000-000000000c11';
   const currentClaim = await createDeliveryClaimService({
     repository: fixture.repository,
-    trustedTenant: { tenantId },
+    trustedTenant: { tenantId: recoveryTenantId },
     ownerId: 'claim_owner_om_11_current',
     idGenerator: { generate: () => currentAttemptId },
   }).claim({
-    operationId: '00000000-0000-4000-8000-000000000c10',
-    workerGeneration: worker.generation,
-    childId: worker.childId,
+    operationId: currentOperationId,
+    workerGeneration: recoveryWorker.generation,
+    childId: recoveryWorker.childId,
   });
   const currentAuthority = {
     operationId: currentClaim.operation.id,
@@ -529,18 +536,22 @@ void test('OM-11 authorized manual recovery converges ambiguous replay and resta
     claimFence: currentClaim.operation.claimFence,
     claimOwner: currentClaim.operation.claimOwner!,
     leaseUntil: currentClaim.operation.leaseUntil!,
-    workerGeneration: worker.generation,
-    childId: worker.childId,
+    workerGeneration: recoveryWorker.generation,
+    childId: recoveryWorker.childId,
   };
-  await fixture.repository.beginDelivery({ tenantId, ...currentAuthority });
+  await fixture.repository.beginDelivery({ tenantId: recoveryTenantId, ...currentAuthority });
   await fixture.repository.settleDelivery({
-    tenantId,
+    tenantId: recoveryTenantId,
     ...currentAuthority,
     outcome: 'AMBIGUOUS',
     providerMessageId: null,
   });
-  const first = await recovery.resolve(currentAuthority);
-  const replay = await recovery.resolve(currentAuthority);
+  const currentRecovery = createDeliveryManualRecoveryService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId: recoveryTenantId },
+  });
+  const first = await currentRecovery.resolve(currentAuthority);
+  const replay = await currentRecovery.resolve(currentAuthority);
   assert.equal(first.operation.status, 'SENT');
   assert.equal(first.attempt.status, 'SENT');
   assert.deepEqual(replay, first);
@@ -551,10 +562,10 @@ void test('OM-11 authorized manual recovery converges ambiguous replay and resta
   assert.deepEqual(
     await createDeliveryManualRecoveryService({
       repository: restartedRepository,
-      trustedTenant: { tenantId },
+      trustedTenant: { tenantId: recoveryTenantId },
     }).resolve(currentAuthority),
     first,
   );
-  assert.equal((await restartedRepository.readEntitlementBalance(tenantId)).units, 0);
+  assert.equal((await restartedRepository.readEntitlementBalance(recoveryTenantId)).units, 0);
   assert.equal(fixture.sends.count, 0);
 });

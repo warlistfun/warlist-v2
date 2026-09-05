@@ -90,6 +90,22 @@ export type DeliveryConfirmationAdmissionRecord = Readonly<{
   confirmationMessageId: string;
   confirmedAt: string;
 }>;
+export type WorkerOwnershipRecord = Readonly<{
+  tenantId: string;
+  state: 'STOPPED' | 'STARTING' | 'RUNNING' | 'STOPPING';
+  generation: number;
+  childId: string | null;
+  quarantined: boolean;
+  revision: number;
+}>;
+
+export interface WorkerOwnershipRepositoryPort {
+  loadWorkerOwnership(tenantId: string): Promise<WorkerOwnershipRecord | undefined>;
+  compareAndSaveWorkerOwnership(
+    snapshot: WorkerOwnershipRecord,
+    expectedSnapshot: WorkerOwnershipRecord | null,
+  ): Promise<void>;
+}
 
 export type EntitlementEntryType =
   'CREDIT_PAYMENT' | 'CREDIT_COUPON' | 'DEBIT_CONFIRMED_DELIVERY' | 'ADJUSTMENT';
@@ -538,6 +554,11 @@ export function createInMemoryBusinessRepository(dependencies: {
       if (deliveries.has(input.id)) throw new RepositoryError('DELIVERY_ALREADY_EXISTS');
       const existingId = deliveryIdsByTenantKey.get(tenantKey);
       if (existingId) return freezeDelivery(deliveries.get(existingId)!);
+      for (const delivery of deliveries.values()) {
+        if (delivery.tenantId === input.tenantId && delivery.status !== 'CONFIRMED') {
+          throw new RepositoryError('DELIVERY_ALREADY_EXISTS');
+        }
+      }
       const now = new Date().toISOString();
       const delivery = freezeDelivery({
         ...input,

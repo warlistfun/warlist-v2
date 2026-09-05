@@ -6,7 +6,12 @@ import type {
 } from '../../../interfaces/worker-ipc/contract';
 
 export type WorkerCommandType =
-  'START_WORKER' | 'APPLY_CONFIG' | 'REQUEST_PAIRING' | 'STOP_WORKER' | 'RESET_WORKER';
+  | 'START_WORKER'
+  | 'APPLY_CONFIG'
+  | 'REQUEST_PAIRING'
+  | 'SEND_DELIVERY'
+  | 'STOP_WORKER'
+  | 'RESET_WORKER';
 
 export type WorkerCommandOutcome =
   'ACKNOWLEDGED' | 'REJECTED' | 'TIMED_OUT' | 'UNAVAILABLE' | 'RUNTIME_STOPPED';
@@ -48,7 +53,7 @@ export type WorkerPairingDiagnostic = Readonly<{
 }>;
 
 export type WorkerInboundDecisionCode =
-  AutomationDecisionCode | 'DECISION_UNAVAILABLE' | 'DECISION_FAILED';
+  AutomationDecisionCode | 'CONFIRMED' | 'DECISION_UNAVAILABLE' | 'DECISION_FAILED';
 
 export type WorkerInboundDiagnostic = Readonly<{
   transportCode: WorkerInboundTransportCode;
@@ -277,6 +282,7 @@ function isCommandType(value: unknown): value is WorkerCommandType {
     value === 'START_WORKER' ||
     value === 'APPLY_CONFIG' ||
     value === 'REQUEST_PAIRING' ||
+    value === 'SEND_DELIVERY' ||
     value === 'STOP_WORKER' ||
     value === 'RESET_WORKER'
   );
@@ -325,6 +331,7 @@ function isInboundDecisionCode(value: unknown): value is WorkerInboundDecisionCo
   return (
     value === null ||
     value === 'ACCEPTED' ||
+    value === 'CONFIRMED' ||
     value === 'BOT_DISABLED' ||
     value === 'OPS_STATUS_INACTIVE' ||
     value === 'OUTSIDE_SCHEDULE' ||

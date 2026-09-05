@@ -48,6 +48,51 @@ void test('decodes immutable IPC v1 parent commands', () => {
     assert.equal(Object.isFrozen(decoded.payload), true);
   }
 });
+void test('decodes request-scoped delivery commands and results', () => {
+  const command = {
+    ...identity,
+    type: 'SEND_DELIVERY',
+    payload: {
+      operationId: 'operation_example_1',
+      attemptId: 'attempt_example_1',
+      claimFence: 1,
+      target: `group:${'a'.repeat(64)}`,
+      text: 'OPS ops_example_1',
+    },
+  } as const;
+  const result = {
+    ...identity,
+    type: 'DELIVERY_RESULT',
+    payload: { providerMessageId: '3EB0ABCDEF1234567890ABCDEF123456' },
+  } as const;
+  assert.deepEqual(decodeParentMessage(command), command);
+  assert.deepEqual(decodeChildMessage(result), result);
+  assert.deepEqual(
+    decodeChildMessage({
+      ...identity,
+      type: 'DELIVERY_RESULT',
+      payload: { providerMessageId: `A${'B'.repeat(159)}` },
+    }),
+    {
+      ...identity,
+      type: 'DELIVERY_RESULT',
+      payload: { providerMessageId: `A${'B'.repeat(159)}` },
+    },
+  );
+  for (const malformed of [
+    { ...command, payload: { ...command.payload, claimFence: 0 } },
+    { ...command, payload: { ...command.payload, rawJid: 'forged' } },
+    { ...result, payload: { ...result.payload, extra: true } },
+  ]) {
+    assert.throws(
+      () =>
+        'type' in malformed && malformed.type === 'SEND_DELIVERY'
+          ? decodeParentMessage(malformed)
+          : decodeChildMessage(malformed),
+      IpcProtocolError,
+    );
+  }
+});
 
 void test('decodes immutable IPC v1 connection updates with a safe state projection', () => {
   const decoded = decodeChildMessage({

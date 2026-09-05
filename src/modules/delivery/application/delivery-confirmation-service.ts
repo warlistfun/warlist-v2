@@ -30,7 +30,7 @@ export function createDeliveryConfirmationService(dependencies: {
         tenantId: dependencies.trustedTenant.tenantId,
         ...authority,
         debitId: dependencies.idGenerator.generate(),
-        businessKey: `daily_delivery:${businessDate}`,
+        businessKey: `delivery:${authority.operationId}`,
         correlationId: `delivery:${authority.operationId}`,
       });
       return Object.freeze({ ...result, businessDate });

@@ -16,7 +16,7 @@ const tenantId = '00000000-0000-4000-8000-000000000a01';
 const operationId = '00000000-0000-4000-8000-000000000a02';
 const attemptId = '00000000-0000-4000-8000-000000000a03';
 
-void test('confirms a sent delivery once and debits at most once for its WIB date', async (t) => {
+void test('confirms a sent delivery once and debits its operation exactly once', async (t) => {
   const fixture = await createFixture(t);
   const authority = await prepareSentDelivery(fixture);
   const confirmation = createDeliveryConfirmationService({
@@ -26,16 +26,12 @@ void test('confirms a sent delivery once and debits at most once for its WIB dat
     idGenerator: { generate: () => '00000000-0000-4000-8000-000000000a04' },
   });
 
-  for (const stale of [
-    { claimOwner: 'claim_owner_confirmation_stale' },
-    { leaseUntil: new Date(Date.parse(authority.leaseUntil) + 1_000).toISOString() },
-  ]) {
-    await assert.rejects(confirmation.confirm({ ...authority, ...stale }), {
-      code: 'DELIVERY_CLAIM_CONFLICT',
-    });
-  }
-  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
   await admitConfirmation(fixture, 'inbound_confirmation_first');
+  await assert.rejects(
+    confirmation.confirm({ ...authority, claimOwner: 'claim_owner_confirmation_stale' }),
+    { code: 'DELIVERY_CLAIM_CONFLICT' },
+  );
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
 
   const first = await confirmation.confirm(authority);
   const replay = await confirmation.confirm(authority);
@@ -52,39 +48,96 @@ void test('confirms a sent delivery once and debits at most once for its WIB dat
   assert.equal((await fixture.repository.loadDelivery(tenantId, operationId))?.status, 'CONFIRMED');
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
 });
-
-void test('fails closed when more than one sent delivery could match one inbound confirmation', async (t) => {
+void test('debits two distinct confirmed operations on the same WIB date', async (t) => {
   const fixture = await createFixture(t);
-  await prepareSentDelivery(fixture);
-  await prepareSentDelivery(fixture, {
-    operationId: '00000000-0000-4000-8000-000000000a05',
-    attemptId: '00000000-0000-4000-8000-000000000a06',
-    operationKey: 'automation:message_confirmation_second',
+  let debit = 12;
+  const confirmation = createDeliveryConfirmationService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+    clock: new FixedClock(new Date('2030-01-02T17:00:00.000Z')),
+    idGenerator: {
+      generate: () => `00000000-0000-4000-8000-${String(debit++).padStart(12, '0')}`,
+    },
   });
+  const firstAuthority = await prepareSentDelivery(fixture);
+  await admitConfirmation(fixture, 'inbound_confirmation_first_same_day');
+  await confirmation.confirm(firstAuthority);
 
-  await assert.rejects(admitConfirmation(fixture, 'inbound_confirmation_ambiguous'), {
-    code: 'DELIVERY_CONFIRMATION_CONFLICT',
+  const secondAuthority = await prepareSentDelivery(fixture, {
+    operationId: '00000000-0000-4000-8000-000000000a13',
+    attemptId: '00000000-0000-4000-8000-000000000a14',
+    operationKey: 'automation:message_confirmation_second_same_day',
   });
-  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
+  await admitConfirmation(fixture, 'inbound_confirmation_second_same_day');
+  await confirmation.confirm(secondAuthority);
+
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -2);
 });
 
-void test('rejects an expired initial confirmation without debit or state drift', async (t) => {
+void test('confirms with the stale original send lease under current worker authority', async (t) => {
   const fixture = await createFixture(t);
-  const expiredAuthority = await prepareSentDelivery(fixture);
+  const originalAuthority = await prepareSentDelivery(fixture);
+  await expireLease(fixture, originalAuthority.operationId);
+  await fixture.workerRepository.compareAndSave(
+    {
+      tenantId,
+      state: 'RUNNING',
+      generation: 2,
+      childId: 'child_example_2',
+      quarantined: false,
+      revision: 2,
+    },
+    {
+      tenantId,
+      state: 'RUNNING',
+      generation: 1,
+      childId: 'child_example_1',
+      quarantined: false,
+      revision: 1,
+    },
+  );
+  await createDeliveryConfirmationAdmissionService({
+    repository: fixture.repository,
+    trustedTenant: { tenantId },
+  }).admit({
+    tenantId,
+    confirmationMessageId: 'inbound_confirmation_expired',
+    publicOpsId: 'ops_example_confirmation',
+    workerGeneration: 2,
+    childId: 'child_example_2',
+  });
   const confirmation = createDeliveryConfirmationService({
     repository: fixture.repository,
     trustedTenant: { tenantId },
     clock: new FixedClock(new Date('2030-01-02T17:00:00.000Z')),
     idGenerator: { generate: () => '00000000-0000-4000-8000-000000000a08' },
   });
-  const expiredLease = await expireLease(fixture, expiredAuthority.operationId);
-  await admitConfirmation(fixture, 'inbound_confirmation_expired');
 
-  await assert.rejects(confirmation.confirm({ ...expiredAuthority, leaseUntil: expiredLease }), {
-    code: 'DELIVERY_CLAIM_CONFLICT',
-  });
-  assert.equal((await fixture.repository.loadDelivery(tenantId, operationId))?.status, 'SENT');
+  for (const stale of [
+    { claimOwner: 'claim_owner_confirmation_stale' },
+    { claimFence: originalAuthority.claimFence + 1 },
+    { workerGeneration: 1, childId: 'child_example_1' },
+  ]) {
+    await assert.rejects(
+      confirmation.confirm({
+        ...originalAuthority,
+        workerGeneration: 2,
+        childId: 'child_example_2',
+        ...stale,
+      }),
+      { code: 'DELIVERY_CLAIM_CONFLICT' },
+    );
+  }
   assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, 0);
+
+  const confirmed = await confirmation.confirm({
+    ...originalAuthority,
+    workerGeneration: 2,
+    childId: 'child_example_2',
+  });
+  assert.equal(confirmed.operation.status, 'CONFIRMED');
+  assert.equal(confirmed.debit?.units, -1);
+  assert.equal((await fixture.repository.readEntitlementBalance(tenantId)).units, -1);
 });
 
 void test('replays a durable confirmation with the exact expired persisted lease', async (t) => {
